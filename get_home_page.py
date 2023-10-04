@@ -7,6 +7,9 @@ import zipfile
 import os
 import PyPDF2
 import json
+import tkinter as tk
+from tkinter import simpledialog
+from tkinter import ttk
 
 api_url = "https://unity.test.instructure.com/api/v1"
 
@@ -23,29 +26,51 @@ instructor_course_id = constants["instructorCourseId"]
 profile_assignment_id = constants["profileAssignmentId"] 
 profile_pages_course_id = constants["profilePagesCourseId"]
 
-bp_id = sys.argv[1] #3848068
+#bp_id = sys.argv[1] #3848068
 
 
 # Authorize the request.
 headers = {"Authorization": f"Bearer {apiToken}"}
 
 def main():
+
+  number = tk.simpledialog.askinteger("What Course?", "Enter the course_id of the blueprint (cut the number out of the url and paste here)")
+  bp_id = number
+
+  root = tk.Tk()
+  message_label = tk.Label(root, text="Processing...")
+  message_label.pack()
+
+  # Create a progress bar
+  progress_bar = ttk.Progressbar(root, orient="horizontal", length=200, mode="determinate")
+  progress_bar.pack()
+
+
   pages = get_faculty_pages()
   courses = get_blueprint_courses(bp_id)
   profiles = []
   i = 1
   for course in courses:
+    root.update_idletasks()     
+    root.update()
     profile = get_course_profile(course, pages)
     profiles.append(profile)
     format_profile_page(profile,course)
     overwrite_home_page(profile, course)
     print(f"processed {i} of {len(courses)}")
+    progress_bar["value"] = (i / len(courses)) * 100
     i = i + 1
 
+  bio_count = 0
+  error_text = ""
   for profile in profiles:
     if len(profile["bio"]) < 5:
-      print(f'{profile["user"]["name"]} does NOT have a bio we can find')
-   
+      error_text = error_text + f'{profile["user"]["name"]} does NOT have a bio we can find\n'
+    else:
+      bio_count = bio_count + 1
+  dialog_text = f"Finished, {bio_count} records updated successfully\n{error_text}"
+  tk.messagebox.showinfo("report", dialog_text)
+
 
 def get_paged_data(url):
   response = requests.get(url, headers=headers)
