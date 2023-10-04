@@ -35,7 +35,10 @@ def main():
   profiles = []
   i = 1
   for course in courses:
-    profiles = profiles + get_course_profiles(course, pages)
+    profile = get_course_profile(course, pages)
+    profiles.append(profile)
+    format_profile_page(profile,course)
+    overwrite_home_page(profile, course)
     print(f"processed {i} of {len(courses)}")
     i = i + 1
 
@@ -82,11 +85,16 @@ def get_faculty_pages():
     save_bios(pages)    
   return pages
 
+def format_profile_page(profile, course):
+  with open("template.html", 'r') as f:
+    template = f.read()
+  text = template.format(course_title = course["name"], instructor_name = profile["user"]["name"], img_src = profile["img_src"], bio=profile["bio"])
+  with open(f'profiles/{profile["user"]["id"]}_{course["id"]}.htm', 'w') as f:
+    f.write(text)
+  return text
 
-def get_course_profiles(course, pages):
-  profiles = []
-  profiles.append(get_course_profile_from_pages(course, pages))
-  return profiles
+def get_course_profile(course, pages):
+  return get_course_profile_from_pages(course, pages)
   
 
 
@@ -132,6 +140,25 @@ def get_blueprint_courses(bp_id):
 
   return courses
 
+def overwrite_home_page(profile, course):
+  # Make a GET request to the Canvas LMS API to get the homepage of the course.
+  url = f'{api_url}/courses/{course["id"]}/front_page'
+  print(url)
+  response = requests.get(url, headers=headers)
+
+  # Check the response status code.
+  if response.status_code != 200:
+    raise ValueError('Failed to get homepage of course: {}'.format(response.status_code))
+
+  # Get the homepage HTML content.
+  
+  homepage_html = response.json()['body']
+  data = {'wiki_page[body]': format_profile_page(profile, course)}
+  response = requests.put(url, headers=headers, data=data)
+  print(response)
+
+
+
 def get_instructor_profile_from_pages(user, pages):
   first_name = user["name"].split(" ")[0]
   last_name = user["name"].split(" ")[-1]
@@ -145,18 +172,36 @@ def get_instructor_profile_from_pages(user, pages):
   if len(potentials) == 0:
     potentials = list(filter(premissive_filter_func, pages))
 
-  out = dict( user=user, bio = "", img = "")
+  out = dict( user=user, bio = "", img = "", img_src = "")
   if len(potentials) > 1:
     print(potentials)
     return out
   for potential in potentials:
     if not "body" in potential:
       continue
-    soup = BeautifulSoup(potential["body"], 'html.parser')
-    out["bio"] = potential["body"]
+    html = potential["body"]
+    soup = BeautifulSoup(html, 'html.parser')
+
+    h4_tags = soup.find_all('h4')
+
+    # Iterate over the h4 tags and find the next sibling paragraph tag
+    paragraphs = []
+    bio = ""
+    for h4_tag in h4_tags:
+        next_sibling = h4_tag.find_next_sibling('p')
+        if next_sibling is not None:
+            paragraphs.append(next_sibling.text)
+
+    # Print the paragraphs
+    for paragraph in paragraphs:
+        bio = f"{bio}\n<p>{paragraph}</p>"
+
+
+    out["bio"] = bio
     imgs = soup.find_all("img")
     for img in imgs:
       out["img"] = img["src"]
+      out["img_src"] = img["src"]
   return out
 
 
