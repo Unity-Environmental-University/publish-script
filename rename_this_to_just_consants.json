@@ -1,0 +1,5 @@
+
+{
+	"liveApiToken": "PUT_LIVE_API_TOKEN_HERE",
+	"testApiToken": "PUT_TEST_API_TOKEN_HERE"
+}
