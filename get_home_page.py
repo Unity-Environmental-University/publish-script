@@ -43,14 +43,8 @@ def main():
     i = i + 1
 
   for profile in profiles:
-    if len(profile["bio"]) >= 5:
-      print(f'{profile["user"]["name"]} does have a bio we can find')
-
-  for profile in profiles:
     if len(profile["bio"]) < 5:
       print(f'{profile["user"]["name"]} does NOT have a bio we can find')
-      print(profile)
-
    
 
 def get_paged_data(url):
@@ -81,7 +75,7 @@ def get_faculty_pages():
       pages = json.load(f)
       print(len(pages))
   else:
-    pages = get_paged_data(f"{api_url}/courses/{profile_pages_course_id}/pages?include=body")
+    pages = get_paged_data(f"{api_url}/courses/{profile_pages_course_id}/pages?per_page=50&include=body")
     save_bios(pages)    
   return pages
 
@@ -120,7 +114,7 @@ def get_course_profile_from_assignment(course):
 
 
 def get_blueprint_courses(bp_id):
-  url = f"{api_url}/courses/{bp_id}/blueprint_templates/default/associated_courses"
+  url = f"{api_url}/courses/{bp_id}/blueprint_templates/default/associated_courses?per_page=50"
   response = requests.get(url, headers=headers)
   courses = response.json()
   next_page_link  = "!"
