@@ -11,7 +11,6 @@ import tkinter as tk
 from tkinter import simpledialog
 from tkinter import ttk
 
-api_url = "https://unity.test.instructure.com/api/v1"
 
 CONSTANTS_FILE = 'constants.json'
 
@@ -20,7 +19,8 @@ with open(CONSTANTS_FILE, 'r') as f:
     constants = json.load(f)
 
 # Print the API key
-apiToken = constants["testApiToken"]
+api_token = constants["apiToken"]
+api_url = constants["apiUrl"]
 
 instructor_course_id = constants["instructorCourseId"]
 profile_assignment_id = constants["profileAssignmentId"] 
@@ -30,8 +30,8 @@ profile_pages_course_id = constants["profilePagesCourseId"]
 
 
 # Authorize the request.
-headers = {"Authorization": f"Bearer {apiToken}"}
-
+headers = {"Authorization": f"Bearer {api_token}" }
+live_headers = {"Authorization": f'Bearer {constants["liveApiToken"]}' }
 def main():
 
   number = tk.simpledialog.askinteger("What Course?", "Enter the course_id of the blueprint (cut the number out of the url and paste here)")
@@ -48,16 +48,27 @@ def main():
 
   pages = get_faculty_pages()
   courses = get_blueprint_courses(bp_id)
+
+  #if the course has no associations, JUST run the script for this page
+  if not courses:
+    courses = [get_course(bp_id)]
+    print(courses)
+
   profiles = []
   i = 1
+  print(courses)
   for course in courses:
-    root.update_idletasks()     
-    root.update()
+
+
     profile = get_course_profile(course, pages)
     profiles.append(profile)
     format_profile_page(profile,course)
     overwrite_home_page(profile, course)
     print(f"processed {i} of {len(courses)}")
+
+    #update loading UI value after processing
+    root.update_idletasks()     
+    root.update()
     progress_bar["value"] = (i / len(courses)) * 100
     i = i + 1
 
@@ -72,7 +83,7 @@ def main():
   tk.messagebox.showinfo("report", dialog_text)
 
 
-def get_paged_data(url):
+def get_paged_data(url, headers=headers):
   response = requests.get(url, headers=headers)
   out = []
   next_page_link = "!"
@@ -100,14 +111,27 @@ def get_faculty_pages():
       pages = json.load(f)
       print(len(pages))
   else:
-    pages = get_paged_data(f"{api_url}/courses/{profile_pages_course_id}/pages?per_page=50&include=body")
+    pages = get_paged_data(f"{live_url}/courses/{profile_pages_course_id}/pages?per_page=50&include=body", live_headers)
     save_bios(pages)    
   return pages
+
+
+def get_course(course_id):
+  url = f'{api_url}/courses/{course_id}'
+  response = requests.get(url, headers=headers)
+  print(response)
+  return response.json()
+
 
 def format_profile_page(profile, course):
   with open("template.html", 'r') as f:
     template = f.read()
-  text = template.format(course_title = course["name"], instructor_name = profile["user"]["name"], img_src = profile["img_src"], bio=profile["bio"])
+  text = template.format(
+    course_title = course["name"],
+    instructor_name = profile["display_name"] or profile["user"]["name"],
+    img_src = profile["img_src"],
+    bio=profile["bio"])
+
   with open(f'profiles/{profile["user"]["id"]}_{course["id"]}.htm', 'w') as f:
     f.write(text)
   return text
@@ -142,8 +166,13 @@ def get_blueprint_courses(bp_id):
   url = f"{api_url}/courses/{bp_id}/blueprint_templates/default/associated_courses?per_page=50"
   response = requests.get(url, headers=headers)
   courses = response.json()
+
+  if "errors" in courses:
+    print(courses["errors"])
+    return False
+
   next_page_link  = "!"
-  while len(next_page_link) != 0:
+  while len(next_page_link) != 0 and "link" in response.headers:
     pagination_links = response.headers["Link"].split(",")
     for link in pagination_links:
       if 'next' in link:
@@ -207,19 +236,28 @@ def get_instructor_profile_from_pages(user, pages):
     paragraphs = []
     bio = ""
     for h4_tag in h4_tags:
-        next_sibling = h4_tag.find_next_sibling('p')
-        if next_sibling is not None:
+        if "instructor" in h4_tag.text.lower():
+          next_sibling = h4_tag.find_next_sibling('p')
+          while next_sibling is not None:
             paragraphs.append(next_sibling.text)
+            next_sibling = next_sibling.find_next_sibling('p')
 
-    # Print the paragraphs
+    # Create the bio output
     for paragraph in paragraphs:
         bio = f"{bio}\n<p>{paragraph}</p>"
-
-
     out["bio"] = bio
+
+    #get display name just in case
+    out["display_name"] = False
+    for p in soup.find_all('p'):
+      previous_p = p.find_previous_sibling('p')
+      if "instructor" in p.text.lower() and previous_p is not None:
+        print (previous_p.text)
+        out["display_name"] = previous_p.text
+
+    #get image output
     imgs = soup.find_all("img")
     for img in imgs:
-      out["img"] = img["src"]
       out["img_src"] = img["src"]
   return out
 

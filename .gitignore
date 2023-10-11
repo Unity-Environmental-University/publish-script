@@ -2,3 +2,4 @@ constants.json
 *.jpeg
 bios.json
 profiles/
+constants _live.json
