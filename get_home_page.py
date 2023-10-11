@@ -34,7 +34,11 @@ headers = {"Authorization": f"Bearer {api_token}" }
 live_headers = {"Authorization": f'Bearer {constants["liveApiToken"]}' }
 def main():
 
-  number = tk.simpledialog.askinteger("What Course?", "Enter the course_id of the blueprint (cut the number out of the url and paste here)")
+  number = 0
+  if len(sys.argv) > 1:
+    number = sys.argv[1]
+  else:
+    number = tk.simpledialog.askinteger("What Course?", "Enter the course_id of the blueprint (cut the number out of the url and paste here)")
   bp_id = number
 
   root = tk.Tk()
@@ -45,32 +49,15 @@ def main():
   progress_bar = ttk.Progressbar(root, orient="horizontal", length=200, mode="determinate")
   progress_bar.pack()
 
-
-  pages = get_faculty_pages()
   courses = get_blueprint_courses(bp_id)
 
-  #if the course has no associations, JUST run the script for this page
+  #if the course has no associations, JUST queue up to update the input course
+
   if not courses:
     courses = [get_course(bp_id)]
     print(courses)
 
-  profiles = []
-  i = 1
-  print(courses)
-  for course in courses:
-
-
-    profile = get_course_profile(course, pages)
-    profiles.append(profile)
-    format_profile_page(profile,course)
-    overwrite_home_page(profile, course)
-    print(f"processed {i} of {len(courses)}")
-
-    #update loading UI value after processing
-    root.update_idletasks()     
-    root.update()
-    progress_bar["value"] = (i / len(courses)) * 100
-    i = i + 1
+  profiles = replace_faculty_profiles(courses, root, progress_bar)
 
   bio_count = 0
   error_text = ""
@@ -82,24 +69,23 @@ def main():
   dialog_text = f"Finished, {bio_count} records updated successfully\n{error_text}"
   tk.messagebox.showinfo("report", dialog_text)
 
+def replace_faculty_profiles(courses, ui_root, progress_bar):
+  pages = get_faculty_pages()
+  profiles = []
+  i = 1
+  for course in courses:
 
-def get_paged_data(url, headers=headers):
-  response = requests.get(url, headers=headers)
-  out = []
-  next_page_link = "!"
-  while len(next_page_link) != 0:
-      pagination_links = response.headers["Link"].split(",")
-      for link in pagination_links:
-        if 'next' in link:
-          next_page_link = link.split(";")[0].split("<")[1].split(">")[0]
-          print(next_page_link)
-          response = requests.get(next_page_link, headers=headers)
-          out = out + response.json()
-          break
-        else:
-          next_page_link = ""  
-  print(len(out))
-  return out
+    profile = get_course_profile(course, pages)
+    profiles.append(profile)
+    overwrite_home_page(profile, course)
+  
+    #update loading UI value after processing
+    ui_root.update_idletasks()     
+    ui_root.update()
+    progress_bar["value"] = (i / len(courses)) * 100
+    i = i + 1
+
+  return profiles
 
 def save_bios(bios, path="bios.json"):
   with open(path, 'w') as f:
@@ -115,7 +101,6 @@ def get_faculty_pages():
     save_bios(pages)    
   return pages
 
-
 def get_course(course_id):
   url = f'{api_url}/courses/{course_id}'
   response = requests.get(url, headers=headers)
@@ -123,11 +108,11 @@ def get_course(course_id):
   return response.json()
 
 
-def format_profile_page(profile, course):
+def format_profile_page(profile, course, homepage):
   with open("template.html", 'r') as f:
     template = f.read()
   text = template.format(
-    course_title = course["name"],
+    course_title = homepage["title"] or f' Welcome to {course["name"]}',
     instructor_name = profile["display_name"] or profile["user"]["name"],
     img_src = profile["img_src"],
     bio=profile["bio"])
@@ -138,8 +123,6 @@ def format_profile_page(profile, course):
 
 def get_course_profile(course, pages):
   return get_course_profile_from_pages(course, pages)
-  
-
 
 def get_course_profile_from_pages(course, pages):
   instructor = get_canvas_instructor(course["id"])
@@ -198,10 +181,22 @@ def overwrite_home_page(profile, course):
   if response.status_code != 200:
     raise ValueError('Failed to get homepage of course: {}'.format(response.status_code))
 
-  # Get the homepage HTML content.
+
+  # Parse the homepage HTML content.
   
+  homepage = { "course_title" : None }
   homepage_html = response.json()['body']
-  data = {'wiki_page[body]': format_profile_page(profile, course)}
+  soup = BeautifulSoup(homepage_html, 'html.parser')
+  h2Tags = soup.find_all('h2')
+  if len(h2Tags) > 0:
+    homepage["title"] = h2Tags[0].text
+
+
+
+
+  data = {'wiki_page[body]': format_profile_page(profile, course, homepage)}
+
+
   response = requests.put(url, headers=headers, data=data)
   print(response)
 
@@ -352,4 +347,23 @@ def get_canvas_instructor(course_id):
     return user
 
   return None
+
+def get_paged_data(url, headers=headers):
+  response = requests.get(url, headers=headers)
+  out = []
+  next_page_link = "!"
+  while len(next_page_link) != 0:
+      pagination_links = response.headers["Link"].split(",")
+      for link in pagination_links:
+        if 'next' in link:
+          next_page_link = link.split(";")[0].split("<")[1].split(">")[0]
+          print(next_page_link)
+          response = requests.get(next_page_link, headers=headers)
+          out = out + response.json()
+          break
+        else:
+          next_page_link = ""  
+  print(len(out))
+
+  return out
 main()
