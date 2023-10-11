@@ -10,10 +10,13 @@ import json
 import tkinter as tk
 from tkinter import simpledialog
 from tkinter import ttk
+from PIL import Image
+
 
 
 CONSTANTS_FILE = 'constants.json'
 
+max_profile_image_size = 400
 # Open the file and read the contents
 with open(CONSTANTS_FILE, 'r') as f:
     constants = json.load(f)
@@ -26,6 +29,7 @@ instructor_course_id = constants["instructorCourseId"]
 profile_assignment_id = constants["profileAssignmentId"] 
 profile_pages_course_id = constants["profilePagesCourseId"]
 
+default_profile_url = "https://unity.instructure.com/users/9230846/files/156109264/preview"
 #bp_id = sys.argv[1] #3848068
 
 
@@ -112,8 +116,8 @@ def format_profile_page(profile, course, homepage):
   with open("template.html", 'r') as f:
     template = f.read()
   text = template.format(
-    course_title = homepage["title"] or f' Welcome to {course["name"]}',
-    instructor_name = profile["display_name"] or profile["user"]["name"],
+    course_title = homepage["title"] if "title" in homepage else f' Welcome to {course["name"]}',
+    instructor_name = profile["display_name"] if "display_name" in profile else profile["user"]["name"],
     img_src = profile["img_src"],
     bio=profile["bio"])
 
@@ -130,9 +134,10 @@ def get_course_profile_from_pages(course, pages):
 
   profile = get_instructor_profile_from_pages(instructor, pages)
   #this does not fully format the bio present yet so leaving it off for now
-  #if len(profile["bio"]) == 0:
-  #  profile = get_instructor_profile_submission(instructor)
+  if len(profile["bio"]) == 0:
+    profile = get_instructor_profile_submission(instructor)
   return profile
+
 
 
 def get_course_profile_from_assignment(course):
@@ -262,7 +267,7 @@ def get_instructor_profile_submission(user):
   response = requests.get(url, headers=headers)
   submission = response.json()
   print(submission)
-  bio = submission["body"] and submission["body"] or ""
+  bio = submission["body"] if ("body" in submission and submission["body"] is not None) else ""
   pic_path = ""
   if "attachments" in submission:
     for attachment in submission["attachments"]:
@@ -286,16 +291,52 @@ def get_instructor_profile_submission(user):
               pic_path = zip.extract(info, f"/{user['id']}profile{os.path.splitext(info.filename)[1]}")
 
         for para in doc.paragraphs:
-          if len(para.text) > 20:
+          if len(para.text) > 10:
             bio = bio + (f"<p>{para.text}</p>\n")
 
       #if it's an attached image
       elif os.path.splitext(filename)[1] in ['.jpg', '.jpeg', '.png']:
-        pic_path = open(f"{user['id']}profile{os.path.splitext(filename)[1]}", "wb").write(attachmentData.content)
+        with open(f"{user['id']}profile{os.path.splitext(filename)[1]}", "wb") as f:
+          f.write(attachmentData.content)
+          pic_path = os.path.realpath(f.name)
 
+    #todo: upload resized profile pic and populate upload_url
+  img_upload_url = ""
+  if len(pic_path) > 0:
+    pic_path = resize_image(pic_path, max_profile_image_size)
+    img_upload_url = upload_image(pic_path, instructor_course_id)
 
-  return dict(user = user, bio = bio, img = pic_path)
+  img_src = img_upload_url if len(img_upload_url) > 0 else default_profile_url
 
+  return dict(user = user, bio = bio, img_src = img_src, local_image_path = pic_path)
+
+#TODO write this in
+def resize_image(path, max_width):
+    input_path = path
+    output_path = path
+    with Image.open(input_path) as img:
+        print (img.size)
+        if max_width >= img.size[0]:
+          print (max_width, img.size)
+          return input_path
+
+        target_width = max_width
+
+        # Calculate the new height to preserve the aspect ratio
+        width_percent = (target_width / float(img.size[0]))
+        new_height = int((float(img.size[1]) * float(width_percent)))
+
+        # Resize the image using the appropriate resampling filter
+        resized_img = img.resize((target_width, new_height), Image.Resampling.BILINEAR if hasattr(Image, 'ANTIALIAS') else Image.Resampling.BILINEAR)
+
+        # Save the resized image
+        resized_img.save(output_path)
+        print(output_path)
+    return output_path
+
+#TODO: write this in
+def upload_image(pic_path, course_id):
+  return ""
 
 def get_instructor_page(user):
     url = f"{api_url}/courses/{profile_pages_course_id}/pages?per_page=999&search={urllib.parse.quote(user['name'])}" 
