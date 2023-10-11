@@ -7,9 +7,14 @@ import zipfile
 import os
 import PyPDF2
 import json
+import webbrowser
+
+import win32com.client as win32   
+
 import tkinter as tk
 from tkinter import simpledialog
 from tkinter import ttk
+
 from PIL import Image
 
 
@@ -21,7 +26,7 @@ max_profile_image_size = 400
 with open(CONSTANTS_FILE, 'r') as f:
     constants = json.load(f)
 
-# Print the API key
+# save the api key
 api_token = constants["apiToken"]
 api_url = constants["apiUrl"]
 
@@ -30,8 +35,7 @@ profile_assignment_id = constants["profileAssignmentId"]
 profile_pages_course_id = constants["profilePagesCourseId"]
 
 default_profile_url = "https://unity.instructure.com/users/9230846/files/156109264/preview"
-#bp_id = sys.argv[1] #3848068
-
+live_url = constants["liveUrl"]
 
 # Authorize the request.
 headers = {"Authorization": f"Bearer {api_token}" }
@@ -53,25 +57,61 @@ def main():
   progress_bar = ttk.Progressbar(root, orient="horizontal", length=200, mode="determinate")
   progress_bar.pack()
 
+  bp_course = get_course(bp_id)
   courses = get_blueprint_courses(bp_id)
-
+  print(courses)
   #if the course has no associations, JUST queue up to update the input course
 
   if not courses:
-    courses = [get_course(bp_id)]
-    print(courses)
+    courses = [bp_course]
 
   profiles = replace_faculty_profiles(courses, root, progress_bar)
 
   bio_count = 0
   error_text = ""
+  emails = []
   for profile in profiles:
     if len(profile["bio"]) < 5:
       error_text = error_text + f'{profile["user"]["name"]} does NOT have a bio we can find\n'
     else:
       bio_count = bio_count + 1
+      emails.append(profile["user"]["email"])
   dialog_text = f"Finished, {bio_count} records updated successfully\n{error_text}"
+
+  with open("email_template.html", 'r') as f:
+    template = f.read()
+
+
+  base_course = courses[0]
+  code = bp_course["course_code"][3:]
+ 
+
+  email_body = template.format(
+    term = constants["term"],
+    creator = constants["creator"],
+    code = code,
+    course = base_course,
+  )  
+
+
+  print(bp_course)
+  email_subject = f'{bp_course["course_code"][3:]} Section(s) Ready Notification'
+
+
+
+  outlook = win32.Dispatch('outlook.application')
+  mail = outlook.CreateItem(0)
+  mail.Bcc = ",".join(emails)
+  mail.Subject = email_subject
+  mail.HtmlBody = email_body
+  print(email_body)
+  print(mail)
+  mail.Display()
+  #webbrowser.open(f'mailto:none@hello.com?bcc={",".join(emails)}&subject={email_subject}&body={email_body}', new=1)
+
   tk.messagebox.showinfo("report", dialog_text)
+
+
 
 def replace_faculty_profiles(courses, ui_root, progress_bar):
   pages = get_faculty_pages()
@@ -196,11 +236,7 @@ def overwrite_home_page(profile, course):
   if len(h2Tags) > 0:
     homepage["title"] = h2Tags[0].text
 
-
-
-
   data = {'wiki_page[body]': format_profile_page(profile, course, homepage)}
-
 
   response = requests.put(url, headers=headers, data=data)
   print(response)
@@ -288,7 +324,7 @@ def get_instructor_profile_submission(user):
           for info in zip.infolist():
             is_image = ("jpg" in info.filename or "png" in info.filename or "jpeg" in info.filename)
             if is_image:
-              pic_path = zip.extract(info, f"/{user['id']}profile{os.path.splitext(info.filename)[1]}")
+              pic_path = zip.extract(info, f"/{user['name']}{user['id']}profile{os.path.splitext(info.filename)[1]}")
 
         for para in doc.paragraphs:
           if len(para.text) > 10:
@@ -296,7 +332,7 @@ def get_instructor_profile_submission(user):
 
       #if it's an attached image
       elif os.path.splitext(filename)[1] in ['.jpg', '.jpeg', '.png']:
-        with open(f"{user['id']}profile{os.path.splitext(filename)[1]}", "wb") as f:
+        with open(f"{user['name']}{user['id']}profile{os.path.splitext(filename)[1]}", "wb") as f:
           f.write(attachmentData.content)
           pic_path = os.path.realpath(f.name)
 
@@ -327,7 +363,7 @@ def resize_image(path, max_width):
         new_height = int((float(img.size[1]) * float(width_percent)))
 
         # Resize the image using the appropriate resampling filter
-        resized_img = img.resize((target_width, new_height), Image.Resampling.BILINEAR if hasattr(Image, 'ANTIALIAS') else Image.Resampling.BILINEAR)
+        resized_img = img.resize((target_width, new_height), Image.Resampling.BILINEAR)
 
         # Save the resized image
         resized_img.save(output_path)
