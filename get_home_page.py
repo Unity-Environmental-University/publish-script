@@ -94,18 +94,15 @@ def main():
   )  
 
 
-  print(bp_course)
   email_subject = f'{bp_course["course_code"][3:]} Section(s) Ready Notification'
-
-
 
   outlook = win32.Dispatch('outlook.application')
   mail = outlook.CreateItem(0)
-  mail.Bcc = ",".join(emails)
+  for recipient in emails:
+     mail.Recipients.Add(recipient).Type = 3  
+  #Email.Bcc = ",".join(emails)
   mail.Subject = email_subject
   mail.HtmlBody = email_body
-  print(email_body)
-  print(mail)
   mail.Display()
   #webbrowser.open(f'mailto:none@hello.com?bcc={",".join(emails)}&subject={email_subject}&body={email_body}', new=1)
 
