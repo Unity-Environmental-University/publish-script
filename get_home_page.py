@@ -47,7 +47,11 @@ def main():
     number = sys.argv[1]
   else:
     number = tk.simpledialog.askinteger("What Course?", "Enter the course_id of the blueprint (cut the number out of the url and paste here)")
+
+
   bp_id = number
+
+
 
   root = tk.Tk()
   message_label = tk.Label(root, text="Processing...")
@@ -86,26 +90,29 @@ def main():
   code = bp_course["course_code"][3:]
  
 
-  email_body = template.format(
-    term = constants["term"],
-    creator = constants["creator"],
-    code = code,
-    course = base_course,
-  )  
+  try:
+    email_body = template.format(
+      term = constants["term"],
+      creator = constants["creator"],
+      code = code,
+      course = base_course,
+    )  
 
 
-  email_subject = f'{bp_course["course_code"][3:]} Section(s) Ready Notification'
+    email_subject = f'{bp_course["course_code"][3:]} Section(s) Ready Notification'
 
-  outlook = win32.Dispatch('outlook.application')
-  mail = outlook.CreateItem(0)
-  for recipient in emails:
-     mail.Recipients.Add(recipient).Type = 3  
-  #Email.Bcc = ",".join(emails)
-  mail.Subject = email_subject
-  mail.HtmlBody = email_body
-  mail.Display()
-  #webbrowser.open(f'mailto:none@hello.com?bcc={",".join(emails)}&subject={email_subject}&body={email_body}', new=1)
 
+    outlook = win32.Dispatch('outlook.application')
+    mail = outlook.CreateItem(0)
+    for recipient in emails:
+       mail.Recipients.Add(recipient).Type = 3  
+    #Email.Bcc = ",".join(emails)
+    mail.Subject = email_subject
+    mail.HtmlBody = email_body
+    mail.Display()
+    #webbrowser.open(f'mailto:none@hello.com?bcc={",".join(emails)}&subject={email_subject}&body={email_body}', new=1)
+  except e:
+    dialog_text = dialog_text + "\nError Generating Email"
   tk.messagebox.showinfo("report", dialog_text)
 
 
