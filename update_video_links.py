@@ -13,7 +13,7 @@ from tkinter import ttk
 from bs4 import BeautifulSoup
 
 CONSTANTS_FILE = 'constants.json'
-ADD_LEARNING_MATERIALS = True
+ADD_LEARNING_MATERIALS = False
 UPDATE_SYLLABUS = False
 
 # Open the file and read the contents
@@ -23,7 +23,7 @@ with open(CONSTANTS_FILE, 'r') as f:
 # save the api key
 api_token = constants["apiToken"]
 api_url = constants["apiUrl"]
-
+account_id = 169877
 
 # Authorize the request.
 headers = {"Authorization": f"Bearer {api_token}" }
@@ -32,15 +32,40 @@ def main():
   course_id = 0
   old_course_id = 0
 
+
+  #course = response.json()
+
   if len(sys.argv) > 1:
    course_id = sys.argv[1]
   else:
    course_id = tk.simpledialog.askinteger("What Course?", "Enter the course_id of the old course (cut the number out of the url and paste here)")
 
-  #if len(sys.argv) > 2:
-  # old_course_id = sys.argv[2]
+
+  url = f"{api_url}/courses/{course_id}"
+  print(url)
+  response = requests.get(url, headers=headers)
+  if response.status_code != 200:
+    tk.messagebox.showinfo("report", f"Course not found.\n{response.text}")
+    exit()
+  course = response.json()
+
+  if len(sys.argv) > 2:
+   old_course_id = sys.argv[2]
   #else:
   # old_course_id = tk.simpledialog.askinteger("Old Version of Course?", "Enter the course_id of the old course (cut the number out of the url and paste here)")
+
+  if not old_course_id or old_course_id == 0:
+    code = course["course_code"].split("_")[1]
+    print(code)
+    response = requests.get(f"{api_url}/accounts/{account_id}/courses", headers=headers, params = {"search_term" : f"DEV_{code}"} )
+    courses = response.json()
+
+    for course in courses:
+      print(course["course_code"])
+    if len(courses) > 0:
+      old_course_id = courses[0]["id"]
+
+  print(old_course_id)
 
   update_learning_materials(course_id)
 
