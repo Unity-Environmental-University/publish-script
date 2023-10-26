@@ -51,8 +51,6 @@ def main():
 
   bp_id = number
 
-
-
   root = tk.Tk()
   message_label = tk.Label(root, text="Processing...")
   message_label.pack()
@@ -431,7 +429,7 @@ def get_canvas_instructor(course_id):
 
 def get_paged_data(url, headers=headers):
   response = requests.get(url, headers=headers)
-  out = []
+  out = response.json()
   next_page_link = "!"
   while len(next_page_link) != 0:
       pagination_links = response.headers["Link"].split(",")
