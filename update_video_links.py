@@ -17,9 +17,11 @@ ADD_LEARNING_MATERIALS = False
 UPDATE_SYLLABUS = True
 
 # Open the file and read the contents
-with open(CONSTANTS_FILE, 'r') as f:
+try:
+  with open(CONSTANTS_FILE, 'r') as f:
     constants = json.load(f)
-
+except:
+  tk.messagebox.showerror(message="Problem loading constants.json. Ask hallie for a copy of constants.json and put it in this folder.")
 # save the api key
 api_token = constants["apiToken"]
 api_url = constants["apiUrl"]
