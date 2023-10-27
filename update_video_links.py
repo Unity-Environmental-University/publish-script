@@ -35,7 +35,7 @@ def main():
   if len(sys.argv) > 1:
    course_id = sys.argv[1]
   else:
-   course_id = tk.simpledialog.askinteger("What Course?", "Enter the course_id of the old course (cut the number out of the url and paste here)")
+   course_id = tk.simpledialog.askinteger("What Course?", "Enter the course_id of the new ourse (cut the number out of the url and paste here)")
 
   #if len(sys.argv) > 2:
   # old_course_id = sys.argv[2]
