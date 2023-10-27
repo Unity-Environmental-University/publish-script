@@ -63,10 +63,10 @@ def main():
       old_course_id = courses[0]["id"]
       print("Old course found", old_course_id, courses[0]["course_code"])
 
-  if len(sys.argv) > 1:
-    if ADD_LEARNING_MATERIALS:
+  if len(sys.argv) > 2:
+    if  "lm" in sys.argv:
       update_learning_materials(course_id)
-    if UPDATE_SYLLABUS:
+    if "syllabus" in sys.argv:
       update_syllabus_and_overview(course_id, old_course_id)
   else:
     if tk.messagebox.askyesno(message="Do you want to update learning materials?"):
