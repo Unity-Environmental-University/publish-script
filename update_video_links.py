@@ -14,7 +14,7 @@ from bs4 import BeautifulSoup
 
 CONSTANTS_FILE = 'constants.json'
 ADD_LEARNING_MATERIALS = False
-UPDATE_SYLLABUS = False
+UPDATE_SYLLABUS = True
 
 # Open the file and read the contents
 with open(CONSTANTS_FILE, 'r') as f:
@@ -65,14 +65,22 @@ def main():
     if len(courses) > 0:
       old_course_id = courses[0]["id"]
 
-  print(old_course_id)
+  print("Found old course ", old_course_id, courses[0]["name"])
 
-  update_learning_materials(course_id)
+
+
+  if ADD_LEARNING_MATERIALS:
+    update_learning_materials(course_id)
+
+  if UPDATE_SYLLABUS:
+    update_syllabus_and_overview(course_id, old_course_id)
 
 def update_syllabus_and_overview(course_id, old_course_id):
   old_page = get_syllabus(old_course_id)
-  description = find_syllabus_description(old_page)
-  learning_objectives = find_syllabus_learning_objectives(old_page)
+  title = find_syllabus_title(old_page)
+  description_paras = get_section(old_page, "Course Description:")
+  learning_objectives_paras = get_section(old_page, "Course Outcomes:")
+  textbook_paras = get_section(old_page, "Textbook:")
 
   #update the new syllabus
   #new_page = get_syllabus(course_id)
@@ -87,18 +95,26 @@ def update_syllabus_and_overview(course_id, old_course_id):
 
 
 def get_syllabus(course_id):
-  return False
+  url = f"{api_url}/courses/{course_id}?include[]=syllabus_body"
+  response = requests.get(url, headers=headers)
+  content = response.json()
+  return BeautifulSoup(content["syllabus_body"])
 
-def find_syllabus_description(soup):
-  return "X"
+def find_syllabus_title(soup):
+  header = soup.find("strong", string=re.compile("course number and title", re.IGNORECASE))
+  title_p = header.find_parent("p")
+  header.decompose()
+  return title_p.text
 
-def find_syllabus_learning_objectives(soup):
-  return [
-    "A",
-    "B",
-    "C"
-  ]
-
+def get_section(soup, header_string):
+  header = soup.find("h4", string=header_string)
+  paragraphs = []
+  el =  header.find_next_sibling()
+  print(el.name)
+  while el and el.name != "h4":
+    paragraphs.append(el)
+    el = el.find_next_sibling()
+  return paragraphs
 
 
 #https://codereview.stackexchange.com/questions/272811/converting-a-youtube-embed-link-to-a-regular-link-in-python
@@ -218,7 +234,6 @@ def update_learning_materials(course_id):
 
 
 
-    if ADD_LEARNING_MATERIALS:
       print("adding Learning Materials")
       #handle learning materials
       accordion = new_soup.find("div", class_="cbt-accordion-container")
