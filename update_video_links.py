@@ -12,16 +12,16 @@ from tkinter import simpledialog
 from tkinter import ttk
 from bs4 import BeautifulSoup
 
-CONSTANTS_FILE = 'constants.json'
 ADD_LEARNING_MATERIALS = False
 UPDATE_SYLLABUS = True
+CONSTANTS_FILE = "constants.json"
 
 # Open the file and read the contents
 try:
   with open(CONSTANTS_FILE, 'r') as f:
     constants = json.load(f)
-except:
-  tk.messagebox.showerror(message="Problem loading constants.json. Ask hallie for a copy of constants.json and put it in this folder.")
+except Exception as e:
+  tk.messagebox.showerror(message=f"Problem loading constants.json. Ask hallie for a copy of constants.json and put it in this folder.{e}")
 # save the api key
 api_token = constants["apiToken"]
 api_url = constants["apiUrl"]
@@ -40,7 +40,7 @@ def main():
   if len(sys.argv) > 1:
    course_id = sys.argv[1]
   else:
-   course_id = tk.simpledialog.askinteger("What Course?", "Enter the course_id of the new ourse (cut the number out of the url and paste here)")
+   course_id = tk.simpledialog.askinteger("What Course?", "Enter the course_id of the new course (cut the number out of the url and paste here)")
 
 
   url = f"{api_url}/courses/{course_id}"
@@ -50,11 +50,6 @@ def main():
     tk.messagebox.showinfo("report", f"Course not found.\n{response.text}")
     exit()
   course = response.json()
-
-  if len(sys.argv) > 2:
-   old_course_id = sys.argv[2]
-  #else:
-  # old_course_id = tk.simpledialog.askinteger("Old Version of Course?", "Enter the course_id of the old course (cut the number out of the url and paste here)")
 
   if not old_course_id or old_course_id == 0:
     code = course["course_code"].split("_")[1]
@@ -66,23 +61,35 @@ def main():
       print(course["course_code"])
     if len(courses) > 0:
       old_course_id = courses[0]["id"]
+      print("Old course found", old_course_id, courses[0]["course_code"])
 
-  print("Found old course ", old_course_id, courses[0]["name"])
+  if len(sys.argv) > 1:
+    if ADD_LEARNING_MATERIALS:
+      update_learning_materials(course_id)
+    if UPDATE_SYLLABUS:
+      update_syllabus_and_overview(course_id, old_course_id)
+  else:
+    if tk.messagebox.askyesno(message="Do you want to update learning materials?"):
+      update_learning_materials(course_id)
 
-
-
-  if ADD_LEARNING_MATERIALS:
-    update_learning_materials(course_id)
-
-  if UPDATE_SYLLABUS:
-    update_syllabus_and_overview(course_id, old_course_id)
+    if tk.messagebox.askyesno(message="Do you want to update the syllabus?"):
+      update_syllabus_and_overview(course_id, old_course_id)
 
 def update_syllabus_and_overview(course_id, old_course_id):
   old_page = get_syllabus(old_course_id)
+
+  is_course_grad = not old_page.find(string="Poor, but Passing")
+
   title = find_syllabus_title(old_page)
   description_paras = get_section(old_page, "Course Description:")
   learning_objectives_paras = get_section(old_page, "Course Outcomes:")
   textbook_paras = get_section(old_page, "Textbook:")
+
+  print (title)
+  print (description_paras)
+  print (learning_objectives_paras)
+  print (textbook_paras)
+  print (is_course_grad)
 
   #update the new syllabus
   #new_page = get_syllabus(course_id)
