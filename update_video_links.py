@@ -1,3 +1,4 @@
+from pathlib import Path
 import sys
 import re
 import requests
@@ -72,11 +73,12 @@ def main():
     if tk.messagebox.askyesno(message="Do you want to update learning materials?"):
       update_learning_materials(course_id)
 
-    if tk.messagebox.askyesno(message="Do you want to update the syllabus?"):
+    if tk.messagebox.askyesno(message="Do you want to update the syllabus and course overview? EXPERIMENTAL / BROKEN"):
       update_syllabus_and_overview(course_id, old_course_id)
 
 def update_syllabus_and_overview(course_id, old_course_id):
   old_page = get_syllabus(old_course_id)
+  new_page = get_syllabus(course_id)
 
   is_course_grad = not old_page.find(string="Poor, but Passing")
 
@@ -84,15 +86,50 @@ def update_syllabus_and_overview(course_id, old_course_id):
   description_paras = get_section(old_page, "Course Description:")
   learning_objectives_paras = get_section(old_page, "Course Outcomes:")
   textbook_paras = get_section(old_page, "Textbook:")
+  week_1_preview = get_week_1_preview(course_id)
 
-  print (title)
-  print (description_paras)
-  print (learning_objectives_paras)
-  print (textbook_paras)
-  print (is_course_grad)
+  term = "DE8W01.08.24" if is_course_grad else "DE/HL-24-Jan"
+  dates = "January 8 - March 3" if is_course_grad  else "January 15 - February 18" 
 
+  with open("syllabus_template.html", 'r') as f:
+    template = f.read()
+    text = template.format(
+      course_id = course_id,
+      term_code = term,
+      term_dates = dates,
+      course_outcomes = "\n".join(map(lambda p: p.prettify(), learning_objectives_paras)),
+      course_description = "\n".join(map(lambda p: p.prettify(), description_paras)),
+      course_title = title,
+      week_1_learning_materials = "\n".join(map(lambda p: p.prettify(), week_1_preview)),
+      textbook = "\n".join(map(lambda p: p.prettify(), textbook_paras)),
+    )
+
+  print(text)
   #update the new syllabus
-  #new_page = get_syllabus(course_id)
+
+  submit_soup = BeautifulSoup(text, "lxml")
+
+
+  if is_course_grad:
+    for el in list ( submit_soup.find_all("p", class_ = "undergrad") ):
+      el.decompose()
+    for el in list ( submit_soup.find_all("div", class_ = "undergrad") ):
+      el.decompose()
+  else:
+    for el in list ( submit_soup.find_all("p", class_ = "grad") ):
+      el.decompose()
+    for el in list ( submit_soup.find_all("div", class_ = "grad") ):
+      el.decompose()
+
+  response = requests.put(f'{api_url}/courses/{course_id}', 
+    headers = headers,
+    data = {
+      "course[syllabus_body]" : submit_soup.prettify()
+    }
+  )
+  print(response.status_code)
+
+
   #set_week_1_preview(new_page, get_week_1_preview(course_id))
   #set_syllabus_description(new_page, description)
   #set_syllabus_learning_objectives(new_page, learning_objectives)
@@ -107,7 +144,7 @@ def get_syllabus(course_id):
   url = f"{api_url}/courses/{course_id}?include[]=syllabus_body"
   response = requests.get(url, headers=headers)
   content = response.json()
-  return BeautifulSoup(content["syllabus_body"])
+  return BeautifulSoup(content["syllabus_body"], "lxml")
 
 def find_syllabus_title(soup):
   header = soup.find("strong", string=re.compile("course number and title", re.IGNORECASE))
@@ -138,36 +175,49 @@ def convert_to_watch_url(embed_url: str) -> str:
 def get_week_1_preview(course_id):
 
     old_lm_url = f"{api_url}/courses/{course_id}/pages/week_1_learning_materials-2"
-        #handle transcripts
-    h4 = old_soup.find("h4")
-    learning_materials = list(h4.next_siblings)
+
+
     lm_response = requests.get(old_lm_url, headers=headers)
+
+    print(lm_response)
+
     lm_page = lm_response.json()
-    lm_soup = BeautifulSoup(lm_page["body"])
+    lm_soup = BeautifulSoup(lm_page["body"], "lxml")
+
+    h4 = lm_soup.find("h4")
+    learning_materials =  get_section(lm_soup, "Please read and watch the following materials:")
+
 
     iframe = lm_soup.find("iframe")
     youtube_iframe_source = iframe["src"]
-    transcripts = lm_soup.find_all("div", {'class':"column"})[1].find_all("a", re.compile("Transcript", re.IGNORECASE))
-    slides = lm_soup.find_all("div", {'class':"column"})[1].find_all("a", re.compile("Slides", re.IGNORECASE))
+    links = lm_soup.find_all("a")
+    transcripts = []
+    slides = []
+    for link in links:
+      if 'ranscript' in link.text:
+        transcripts.append(link)
+      if 'lides' in link.text:
+        slides.append(link)
 
-    temp_soup = BeautifulSoup(f"<li><a href={convert_to_watch_url(youtube_iframe_source)}>Week 1 Lecture</a><ul></ul></li>")
+    temp_soup = BeautifulSoup(f"<li><a href={convert_to_watch_url(youtube_iframe_source)}>Week 1 Lecture</a><ul></ul></li>", "lxml")
     list_ = temp_soup.find("ul")
     for transcript in transcripts:
       li = temp_soup.new_tag("li")
       a = temp_soup.new_tag("a")
-      a["body"] = "transcript"
+      a.string = "transcript"
       a["href"] = transcript["href"]
-      li.appended(li)
+      li.append(a)
       list_.append(li)
     for slide in slides:
       li = temp_soup.new_tag("li")
       a = temp_soup.new_tag("a")
-      a["body"] = "slides"
+      a.string = "slides"
       a["href"] = slide["href"]
-      li.appended(li)
+      li.append(a)
       list_.append(li)
 
     learning_materials[0].insert( 0, temp_soup.html.body.li )
+    return learning_materials
 
 
 def update_learning_materials(course_id):
@@ -208,7 +258,6 @@ def update_learning_materials(course_id):
         slides_button = button.find("a", string=re.compile("Slides",re.IGNORECASE))
       if button.find("a", text=re.compile("Transcript", re.IGNORECASE)):
         transcript_button = button.find("a", string=re.compile("Transcript", re.IGNORECASE))
-
 
     slides_count = 0
     transcripts_count = 0
