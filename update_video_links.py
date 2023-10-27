@@ -73,7 +73,7 @@ def main():
     if tk.messagebox.askyesno(message="Do you want to update learning materials?"):
       update_learning_materials(course_id)
 
-    if tk.messagebox.askyesno(message="Do you want to update the syllabus and course overview? EXPERIMENTAL / BROKEN"):
+    if tk.messagebox.askyesno(message="Do you want to update the syllabus and course overview?):
       update_syllabus_and_overview(course_id, old_course_id)
 
 def update_syllabus_and_overview(course_id, old_course_id):
