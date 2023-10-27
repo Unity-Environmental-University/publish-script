@@ -73,12 +73,26 @@ def main():
     if tk.messagebox.askyesno(message="Do you want to update learning materials?"):
       update_learning_materials(course_id)
 
-    if tk.messagebox.askyesno(message="Do you want to update the syllabus and course overview?):
-      update_syllabus_and_overview(course_id, old_course_id)
+    if tk.messagebox.askyesno(message="Do you want to update the syllabus and course overview?"):
+      update_syllabus_and_overview(course_id, old_course_id) 
+
+def get_file_url_by_name(course_id, file_search):
+  #get syllabus banner url
+  url = f"{api_url}/courses/{course_id}/files"
+  response = requests.get(url, headers=headers, params={"search_term" : file_search})
+  files = response.json()
+  if len(files) > 0:
+    return files[0]["url"]
+  return false
 
 def update_syllabus_and_overview(course_id, old_course_id):
   old_page = get_syllabus(old_course_id)
   new_page = get_syllabus(course_id)
+
+
+
+  syllabus_banner_url = get_file_url_by_name(course_id, "Module 1 banner (7)")
+
 
   is_course_grad = not old_page.find(string="Poor, but Passing")
 
@@ -91,20 +105,24 @@ def update_syllabus_and_overview(course_id, old_course_id):
   term = "DE8W01.08.24" if is_course_grad else "DE/HL-24-Jan"
   dates = "January 8 - March 3" if is_course_grad  else "January 15 - February 18" 
 
-  with open("syllabus_template.html", 'r') as f:
-    template = f.read()
-    text = template.format(
-      course_id = course_id,
-      term_code = term,
-      term_dates = dates,
-      course_outcomes = "\n".join(map(lambda p: p.prettify(), learning_objectives_paras)),
-      course_description = "\n".join(map(lambda p: p.prettify(), description_paras)),
-      course_title = title,
-      week_1_learning_materials = "\n".join(map(lambda p: p.prettify(), week_1_preview)),
-      textbook = "\n".join(map(lambda p: p.prettify(), textbook_paras)),
-    )
+  try:
+    with open("syllabus_template.html", 'r') as f:
+      template = f.read()
+      text = template.format(
+        banner_url = syllabus_banner_url,
+        course_id = course_id,
+        term_code = term,
+        term_dates = dates,
+        course_outcomes = "\n".join(map(lambda p: p.prettify(), learning_objectives_paras)),
+        course_description = "\n".join(map(lambda p: p.prettify(), description_paras)),
+        course_title = title,
+        week_1_learning_materials = "\n".join(map(lambda p: p.prettify(), week_1_preview)),
+        textbook = "\n".join(map(lambda p: p.prettify(), textbook_paras)),
+      )
+  except Exception as e:
+    tk.messagebox.showerror(message="syllabus_template.html missing. Please download the latests from drive.")
+    exit()
 
-  print(text)
   #update the new syllabus
 
   submit_soup = BeautifulSoup(text, "lxml")
@@ -127,10 +145,56 @@ def update_syllabus_and_overview(course_id, old_course_id):
       "course[syllabus_body]" : submit_soup.prettify()
     }
   )
+
+
   print(response.status_code)
 
 
-  #set_week_1_preview(new_page, get_week_1_preview(course_id))
+  url = f"{api_url}/courses/{course_id}/modules?include[]=items&include[]=content_details"
+  response = requests.get(url, headers=headers)
+  print(response.status_code)
+  modules = response.json()
+
+  overview_module = next(filter(lambda module: module["position"] == 1, modules))
+  page_id  = overview_module['items'][0]['page_url']
+  print(page_id)
+  print(overview_module ['items'][0])
+  url = f"{api_url}/courses/{course_id}/pages/{page_id}"
+
+  response = requests.get(url, headers=headers)
+  print(response.status_code)
+  overview_page = response.json()
+
+  overview_html = overview_page["body"]
+  og_ov_soup = BeautifulSoup(overview_html, "lxml").body
+  print(og_ov_soup)
+  overview_banner_img = og_ov_soup.find("img", width=750)
+  print(overview_banner_img)
+  overview_banner_url = overview_banner_img["src"]
+
+  try:
+    with open("overview_template.html", 'r') as f:
+      template = f.read()
+      text = template.format(
+        banner_url = overview_banner_url,
+        course_id = course_id,
+        course_outcomes = "\n".join(map(lambda p: p.prettify(), learning_objectives_paras)),
+        course_description = "\n".join(map(lambda p: p.prettify(), description_paras)),
+        textbook = "\n".join(map(lambda p: p.prettify(), textbook_paras)),
+      )
+  except Exception as e:
+    tk.messagebox.showerror(message="overview_template.html missing. Please download the latests from drive.")
+    exit()
+
+  submit_soup = BeautifulSoup(text, "lxml")
+
+  response = requests.put(f'{api_url}/courses/{course_id}/pages/course-overview', 
+    headers = headers,
+    data = {
+      "wiki_page[body]" : submit_soup.prettify()
+    }
+  )  
+   #set_week_1_preview(new_page, get_week_1_preview(course_id))
   #set_syllabus_description(new_page, description)
   #set_syllabus_learning_objectives(new_page, learning_objectives)
   #set_syllabus_dates(new_page, start_date, end_date, term_code)
@@ -138,6 +202,9 @@ def update_syllabus_and_overview(course_id, old_course_id):
 
 
   #update the new overview
+
+  #get existing course overview
+
 
 
 def get_syllabus(course_id):
@@ -161,6 +228,18 @@ def get_section(soup, header_string):
     paragraphs.append(el)
     el = el.find_next_sibling()
   return paragraphs
+
+
+def replace_content(soup, header_string, list_of_new_contents):
+  container = soup.find("h2", string=header_string).parent
+
+  #remove existing paras
+  for el in container.find_all("p"):
+    el.decompose()
+  for el in list_of_new_contents:
+    container.append(el)
+
+  print(container)
 
 
 #https://codereview.stackexchange.com/questions/272811/converting-a-youtube-embed-link-to-a-regular-link-in-python

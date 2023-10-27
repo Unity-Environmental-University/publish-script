@@ -29,7 +29,7 @@ def main():
   if len(sys.argv) > 1:
    course_id = sys.argv[1]
   else:
-   course_id = tk.simpledialog.askinteger("What Course?", "Enter the course_id of the blueprint (cut the number out of the url and paste here)")
+   course_id = tk.simpledialog.askinteger("What Course?", "Enter the course_id of the course (cut the number out of the url and paste here)")
   if len(sys.argv) > 2:
    offset = int(sys.argv[2])
   else:
