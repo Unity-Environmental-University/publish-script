@@ -172,6 +172,30 @@ def update_syllabus_and_overview(course_id, old_course_id):
   print(overview_banner_img)
   overview_banner_url = overview_banner_img["src"]
 
+  #get assignment groups
+  url = f"{api_url}/courses/{old_course_id}/assignment_groups"
+  response = requests.get(url, headers=headers)
+  groups = response.json()
+  assignment_categories = groups
+
+  #assignment weight text
+  table_body = ""
+  for assignment in assignment_categories:
+    assignment["description"] = ""
+    if "discussion" in assignment["name"].lower():
+      assignment["description"] = 'Initial posts due by 3AM ET Thursday night, responses due by 3AM ET Monday night - unless otherwise noted.'
+
+    if "assignment" in assignment["name"].lower():
+      assignment["description"] = "Due by the end of the week in which they're assigned."
+
+    table_body = table_body + f'''
+    <tr style="height: 167px;">
+      <td>{assignment["name"].title()}</td>
+      <td>{assignment["description"]}</td>
+      <td>{int(assignment["group_weight"])}%</td>
+    </tr>
+    '''
+
   try:
     with open("overview_template.html", 'r') as f:
       template = f.read()
@@ -180,11 +204,15 @@ def update_syllabus_and_overview(course_id, old_course_id):
         course_id = course_id,
         course_outcomes = "\n".join(map(lambda p: p.prettify(), learning_objectives_paras)),
         course_description = "\n".join(map(lambda p: p.prettify(), description_paras)),
+        table_body = table_body,
         textbook = "\n".join(map(lambda p: p.prettify(), textbook_paras)),
       )
   except Exception as e:
     tk.messagebox.showerror(message="overview_template.html missing. Please download the latests from drive.")
     exit()
+
+
+
 
   submit_soup = BeautifulSoup(text, "lxml")
 
