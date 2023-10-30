@@ -106,13 +106,21 @@ def update_weekly_overviews(course_id, old_course_id):
   print(response.status_code)
   modules = response.json()
 
-  for module in old_modules:
-    print(module["name"])
-    title_words = module["name"].split(" ")
-    items = module["items"]
+
+
+  for old_module in old_modules:
+    print(old_module["name"])
+    title_words = old_module["name"].split(" ")
+    items = old_module["items"]
     if ("week" in title_words[0].lower()):
+
+
       i = int(title_words[1])
-      module_name = module ['items'][0]["title"]
+      module_name = old_module ['items'][0]["title"]
+
+      module = next( filter ( lambda module: f"Module {i}" in module["name"], modules) )
+
+      set_module_title(course_id, module["id"], f"Module {i} - {module_name}".title())
   
       old_overview_page_info = next(filter(lambda item: "overview" in item["title"].lower(), items))
       old_lo_page_info = next(filter(lambda item: "learning objectives" in item["title"].lower(), items))
@@ -137,9 +145,7 @@ def update_weekly_overviews(course_id, old_course_id):
       )
 
       new_page_body = new_overview_page_html(overview_page["body"], module_name, description, learning_objectives)
-      print(new_page_body)
 
-      print(overview_page)
       response = requests.put(f'{api_url}/courses/{course_id}/pages/{overview_page["url"]}', 
         headers = headers,
         data = {
@@ -147,7 +153,16 @@ def update_weekly_overviews(course_id, old_course_id):
         }
       )  
      
-
+def set_module_title(course_id, module_id, title ):
+  url = f"{api_url}/courses/{course_id}/modules/{module_id}"
+  print(url)
+  response = requests.put(url, 
+    headers = headers,
+    data = {
+      "module[name]" : title
+    }
+  )  
+  print(response.text)
 
 def new_overview_page_html(overview_page_body, title, description, learning_objectives):
   body = overview_page_body 
