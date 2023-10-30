@@ -17,16 +17,28 @@ ADD_LEARNING_MATERIALS = False
 UPDATE_SYLLABUS = True
 CONSTANTS_FILE = "constants.json"
 
+
+
+
 # Open the file and read the contents
 try:
   with open(CONSTANTS_FILE, 'r') as f:
     constants = json.load(f)
 except Exception as e:
-  tk.messagebox.showerror(message=f"Problem loading constants.json. Ask hallie for a copy of constants.json and put it in this folder.{e}")
+  tk.messagebox.showerror(message=f"Problem loading constants.json. Ask hallie for a copy of constants.json and put it in this folder.\n{e}")
 # save the api key
-api_token = constants["apiToken"]
-api_url = constants["apiUrl"]
-account_id = 169877
+try:
+  api_token = constants["apiToken"]
+  api_url = constants["apiUrl"]
+
+  drive_url = None
+  if "driveUrl" in constants:
+    drive_url = constants["driveUrl"]
+
+  account_id = 169877
+except Exception as e:
+  tk.messagebox.showerror(message=f"It looks like your constants file is missing some values. Ask hallie for a current copy of the constants.json file.\n{e}")
+
 
 # Authorize the request.
 headers = {"Authorization": f"Bearer {api_token}" }
@@ -69,12 +81,93 @@ def main():
       update_learning_materials(course_id)
     if "syllabus" in sys.argv:
       update_syllabus_and_overview(course_id, old_course_id)
+    if "overviews" in sys.argv:
+      update_weekly_overviews(course_id, old_course_id)
+
   else:
     if tk.messagebox.askyesno(message="Do you want to update learning materials?"):
       update_learning_materials(course_id)
 
     if tk.messagebox.askyesno(message="Do you want to update the syllabus and course overview?"):
       update_syllabus_and_overview(course_id, old_course_id) 
+
+    if tk.messagebox.askyesno(message="Do you want to try to update the weekly overviews?"):
+      update_weekly_overviews(course_id, old_course_id)       
+
+
+def update_weekly_overviews(course_id, old_course_id):
+  url = f"{api_url}/courses/{old_course_id}/modules?include[]=items&include[]=content_details"
+  response = requests.get(url, headers=headers)
+  print(response.status_code)
+  old_modules = response.json()
+
+  url = f"{api_url}/courses/{course_id}/modules?include[]=items&include[]=content_details"
+  response = requests.get(url, headers=headers)
+  print(response.status_code)
+  modules = response.json()
+
+  for module in old_modules:
+    print(module["name"])
+    title_words = module["name"].split(" ")
+    items = module["items"]
+    if ("week" in title_words[0].lower()):
+      i = int(title_words[1])
+      module_name = module ['items'][0]["title"]
+  
+      old_overview_page_info = next(filter(lambda item: "overview" in item["title"].lower(), items))
+      old_lo_page_info = next(filter(lambda item: "learning objectives" in item["title"].lower(), items))
+
+      old_overview_page = get_page_by_url (old_overview_page_info["url"])
+      old_lo_page = get_page_by_url (old_lo_page_info["url"])
+      overview_page = get_page_by_url (f"{api_url}/courses/{course_id}/pages/week-{i}-overview")
+
+      old_overview_soup = BeautifulSoup(old_overview_page["body"], 'lxml')
+      old_lo_soup = BeautifulSoup(old_lo_page["body"], 'lxml')
+
+      #grab the list of learning objectives from the page
+      learning_objectives = old_lo_soup.find('ul')
+      if not learning_objectives:
+        learning_objectives = old_lo_soup.find("ol")
+
+      learning_objectives = learning_objectives.prettify()
+
+      description_box = old_overview_soup.find("div", class_="column")
+      description = "\n".join( 
+        map(lambda tag: str(tag), list(description_box.children))
+      )
+
+      new_page_body = new_overview_page_html(overview_page["body"], module_name, description, learning_objectives)
+      print(new_page_body)
+
+      print(overview_page)
+      response = requests.put(f'{api_url}/courses/{course_id}/pages/{overview_page["url"]}', 
+        headers = headers,
+        data = {
+          "wiki_page[body]" : new_page_body
+        }
+      )  
+     
+
+
+def new_overview_page_html(overview_page_body, title, description, learning_objectives):
+  body = overview_page_body 
+  soup = BeautifulSoup(body, "lxml")
+  contents = soup.find_all("div", class_ = "content")
+  contents[0].string = "[Insert text]"
+  contents[1].string = "[insert weekly objectives, bulleted list]"
+
+  body = soup.prettify()
+
+
+  body = re.sub('\[title of week\]', f"{title}", body)
+  body = re.sub('\[Insert.*text\]', f"{description}", body)
+  body = re.sub('\[insert weekly objectives, bulleted list\]', f"{learning_objectives}", body)
+  return body
+
+def get_page_by_url(url):
+  response = requests.get(url, headers=headers)
+  page = response.json()
+  return page
 
 def get_file_url_by_name(course_id, file_search):
   #get syllabus banner url
