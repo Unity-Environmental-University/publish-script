@@ -507,18 +507,20 @@ def update_learning_materials(course_id):
 
 
 
-    print("adding Learning Materials")
     #handle learning materials
     accordion = new_soup.find("div", class_="cbt-accordion-container")
 
-    #make a new accordion and just all the learning materials into it
-    new_content = copy.copy(accordion)
-    accordion.parent.append(new_content)
-    content = new_content.find("div", class_="cbt-answer")
-    for el in learning_materials:
-      content.append(el)
-      print(content)
-      print(el)
+
+    #make a new accordion and just all the learning materials into it IF this accordion is a template
+    if accordion.find(string="[Title for first category of LMs]"):
+      print("adding Learning Materials")
+      new_content = copy.copy(accordion)
+      accordion.parent.append(new_content)
+      content = new_content.find("div", class_="cbt-answer")
+      for el in learning_materials:
+        content.append(el)
+        print(content)
+        print(el)
 
 
 
