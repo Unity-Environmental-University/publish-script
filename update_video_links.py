@@ -65,8 +65,8 @@ def main():
   course = response.json()
 
   if not old_course_id or old_course_id == 0:
-    code = course["course_code"].split("_")[1]
-    print(code)
+    code = course["course_code"].split("_")[1][0:7]
+    print("Code", code)
     response = requests.get(f"{api_url}/accounts/{account_id}/courses", headers=headers, params = {"search_term" : f"DEV_{code}"} )
     courses = response.json()
 
@@ -618,6 +618,7 @@ def get_syllabus(course_id):
   url = f"{api_url}/courses/{course_id}?include[]=syllabus_body"
   response = requests.get(url, headers=headers)
   content = response.json()
+  print(content)
   return BeautifulSoup(content["syllabus_body"], "lxml")
 
 def find_syllabus_title(soup):
@@ -628,6 +629,9 @@ def find_syllabus_title(soup):
 
 def get_section(soup, header_string):
   header = soup.find("h4", string=header_string)
+  if not header:
+    header = soup.find("strong", string=header_string).parent
+  print(header)
   paragraphs = []
   el =  header.find_next_sibling()
   print(el.name)
@@ -718,6 +722,9 @@ def update_learning_materials(course_id):
     if not response.ok:
       raise Exception(response.json())
 
+
+    if len(response.json()) < 2:
+      continue
     old_lm_url = response.json()[-1]["url"]
 
     old_url = f"{api_url}/courses/{course_id}/pages/{old_lm_url}"
