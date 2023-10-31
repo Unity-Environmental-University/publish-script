@@ -84,6 +84,19 @@ def main():
     if "overviews" in sys.argv:
       update_weekly_overviews(course_id, old_course_id)
 
+    if "assignment" in sys.argv:
+      update_weekly_overviews(course_id, old_course_id)
+      id_index = sys.argv('assignment') + 1
+      if not len(sys.argv) > id_index:
+        print("Error: Assignment id not provided")
+        exit()
+
+      assignment_id = sys.argv[id_index]
+
+    if "assignments" in sys.argv:
+      create_missing_assignments(course_id, old_course_id)
+      align_assignments(course_id, old_course_id)
+
   else:
     if tk.messagebox.askyesno(message="Do you want to update learning materials?"):
       update_learning_materials(course_id)
@@ -95,6 +108,189 @@ def main():
       update_weekly_overviews(course_id, old_course_id)       
 
 
+def get_modules(course_id):
+  url = f"{api_url}/courses/{course_id}/modules?include[]=items&include[]=content_details"
+  response = requests.get(url, headers=headers)
+  return response.json()
+  
+def create_missing_assignments(course_id, old_course_id):
+  modules = get_modules(course_id)
+  old_modules = get_modules(old_course_id)
+
+  gallery_discussion = None
+
+  for old_module in old_modules:
+    items = old_module["items"]
+
+    #skip non-week modules
+    number = get_old_module_number(old_module)
+    name = get_old_module_title(old_module)
+    if not number:
+      continue
+
+    module = find_new_module_by_number(number, modules)
+
+    #save off the gallery discussion
+    print(number)
+    if number == "1":
+      gallery_discussion_template = next( filter( lambda item: "Gallery Discussion" in item["title"], module["items"]))
+      print (gallery_discussion_template)
+
+    create_missing_assignments_in_module(module, old_module, course_id, old_course_id, gallery_discussion_template)
+
+
+
+def create_missing_assignments_in_module(module, old_module, course_id, old_course_id, gallery_discussion_template):
+
+  old_assignments = list ( filter( lambda item: item["type"] == "Assignment", old_module["items"]) )
+  assignments = list( filter( lambda item: item["type"] == "Assignment", module["items"]) )
+  difference = len(old_assignments)  - len(assignments)
+  if difference > 0:
+    added_items = True
+
+    #duplicate the first assignment as many times as it takes to get parity between assignments
+    for _ in range(0, difference):
+      duplicate_item(course_id, assignments[0], module)
+
+  #get discussions and pull out gallery discussions to handle differently
+  old_discussions = list ( filter( lambda item: item["type"] == "Discussion", old_module["items"]) )
+  old_gallery_discussions = remove_gallery_discussions(old_discussions)
+
+  discussions = list( filter( lambda item: item["type"] == "Discussion", module["items"]) )
+  gallery_discussions = remove_gallery_discussions(discussions)
+
+  #add discussions if there is disparity
+  difference = len(old_discussions)  - len(discussions)
+  if difference > 0:
+    added_items = True
+
+    #duplicate the first discussion as many times as it takes to get parity between assignments
+    for _ in range(0, difference):
+      duplicate_item(course_id, discussions[0], module)
+
+  difference = len(old_gallery_discussions)  - len(gallery_discussions)
+  if difference > 0:
+    added_items = True
+
+    #duplicate the first discussion as many times as it takes to get parity between assignments
+    for _ in range(0, difference):
+      duplicate_item(course_id, gallery_discussion_template, module)
+
+def align_assignments(course_id, old_course_id):
+  modules = get_modules(course_id)
+  old_modules = get_modules(old_course_id)
+
+  for old_module in old_modules:
+    items = old_module["items"]
+
+    #skip non-week modules
+    number = get_old_module_number(old_module)
+    name = get_old_module_title(old_module)
+    if not number:
+      continue
+
+    module = find_new_module_by_number(number, modules)
+  
+    old_assignments = list ( filter( lambda item: item["type"] == "Assignment", old_module["items"]) )
+    assignments = list( filter( lambda item: item["type"] == "Assignment", module["items"]) )
+  
+    old_discussions = list ( filter( lambda item: item["type"] == "Discussion", old_module["items"]) )
+    old_gallery_discussions = remove_gallery_discussions(old_discussions)
+
+    discussions = list( filter( lambda item: item["type"] == "Discussion", module["items"]) )
+    gallery_discussions = remove_gallery_discussions(discussions)
+
+    i = 0
+    if len(old_assignments) > len(assignments):
+      print (json.dumps(old_assignments, indent=1))
+      print (json.dumps(assignments, indent=1))
+      raise Exception("Number of assignments in new module is fewer than assignments in old module")
+    for old_assignment in old_assignments:
+      assignment = assignments[i]
+      print(f"Parsing {old_assignment['title']} into {assignment['title']}")
+      i = i + 1
+
+
+    i = 0
+    if len(old_discussions) > len(discussions):
+      print (json.dumps(old_discussions, indent=1))
+      print (json.dumps(discussions, indent=1))
+      raise Exception("Number of discussions in new module is fewer than assignments in old module")
+    for old_item in old_discussions:
+      item = discussions[i]
+      print(f"Parsing {old_item['title']} into {item['title']}")
+      i = i + 1
+
+
+
+def remove_gallery_discussions(discussions, remove_introduction = True):
+  gallery_discussions = []
+  for discussion in discussions:
+    #just throw away introductions
+    if remove_introduction and "Introduction" in discussion["title"]:
+      discussions.remove(discussion)
+
+    if "Gallery" in discussion["title"]:
+      print(discussion, "Removed\n")
+      gallery_discussions.append(discussion)
+      discussions.remove(discussion)
+  return gallery_discussions
+
+def duplicate_item(course_id, item, module=None):
+  item_id =  item["url"].split('/')[-1] #grab the resource id off the end of the url
+  type_ = item["type"]
+  print(f"Duplicating assignment {item_id}")
+
+  if type_ == "Assignment":
+    url = f"{api_url}/courses/{course_id}/assignments/{item_id}/duplicate"
+  elif type_ == "Discussion":
+    url = f"{api_url}/courses/{course_id}/discussion_topics/{item_id}/duplicate"
+
+  print(url)
+  response = requests.post(url, headers=headers)
+  if not response.ok:
+    print(response)
+    raise response.raise_for_status()
+  item = response.json()
+
+  print(f"Adding {type_} {item['title']} to module {module['name']}")
+  url = f"{api_url}/courses/{course_id}/modules/{module['id']}/items"
+  print(url)
+  payload = {
+    "module_item[title]" : item["title"],
+    "module_item[content_id]" : item["id"],
+    "module_item[type]" : type_,
+    "module_item[indent]" : 1,
+    "module_item[position]" : 999
+    }
+
+  print(payload)
+  response = requests.post(url, headers=headers, data = payload)
+  if not response.ok:
+    print(response.json())
+    raise response.raise_for_status()
+
+  print(response.json())
+  return item
+
+def get_old_module_number(module):  
+    title_words = module["name"].split(" ")
+    if ( "week" in title_words[0].lower()):
+      return title_words[1]
+    return False
+
+def get_old_module_title(module):  
+    #if the module name is "Week X" return the name of the subheader
+    title_words = module["name"].split(" ")
+    if ( "week" in title_words[0].lower()):
+      return module["items"][0]["title"]
+
+    #if the module name is not "Week X" just return the full module name
+    return module["name"]
+
+def find_new_module_by_number(number, modules):
+ return next( filter ( lambda module: f"Module {number}" in module["name"], modules) )
+
 def update_weekly_overviews(course_id, old_course_id):
   url = f"{api_url}/courses/{old_course_id}/modules?include[]=items&include[]=content_details"
   response = requests.get(url, headers=headers)
@@ -105,8 +301,6 @@ def update_weekly_overviews(course_id, old_course_id):
   response = requests.get(url, headers=headers)
   print(response.status_code)
   modules = response.json()
-
-
 
   for old_module in old_modules:
     print(old_module["name"])
@@ -172,7 +366,6 @@ def new_overview_page_html(overview_page_body, title, description, learning_obje
   contents[1].string = "[insert weekly objectives, bulleted list]"
 
   body = soup.prettify()
-
 
   body = re.sub('\[title of week\]', f"{title}", body)
   body = re.sub('\[Insert.*text\]', f"{description}", body)
