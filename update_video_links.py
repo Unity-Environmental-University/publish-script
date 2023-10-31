@@ -629,8 +629,21 @@ def get_week_1_preview(course_id):
 
 def update_learning_materials(course_id):
   for i in range(1,9):
-    old_url = f"{api_url}/courses/{course_id}/pages/week_{i}_learning_materials-2"
+
+    #get the latest page matching the learning materials search
+    url = f"{api_url}/courses/{course_id}/pages/"
+    response = requests.get(url, headers=headers, data={
+      "sort" : "created_at",
+      "search_term" : f"Week {i} Learning Materials"
+      })
+    if not response.ok:
+      raise Exception(response.json())
+
+    old_lm_url = response.json()[-1]["url"]
+
+    old_url = f"{api_url}/courses/{course_id}/pages/{old_lm_url}"
     new_url = f"{api_url}/courses/{course_id}/pages/week_{i}_learning_materials"
+    print(f"copying from {old_url} to {new_url}")
 
     old_page_response = requests.get(old_url, headers=headers)
     if old_page_response.status_code != 200:
