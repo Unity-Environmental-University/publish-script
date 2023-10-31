@@ -176,9 +176,70 @@ def create_missing_assignments_in_module(module, old_module, course_id, old_cour
     for _ in range(0, difference):
       duplicate_item(course_id, gallery_discussion_template, module)
 
+def get_old_file_url_to_new_file_lookup_table(course_id, old_course_id):
+
+    files = get_paged_data(f"{api_url}/courses/{course_id}/files?per_page=100")
+    old_files = get_paged_data(f"{api_url}/courses/{old_course_id}/files?per_page=100")
+
+
+    old_file_url_lookup_table = dict()
+    for old_file in old_files:
+      #match files by name and size
+      file = list( filter( lambda a: old_file["filename"] == a["filename"], files) )[0]
+      old_file_url_lookup_table[old_file["id"]] = file
+
+    return old_file_url_lookup_table  
+
+def get_assignments_lookup_table(modules, old_modules):
+  old_id_to_id_lut = dict()
+
+  for old_module in old_modules:
+    items = old_module["items"]
+
+    #skip non-week modules
+    number = get_old_module_number(old_module)
+    name = get_old_module_title(old_module)
+    if not number:
+      continue
+
+    module = find_new_module_by_number(number, modules)
+  
+    old_assignments = list ( filter( lambda item: item["type"] == "Assignment", old_module["items"]) )
+    assignments = list( filter( lambda item: item["type"] == "Assignment", module["items"]) )
+  
+    old_discussions = list ( filter( lambda item: item["type"] == "Discussion", old_module["items"]) )
+    old_gallery_discussions = remove_gallery_discussions(old_discussions)
+
+    discussions = list( filter( lambda item: item["type"] == "Discussion", module["items"]) )
+    gallery_discussions = remove_gallery_discussions(discussions)
+ 
+    populate_lookup_table(old_id_to_id_lut, old_assignments, assignments)
+    populate_lookup_table(old_id_to_id_lut, old_discussions, discussions)
+    populate_lookup_table(old_id_to_id_lut, old_gallery_discussions, gallery_discussions)
+
+  return old_id_to_id_lut
+
 def align_assignments(course_id, old_course_id):
   modules = get_modules(course_id)
   old_modules = get_modules(old_course_id)
+  old_id_to_id_lut = dict()
+
+  file_lut = get_old_file_url_to_new_file_lookup_table(course_id, old_course_id)
+  assignments_lut = get_assignments_lookup_table(modules, old_modules)
+
+  old_rubric_url = f"{api_url}/courses/{old_course_id}/rubrics"
+  rubric_url = f"{api_url}/courses/{course_id}/rubrics"
+
+  old_rubric_response = requests.get(old_rubric_url, headers=headers)
+  rubric_response = requests.get(rubric_url, headers=headers)
+   
+  assert old_rubric_response.ok, "Can't get old course rubrics"
+  assert rubric_response.ok, "Can't get new course rubrics"
+
+  old_rubrics = old_rubric_response.json()
+  rubrics = rubric_response.json()
+
+  print(json.dumps(rubrics, indent=4))
 
   for old_module in old_modules:
     items = old_module["items"]
@@ -200,27 +261,46 @@ def align_assignments(course_id, old_course_id):
     discussions = list( filter( lambda item: item["type"] == "Discussion", module["items"]) )
     gallery_discussions = remove_gallery_discussions(discussions)
 
-    i = 0
-    if len(old_assignments) > len(assignments):
-      print (json.dumps(old_assignments, indent=1))
-      print (json.dumps(assignments, indent=1))
-      raise Exception("Number of assignments in new module is fewer than assignments in old module")
-    for old_assignment in old_assignments:
-      assignment = assignments[i]
-      print(f"Parsing {old_assignment['title']} into {assignment['title']}")
-      i = i + 1
+    def handle_gallery_discussion(item, old_item):
+      old_body = old_item["assignment"]["description"]
+      old_soup = BeautifulSoup(old_body)
+      print(old_soup.prettify())
+
+    handle_items(gallery_discussions, old_gallery_discussions, handle_gallery_discussion)
 
 
-    i = 0
-    if len(old_discussions) > len(discussions):
-      print (json.dumps(old_discussions, indent=1))
-      print (json.dumps(discussions, indent=1))
-      raise Exception("Number of discussions in new module is fewer than assignments in old module")
-    for old_item in old_discussions:
-      item = discussions[i]
-      print(f"Parsing {old_item['title']} into {item['title']}")
-      i = i + 1
 
+
+def handle_items(items, old_items, handle_func, course_id = None, old_course_id = None):
+  i = 0
+  for old_item in old_items:
+    item = items[i]
+    print(f"Parsing {old_item['title']} into {item['title']}")
+
+    url = item["url"]
+    old_url = old_item["url"]
+    response = requests.get(url, headers=headers)
+    assert response.ok, json.dumps(response.json(), indent=2)
+
+    old_response = requests.get(url, headers=headers)
+    assert old_response.ok, json.dumps(response.json(), indent=2)
+
+    item = response.json()
+    old_item = response.json()
+
+
+    handle_func(item, old_item)
+
+    i = i + 1
+
+def populate_lookup_table(lut, old_items, items):
+  i = 0
+  if len(old_items) > len(items):
+    raise Exception("Number of items in new module is fewer than items in old module")
+  for old_item in old_items:
+    item = items[i]
+    i = i + 1
+    lut[old_item["url"]] = item["url"]
 
 def remove_gallery_discussions(discussions, remove_introduction = True):
   gallery_discussions = []
@@ -230,7 +310,6 @@ def remove_gallery_discussions(discussions, remove_introduction = True):
       discussions.remove(discussion)
 
     if "Gallery" in discussion["title"]:
-      print(discussion, "Removed\n")
       gallery_discussions.append(discussion)
       discussions.remove(discussion)
   return gallery_discussions
@@ -737,9 +816,6 @@ def update_learning_materials(course_id):
       }
     )
     print(new_page["title"],response.status_code)
-
-
-
 
 def get_paged_data(url, headers=headers):
   response = requests.get(url, headers=headers)
