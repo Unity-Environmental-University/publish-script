@@ -265,83 +265,12 @@ def align_assignments(course_id, old_course_id):
     gallery_discussion_number = 1
     assignment_number = 1
 
-    def handle_gallery_discussion(item, old_item, put_url):
-      nonlocal gallery_discussion_number
-      nonlocal old_gallery_discussions
 
-      old_name = old_item["title"]
-      name = item["title"]
+    handle_items(gallery_discussions, old_gallery_discussions, handle_discussion, f"Week {number} " +  "Gallery Discussion {display_number}- {name}")
+    handle_items(discussions, old_discussions, handle_discussion, f"Week {number} " + "Discussion {display_number}- {name}")
+    handle_items(assignments, old_assignments, handle_assignment, f"Week {number} " + " Assignment {display_number}- {name}")
 
-      display_number = ""
-      if len(old_gallery_discussions) > 1:
-        display_number = f"{gallery_discussion_number} "
-
-      new_name = f"Week {number} Gallery Discussion {display_number}- {old_item['title'].split(':')[-1].lstrip()}"
-      print(f"migrating {old_name} to {name}")
-      print(new_name)
-      old_body = old_item["message"]
-      old_soup = BeautifulSoup(old_body, 'lxml')
-      gallery_discussion_number = gallery_discussion_number + 1
-
-      response = requests.put(put_url, headers=headers, data= {
-        "title" : new_name
-        })
-
-
-    def handle_discussion(item, old_item, put_url):
-      nonlocal discussion_number
-      nonlocal old_discussions
-
-      old_name = old_item["title"]
-      name = item["title"]
-
-      display_number = ""
-      if len(old_discussions) > 1:
-        display_number = f"{discussion_number} "
-
-      new_name = f"Week {number} Discussion {display_number}- {old_item['title'].split(':')[-1].lstrip()}"
-      print(f"migrating {old_name} to {name}")
-      print(new_name)
-      old_body = old_item["message"]
-      old_soup = BeautifulSoup(old_body)
-      discussion_number = discussion_number + 1
-
-      response = requests.put(put_url, headers=headers, data= {
-        "title" : new_name
-        })
-
-
-    def handle_assignment(item, old_item, put_url):
-      nonlocal assignment_number
-      nonlocal old_assignments
-
-      old_name = old_item["name"]
-      name = item["name"]
-
-      display_number = ""
-      if len(old_assignments) > 1:
-        display_number = f"{assignment_number} "
-
-
-      new_name = f"Week {number} Assignment {display_number}- {old_item['name'].split(':')[-1].lstrip()}"
-      print(f"migrating {old_name} to {name}")
-      print(new_name)
-      old_body = old_item["description"]
-      old_soup = BeautifulSoup(old_body)
-      assignment_number = assignment_number + 1
-
-      response = requests.put(put_url, headers=headers, data= {
-        "assignment[name]" : new_name
-        })
-
-
-    handle_items(gallery_discussions, old_gallery_discussions, handle_gallery_discussion)
-    handle_items(discussions, old_discussions, handle_discussion)
-    handle_items(assignments, old_assignments, handle_assignment)
-
-
-
-def handle_items(items, old_items, handle_func, course_id = None, old_course_id = None):
+def handle_items(items, old_items, handle_func, format_title):
   i = 0
   for old_item in old_items:
     item = items[i]
@@ -359,9 +288,47 @@ def handle_items(items, old_items, handle_func, course_id = None, old_course_id 
     old_item = old_response.json()
 
 
-    handle_func(item, old_item, url)
-
+    handle_func(item, old_item, url, i, len(old_items), format_title)
     i = i + 1
+
+def handle_discussion(item, old_item, put_url, index, total, format_title):
+
+  old_name = old_item["title"]
+  name = item["title"]
+
+  display_number = ""
+  if total > 1:
+    display_number = f"{index + 1} "
+
+  new_name = format_title.format(display_number=display_number, name=old_name.split(':')[-1].lstrip())
+  print(f"migrating {old_name} to {name}")
+  old_body = old_item["message"]
+  old_soup = BeautifulSoup(old_body, 'lxml')
+
+  response = requests.put(put_url, headers=headers, data= {
+    "title" : new_name
+    })
+
+
+
+
+def handle_assignment(item, old_item, put_url, index, total, format_title):
+  old_name = old_item["name"]
+  name = item["name"]
+
+  display_number = ""
+  if total > 1:
+    display_number = f"{index + 1} "
+
+  new_name = format_title.format(display_number=display_number, name=old_name.split(':')[-1].lstrip())
+  print(f"migrating {old_name} to {name}")
+
+  old_body = old_item["description"]
+  old_soup = BeautifulSoup(old_body, 'lxml')
+
+  response = requests.put(put_url, headers=headers, data= {
+    "assignment[name]" : new_name
+    })
 
 def populate_lookup_table(lut, old_items, items):
   i = 0
