@@ -222,7 +222,6 @@ def align_assignments(course_id, old_course_id):
       i = i + 1
 
 
-
 def remove_gallery_discussions(discussions, remove_introduction = True):
   gallery_discussions = []
   for discussion in discussions:
