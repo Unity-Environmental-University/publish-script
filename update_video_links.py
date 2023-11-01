@@ -240,8 +240,8 @@ def get_rubrics_lookup_table(rubrics, old_rubrics ):
   out = dict()
   for old_rubric in old_rubrics:
     print(old_rubric["title"])
-    rubric = list( filter( lambda a: a["title"] == old_rubric["title"], rubrics) )
-    print(rubric[0]["title"])
+    rubric = next( filter( lambda a: a["title"] == old_rubric["title"], rubrics) ) 
+    print(rubric["title"])
     out[ old_rubric["id"] ] = rubric
 
   return out
@@ -255,7 +255,6 @@ def align_assignments(course_id, old_course_id):
   assignments_lut = get_assignments_lookup_table(modules, old_modules)
 
 
-  print("Getting Rubrics")
   old_rubric_url = f"{api_url}/courses/{old_course_id}/rubrics?per_page=100"
   rubric_url = f"{api_url}/courses/{course_id}/rubrics?per_page=100"
 
@@ -267,7 +266,7 @@ def align_assignments(course_id, old_course_id):
   rubrics = get_paged_data(rubric_url)
 
   rubrics_lut = get_rubrics_lookup_table(rubrics, old_rubrics)
-  print (json.dumps(assignments_lut, indent=2))
+  print(assignments_lut.keys())
   for old_rubric in old_rubrics:
     try:
 
@@ -283,7 +282,10 @@ def align_assignments(course_id, old_course_id):
 
           rubric = rubrics_lut[ old_rubric["id"] ]
           print("assigning...")
-          assignment = assignments_lut[old_item_id]
+          assignment = assignments_lut[str(old_item_id)]
+          print(type(assignment))
+          print(assignment)
+          print(rubric)
           payload = {
             "rubric_association[rubric_id]" : rubric["id"],
             "rubric_association[association_id]": assignment["id"],        
@@ -296,12 +298,13 @@ def align_assignments(course_id, old_course_id):
           print(payload)
           url = f"{api_url}/courses/{course_id}/rubrics/{rubric['id']}"
           response = requests.put(url, headers=headers, data = payload)
-          print (response)
+          print (response.json())
 
     except Exception as e:
       print("---ERROR---")
-      print(f"Problem with {old_rubric}...")
-      print(e)
+      print(f"Problem with {old_rubric['id']}...")
+      print(type(e))
+      print(e.args)
       print("---/ERROR---")
 
 
