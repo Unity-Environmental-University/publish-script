@@ -107,6 +107,7 @@ def main():
     if tk.messagebox.askyesno(message="Do you want to try to update the weekly overviews?"):
       update_weekly_overviews(course_id, old_course_id)       
 
+    tk.messagebox.showinfo(message="Finished!")
 
 def get_modules(course_id):
   url = f"{api_url}/courses/{course_id}/modules?include[]=items&include[]=content_details"
