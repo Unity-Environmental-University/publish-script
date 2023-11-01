@@ -213,33 +213,82 @@ def get_assignments_lookup_table(modules, old_modules):
     discussions = list( filter( lambda item: item["type"] == "Discussion", module["items"]) )
     gallery_discussions = remove_gallery_discussions(discussions)
  
-    populate_lookup_table(old_id_to_id_lut, old_assignments, assignments)
-    populate_lookup_table(old_id_to_id_lut, old_discussions, discussions)
-    populate_lookup_table(old_id_to_id_lut, old_gallery_discussions, gallery_discussions)
+    populate_lookup_table(old_id_to_id_lut, assignments, old_assignments)
+    populate_lookup_table(old_id_to_id_lut, discussions, old_discussions)
+    populate_lookup_table(old_id_to_id_lut, gallery_discussions, old_gallery_discussions)
 
   return old_id_to_id_lut
+
+def get_rubrics_lookup_table(rubrics, old_rubrics ):
+  out = dict()
+  for old_rubric in old_rubrics:
+    print(old_rubric["title"])
+    rubric = list( filter( lambda a: a["title"] == old_rubric["title"], rubrics) )
+    print(rubric[0]["title"])
+    out[ old_rubric["id"] ] = rubric
+
+  return out
 
 def align_assignments(course_id, old_course_id):
   modules = get_modules(course_id)
   old_modules = get_modules(old_course_id)
   old_id_to_id_lut = dict()
 
-  file_lut = get_old_file_url_to_new_file_lookup_table(course_id, old_course_id)
+  #file_lut = get_old_file_url_to_new_file_lookup_table(course_id, old_course_id)
   assignments_lut = get_assignments_lookup_table(modules, old_modules)
 
-  old_rubric_url = f"{api_url}/courses/{old_course_id}/rubrics"
-  rubric_url = f"{api_url}/courses/{course_id}/rubrics"
 
-  old_rubric_response = requests.get(old_rubric_url, headers=headers)
-  rubric_response = requests.get(rubric_url, headers=headers)
-   
-  assert old_rubric_response.ok, "Can't get old course rubrics"
-  assert rubric_response.ok, "Can't get new course rubrics"
+  print("Getting Rubrics")
+  old_rubric_url = f"{api_url}/courses/{old_course_id}/rubrics?per_page=100"
+  rubric_url = f"{api_url}/courses/{course_id}/rubrics?per_page=100"
 
-  old_rubrics = old_rubric_response.json()
-  rubrics = rubric_response.json()
+  old_rubric_response = requests.post(old_rubric_url, headers=headers)
+  rubric_response = requests.post(rubric_url, headers=headers)
 
-  print(json.dumps(rubrics, indent=4))
+
+  old_rubrics = get_paged_data(old_rubric_url)
+  rubrics = get_paged_data(rubric_url)
+
+  rubrics_lut = get_rubrics_lookup_table(rubrics, old_rubrics)
+  print (json.dumps(assignments_lut, indent=2))
+  for old_rubric in old_rubrics:
+    try:
+
+      response = requests.get(f"{api_url}/courses/{old_course_id}/rubrics/{old_rubric['id']}", headers=headers, data={ "include[]" : "associations"} )
+      assert response.ok, f"problem getting rubric {old_rubric['id']} : {old_rubric['description']}"
+      old_rubric_data = response.json()
+      for association in old_rubric_data["associations"]:
+        old_item_id = association["association_id"]
+        print(old_item_id)
+        if association["association_type"] == "Assignment":
+          url = f"{api_url}/courses/{course_id}/rubric_associations"
+          print(url)
+
+          rubric = rubrics_lut[ old_rubric["id"] ]
+          print("assigning...")
+          print(json.dumps(rubric, indent=2))
+          assignment = assignments_lut[old_item_id]
+          payload = {
+            "rubric_association[rubric_id]" : rubric["id"],
+            "rubric_association[association_id]": assignment["id"],        
+            "rubric_association[type]" : "Assessment",
+            "rubric_association[use_for_grading]" : True,
+            "rubric_association[purpose]": "grading",
+            "skip_updating_points_possible": False
+
+          }
+          url = f"{api_url}/courses/{course_id}/rubrics/{rubric_id}"
+          response = requests.put(url, headers=headers, data = payload)
+          print (response)
+
+    except Exception as e:
+      print(f"Problem with {old_rubric['description'] }...")
+      print(e)
+
+
+
+
+  #print(json.dumps(rubrics_lut, indent=4))
 
   for old_module in old_modules:
     items = old_module["items"]
@@ -266,15 +315,32 @@ def align_assignments(course_id, old_course_id):
     assignment_number = 1
 
 
-    handle_items(gallery_discussions, old_gallery_discussions, handle_discussion, f"Week {number} " +  "Gallery Discussion {display_number}- {name}")
-    handle_items(discussions, old_discussions, handle_discussion, f"Week {number} " + "Discussion {display_number}- {name}")
-    handle_items(assignments, old_assignments, handle_assignment, f"Week {number} " + " Assignment {display_number}- {name}")
+    handle_items(gallery_discussions, old_gallery_discussions, rubrics_lut, handle_discussion, f"Week {number} " +  "Gallery Discussion {display_number}- {name}")
+    handle_items(discussions, old_discussions, rubrics_lut, handle_discussion, f"Week {number} " + "Discussion {display_number}- {name}")
+    handle_items(assignments, old_assignments, rubrics_lut, handle_assignment, f"Week {number} " + " Assignment {display_number}- {name}")
 
-def handle_items(items, old_items, handle_func, format_title):
+def handle_items(items, old_items, rubrics_lut, handle_func, format_title):
   i = 0
+
+
   for old_item in old_items:
+
+
     item = items[i]
     print(f"Parsing {old_item['title']} into {item['title']}")
+
+    course_id_regex = re.compile(f'{api_url}/courses/(\d+)/(assignments|discussion_topics)/(\d+)')
+    match = course_id_regex.match(items[0]["url"])
+    old_match = course_id_regex.match(old_item["url"])
+
+    assert match, f"regex broken for string {items[0]['url']}"
+    assert old_match, f"regex broken for string {old_item['url']}"
+    course_id = match.group(1)
+    item_id = match.group(3)
+    old_course_id = old_match.group(1)
+    old_item_id = old_match.group(1)
+
+
 
     url = item["url"]
     old_url = old_item["url"]
@@ -330,14 +396,15 @@ def handle_assignment(item, old_item, put_url, index, total, format_title):
     "assignment[name]" : new_name
     })
 
-def populate_lookup_table(lut, old_items, items):
+def populate_lookup_table(lut, items, old_items):
   i = 0
   if len(old_items) > len(items):
     raise Exception("Number of items in new module is fewer than items in old module")
   for old_item in old_items:
+    print(old_item)
     item = items[i]
     i = i + 1
-    lut[old_item["url"]] = item["url"]
+    lut[old_item["content_id"]] = item
 
 def remove_gallery_discussions(discussions, remove_introduction = True):
   gallery_discussions = []
