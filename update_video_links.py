@@ -99,14 +99,31 @@ def main():
 
   else:
     if tk.messagebox.askyesno(message="Do you want to update learning materials?"):
-      update_learning_materials(course_id)
+      try:
+        update_learning_materials(course_id)
+      except Exception as e:
+        tk.messagebox.showerror(message=f"there was a problem updating learning materials\n{e}")
 
     if tk.messagebox.askyesno(message="Do you want to update the syllabus and course overview?"):
-      update_syllabus_and_overview(course_id, old_course_id) 
+      try:
+        update_syllabus_and_overview(course_id, old_course_id) 
+      except Exception as e:
+        tk.messagebox.showerror(message=f"there was a problem updating the syllabus and overviews\n{e}")
 
     if tk.messagebox.askyesno(message="Do you want to try to update the weekly overviews?"):
-      update_weekly_overviews(course_id, old_course_id)       
+      try:
+        update_weekly_overviews(course_id, old_course_id)       
+      except Exception as e:
+        tk.messagebox.showerror(message=f"there was a problem updating weekly overviews\n{e}")
 
+    if tk.messagebox.askyesno(message="Do you want to align assignment names?"):
+      try:
+        create_missing_assignments(course_id, old_course_id)
+        align_assignments(course_id, old_course_id)
+      except Exception as e:
+        tk.messagebox.showerror(message=f"there was a problem aligning assignments_lut\n{e}")
+  
+    tk.messagebox.showinfo(message="Finished!")
 
 def get_modules(course_id):
   url = f"{api_url}/courses/{course_id}/modules?include[]=items&include[]=content_details"
@@ -732,9 +749,11 @@ def find_syllabus_title(soup):
   return title_p.text
 
 def get_section(soup, header_string):
-  header = soup.find("h4", string=header_string)
+  header = soup.find("h4", text=re.compile(header_string))
   if not header:
-    header = soup.find("strong", string=header_string).parent
+    header = soup.find("strong", text=re.compile(header_string))
+    print (header)
+    header = header.parent
   print(header)
   paragraphs = []
   el =  header.find_next_sibling()
