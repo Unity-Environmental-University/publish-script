@@ -283,7 +283,6 @@ def align_assignments(course_id, old_course_id):
 
           rubric = rubrics_lut[ old_rubric["id"] ]
           print("assigning...")
-          print(json.dumps(rubric, indent=2))
           assignment = assignments_lut[old_item_id]
           payload = {
             "rubric_association[rubric_id]" : rubric["id"],
@@ -294,13 +293,16 @@ def align_assignments(course_id, old_course_id):
             "skip_updating_points_possible": False
 
           }
-          url = f"{api_url}/courses/{course_id}/rubrics/{rubric_id}"
+          print(payload)
+          url = f"{api_url}/courses/{course_id}/rubrics/{rubric['id']}"
           response = requests.put(url, headers=headers, data = payload)
           print (response)
 
     except Exception as e:
-      print(f"Problem with {old_rubric['description'] }...")
+      print("---ERROR---")
+      print(f"Problem with {old_rubric}...")
       print(e)
+      print("---/ERROR---")
 
 
 
@@ -421,7 +423,7 @@ def populate_lookup_table(lut, items, old_items):
     print(old_item)
     item = items[i]
     i = i + 1
-    lut[old_item["content_id"]] = item
+    lut[str(old_item["content_id"]) ] = item
 
 def remove_gallery_discussions(discussions, remove_introduction = True):
   gallery_discussions = []
