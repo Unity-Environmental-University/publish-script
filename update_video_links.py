@@ -207,9 +207,8 @@ def get_old_file_url_to_new_file_lookup_table(course_id, old_course_id):
 
     return old_file_url_lookup_table  
 
-def get_assignments_lookup_table(modules, old_modules):
+def get_assignments_lookup_table(modules, old_modules, course_id, old_course_id):
   old_id_to_id_lut = dict()
-
   for old_module in old_modules:
     items = old_module["items"]
 
@@ -252,7 +251,26 @@ def align_assignments(course_id, old_course_id):
   old_id_to_id_lut = dict()
 
   #file_lut = get_old_file_url_to_new_file_lookup_table(course_id, old_course_id)
-  assignments_lut = get_assignments_lookup_table(modules, old_modules)
+  assignments_lut = get_assignments_lookup_table(modules, old_modules, course_id, old_course_id)
+
+  discussions = get_paged_data(f"{api_url}/courses/{course_id}/discussion_topics")
+  old_discussions = get_paged_data(f"{api_url}/courses/{old_course_id}/discussion_topics")
+
+  discussions_by_ids = dict()
+  for discussion in discussions:
+    discussions_by_ids[discussion['id'] ] = discussion
+
+  for old_discussion in old_discussions: 
+    if not str(old_discussion['id']) in assignments_lut:
+      print (f"Skipping {old_discussion['title']}")
+      continue
+
+    discussion_info = assignments_lut[ str(old_discussion['id']) ]
+    discussion_id = discussion_info['content_id']
+    print(f"looking for discussion {discussion_id}")
+    discussion = discussions_by_ids[ discussion_id ]
+    print(old_discussion['assignment_id'])
+    assignments_lut[ str(old_discussion['assignment_id']) ] = discussion
 
 
   old_rubric_url = f"{api_url}/courses/{old_course_id}/rubrics?per_page=100"
@@ -266,7 +284,6 @@ def align_assignments(course_id, old_course_id):
   rubrics = get_paged_data(rubric_url)
 
   rubrics_lut = get_rubrics_lookup_table(rubrics, old_rubrics)
-  print(assignments_lut.keys())
   for old_rubric in old_rubrics:
     try:
 
@@ -279,35 +296,46 @@ def align_assignments(course_id, old_course_id):
         if association["association_type"] == "Assignment":
           url = f"{api_url}/courses/{course_id}/rubric_associations"
           print(url)
-
+          print(assignments_lut.keys())
           rubric = rubrics_lut[ old_rubric["id"] ]
           print("assigning...")
           assignment = assignments_lut[str(old_item_id)]
-          print(type(assignment))
-          print(assignment)
-          print(rubric)
-          payload = {
-            "rubric_association[rubric_id]" : rubric["id"],
-            "rubric_association[association_id]": assignment["id"],        
-            "rubric_association[type]" : "Assessment",
-            "rubric_association[use_for_grading]" : True,
-            "rubric_association[purpose]": "grading",
-            "skip_updating_points_possible": False
+          print(assignment.keys())
+          print(json.dumps(assignment, indent=2))
+          assignment_id = ""
+          if "content_id" in assignment:
+            assignment_id = assignment["content_id"]
+          else:
+            assignment_id = assignment["assignment"]["id"]
 
+          payload = {
+            "rubric_association" : {
+              "association_id" : assignment_id, 
+              "rubric_id" : rubric["id"],
+              "association_type" : "Assessment",
+              "use_for_grading" : True,
+              "purpose": "grading`",
+            }
           }
+
+
           print(payload)
-          url = f"{api_url}/courses/{course_id}/rubrics/{rubric['id']}"
-          response = requests.put(url, headers=headers, data = payload)
-          print (response.json())
+          site_url = re.sub(r"/api/v1", "", api_url)
+          url = f"{site_url}/courses/{course_id}/rubric_associations"
+          print(url)
+          response = requests.post(url, headers=headers, data = payload)
+          print(response)
+          assert response.ok
 
     except Exception as e:
       print("---ERROR---")
       print(f"Problem with {old_rubric['id']}...")
       print(type(e))
       print(e.args)
+      raise e
       print("---/ERROR---")
 
-
+  exit()
 
 
   #print(json.dumps(rubrics_lut, indent=4))
