@@ -246,14 +246,7 @@ def get_rubrics_lookup_table(rubrics, old_rubrics ):
 
   return out
 
-def align_assignments(course_id, old_course_id):
-  modules = get_modules(course_id)
-  old_modules = get_modules(old_course_id)
-  old_id_to_id_lut = dict()
-
-  #file_lut = get_old_file_url_to_new_file_lookup_table(course_id, old_course_id)
-  assignments_lut = get_assignments_lookup_table(modules, old_modules, course_id, old_course_id)
-
+def align_rubrics(course_id, old_course_id, assignments_lut):
   discussions = get_paged_data(f"{api_url}/courses/{course_id}/discussion_topics")
   old_discussions = get_paged_data(f"{api_url}/courses/{old_course_id}/discussion_topics")
 
@@ -294,8 +287,6 @@ def align_assignments(course_id, old_course_id):
         old_item_id = association["association_id"]
         print(old_item_id)
         if association["association_type"] == "Assignment":
-          url = f"{api_url}/courses/{course_id}/rubric_associations"
-          print(url)
           print(assignments_lut.keys())
           rubric = rubrics_lut[ old_rubric["id"] ]
           print("assigning...")
@@ -309,23 +300,25 @@ def align_assignments(course_id, old_course_id):
             assignment_id = assignment["assignment"]["id"]
 
           payload = {
-            "rubric_association" : {
-              "association_id" : assignment_id, 
-              "rubric_id" : rubric["id"],
-              "association_type" : "Assessment",
-              "use_for_grading" : True,
-              "purpose": "grading`",
-            }
+            "rubric_association[association_id]" : assignment_id, 
+            "rubric_association[rubric_id]" : rubric["id"],
+            "rubric_association[association_type]" : "Assignment",
+            "rubric_association[purpose]": "grading",
+            "rubric_association[use_for_grading]" : True,
           }
 
 
           print(payload)
           site_url = re.sub(r"/api/v1", "", api_url)
-          url = f"{site_url}/courses/{course_id}/rubric_associations"
+          url = f"{api_url}/courses/{course_id}/rubric_associations"
           print(url)
           response = requests.post(url, headers=headers, data = payload)
           print(response)
+
           assert response.ok
+          url = f"{api_url}/courses/{course_id}/rubrics/{rubric['id']}"
+
+
 
     except Exception as e:
       print("---ERROR---")
@@ -337,8 +330,19 @@ def align_assignments(course_id, old_course_id):
 
   exit()
 
-
   #print(json.dumps(rubrics_lut, indent=4))
+
+def align_assignments(course_id, old_course_id):
+  modules = get_modules(course_id)
+  old_modules = get_modules(old_course_id)
+  old_id_to_id_lut = dict()
+
+  #file_lut = get_old_file_url_to_new_file_lookup_table(course_id, old_course_id)
+  assignments_lut = get_assignments_lookup_table(modules, old_modules, course_id, old_course_id)
+
+  align_rubrics(course_id, old_course_id, assignments_lut)
+
+
 
   for old_module in old_modules:
     items = old_module["items"]
