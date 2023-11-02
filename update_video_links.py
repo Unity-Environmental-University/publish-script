@@ -552,8 +552,9 @@ def update_syllabus_and_overview(course_id, old_course_id):
   is_course_grad = not old_page.find(string="Poor, but Passing")
 
   title = find_syllabus_title(old_page)
-  description_paras = get_section(old_page, "Course Description:")
-  learning_objectives_paras = get_section(old_page, "Course Outcomes:")
+  description_paras = get_section(old_page, "Description:")
+  print(description_paras)
+  learning_objectives_paras = get_section(old_page, "Outcomes:")
   textbook_paras = get_section(old_page, "Textbook:")
   week_1_preview = get_week_1_preview(course_id)
 
@@ -575,16 +576,19 @@ def update_syllabus_and_overview(course_id, old_course_id):
         textbook = "\n".join(map(lambda p: p.prettify(), textbook_paras)),
       )
   except Exception as e:
+    print(type(e))
     print(e)
-    tk.messagebox.showerror(message="syllabus_template.html missing. Please download the latests from drive.")
+    tk.messagebox.showerror(message=f'''
+      syllabus_template.html problem. It may be missing or out of date. Please download the latests from drive.
+      {type(e)}
+      {e.args}      
+      {e}
+      ''')
     exit()
 
   #update the new syllabus
-  print(text)
   submit_soup = BeautifulSoup(text, "lxml")
 
-
-  print(submit_soup.prettify())
 
   if is_course_grad:
     for el in list ( submit_soup.find_all("p", class_ = "undergrad") ):
@@ -596,8 +600,6 @@ def update_syllabus_and_overview(course_id, old_course_id):
       el.decompose()
     for el in list ( submit_soup.find_all("div", class_ = "grad") ):
       el.decompose()
-
-  print(submit_soup.prettify())
 
   response = requests.put(f'{api_url}/courses/{course_id}', 
     headers = headers,
@@ -664,7 +666,9 @@ def update_syllabus_and_overview(course_id, old_course_id):
         textbook = "\n".join(map(lambda p: p.prettify(), textbook_paras)),
       )
   except Exception as e:
-    tk.messagebox.showerror(message="overview_template.html missing. Please download the latests from drive.")
+    print(type(e))
+    print(e)
+    tk.messagebox.showerror(message=f"overview_template.html problem. It may be missing or out of date. Please download the latests from drive.\n{e}\n{e.args}")
     exit()
 
 
@@ -700,14 +704,22 @@ def find_syllabus_title(soup):
 
 def get_section(soup, header_string):
   header = soup.find("h4", text=re.compile(header_string))
+ 
+
   if not header:
     header = soup.find("strong", text=re.compile(header_string))
     print (header)
     if not header:
-      return None
-    header = header.parent
-  print(header)
+      return BeautifulSoup(f"<p>---Section {header_string} not found.---</p>", "lxml").find_all("p")
+    parent = header.parent
+    header.decompose()
+    header = parent
+    if len(header.text.rstrip()) > 0:
+      print (header.text)
+      return [header]
+
   paragraphs = []
+
   el =  header.find_next_sibling()
   print(el.name)
   while el and el.name != "h4":
