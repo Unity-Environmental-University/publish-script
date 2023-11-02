@@ -65,6 +65,7 @@ def main():
     exit()
   course = response.json()
 
+  assignments_lut={}
   if not old_course_id or old_course_id == 0:
     code = course["course_code"].split("_")[1][0:7]
     print("Code", code)
@@ -95,8 +96,18 @@ def main():
       assignment_id = sys.argv[id_index]
 
     if "assignments" in sys.argv:
+      old_modules = get_modules(old_course_id)
+      modules = get_modules(course_id)
+      assignments_lut = get_assignments_lookup_table(modules, old_modules, course_id, old_course_id)
       create_missing_assignments(course_id, old_course_id)
-      align_assignments(course_id, old_course_id)
+      align_assignments(course_id, old_course_id, assignments_lut)
+
+    if "rubrics" in sys.argv:
+      old_modules = get_modules(old_course_id)
+      modules = get_modules(course_id)
+      assignments_lut = assignments_lut if len(assignments_lut) > 0 else get_assignments_lookup_table(modules, old_modules, course_id, old_course_id)
+      align_rubrics(course_id, old_course_id, assignments_lut)
+
 
   else:
     if tk.messagebox.askyesno(message="Do you want to update learning materials?"):
@@ -117,10 +128,25 @@ def main():
       except Exception as e:
         tk.messagebox.showerror(message=f"there was a problem updating weekly overviews\n{e}")
 
-    if tk.messagebox.askyesno(message="Do you want to align assignment names?"):
+    if tk.messagebox.askyesno(message="Do you want to update assignments?"):
       try:
+        print("Getting modules")
+        old_modules = get_modules(old_course_id)
+        modules = get_modules(course_id)
+        assignments_lut = assignments_lut if len(assignments_lut) > 0 else get_assignments_lookup_table(modules, old_modules, course_id, old_course_id)
+        print("Creating missing assignments")
         create_missing_assignments(course_id, old_course_id)
-        align_assignments(course_id, old_course_id)
+        print("Updating assignments")
+        align_assignments(course_id, old_course_id, assignments_lut)
+      except Exception as e:
+        tk.messagebox.showerror(message=f"there was a problem aligning assignments_lut\n{e}")
+
+    if tk.messagebox.askyesno(message="Do you want to update rubrics?"):
+      try:
+        old_modules = get_modules(old_course_id)
+        modules = get_modules(course_id)
+        assignments_lut = assignments_lut if len(assignments_lut) > 0 else get_assignments_lookup_table(modules, old_modules, course_id, old_course_id)
+        align_rubrics(course_id, old_course_id, assignments_lut)
       except Exception as e:
         tk.messagebox.showerror(message=f"there was a problem aligning assignments_lut\n{e}")
   
@@ -204,7 +230,7 @@ def get_old_file_url_to_new_file_lookup_table(course_id, old_course_id):
     for old_file in old_files:
       #match files by name and size
       file = list( filter( lambda a: old_file["filename"] == a["filename"], files) )[0]
-      old_file_url_lookup_table[old_file["id"]] = file
+      old_file_url_lookup_table[str(old_file["id"])] = file
 
     return old_file_url_lookup_table  
 
@@ -328,20 +354,14 @@ def align_rubrics(course_id, old_course_id, assignments_lut):
       raise e
       print("---/ERROR---")
 
-  exit()
 
-  #print(json.dumps(rubrics_lut, indent=4))
 
-def align_assignments(course_id, old_course_id):
+def align_assignments(course_id, old_course_id, assignments_lut):
   modules = get_modules(course_id)
   old_modules = get_modules(old_course_id)
   old_id_to_id_lut = dict()
 
-  #file_lut = get_old_file_url_to_new_file_lookup_table(course_id, old_course_id)
-  assignments_lut = get_assignments_lookup_table(modules, old_modules, course_id, old_course_id)
-
-  align_rubrics(course_id, old_course_id, assignments_lut)
-
+  files_lut = get_old_file_url_to_new_file_lookup_table(course_id, old_course_id)
 
 
   for old_module in old_modules:
@@ -369,17 +389,40 @@ def align_assignments(course_id, old_course_id):
     assignment_number = 1
 
 
-    handle_items(gallery_discussions, old_gallery_discussions, rubrics_lut, handle_discussion, f"Week {number} " +  "Gallery Discussion {display_number}- {name}")
-    handle_items(discussions, old_discussions, rubrics_lut, handle_discussion, f"Week {number} " + "Discussion {display_number}- {name}")
-    handle_items(assignments, old_assignments, rubrics_lut, handle_assignment, f"Week {number} " + " Assignment {display_number}- {name}")
+    handle_items(gallery_discussions, old_gallery_discussions, handle_discussion, f"Week {number} " +  "Gallery Discussion {display_number}- {name}", files_lut, assignments_lut)
+    handle_items(discussions, old_discussions, handle_discussion, f"Week {number} " + "Discussion {display_number}- {name}", files_lut, assignments_lut)
+    handle_items(assignments, old_assignments, handle_assignment, f"Week {number} " + " Assignment {display_number}- {name}", files_lut, assignments_lut)
 
-def handle_items(items, old_items, rubrics_lut, handle_func, format_title):
+
+def update_links(soup, files_lut, assignments_lut):
+  links = soup.find_all('a')
+  for link in links:
+    match = re.search(r"files\/([0-9]+)", link['href'])
+    if match:
+      groups = match.groups()
+      old_id = groups[0]
+      if old_id in files_lut:
+        print(old_id)
+        new_file = files_lut[old_id]
+        link["href"] = new_file['url']
+        print("--->" + link["href"])
+
+  imgs = soup.find_all('img')
+  for link in imgs:
+    match = re.search(r"files\/([0-9]+)", link['src'])
+    if match:
+      groups = match.groups()
+      old_id = groups[0]
+      if old_id in files_lut:
+        new_file = files_lut[old_id]
+        link["src"] = new_file ['url']
+        print("--->" + link["src"])
+
+def handle_items(items, old_items, handle_func, format_title, files_lut, assignments_lut):
   i = 0
 
 
   for old_item in old_items:
-
-
     item = items[i]
     print(f"Parsing {old_item['title']} into {item['title']}")
 
@@ -407,11 +450,10 @@ def handle_items(items, old_items, rubrics_lut, handle_func, format_title):
     item = response.json()
     old_item = old_response.json()
 
-
-    handle_func(item, old_item, url, i, len(old_items), format_title)
+    handle_func(item, old_item, url, i, len(old_items), format_title, files_lut, assignments_lut)
     i = i + 1
 
-def handle_discussion(item, old_item, put_url, index, total, format_title):
+def handle_discussion(item, old_item, put_url, index, total, format_title, files_lut, assignments_lut):
 
   old_name = old_item["title"]
   name = item["title"]
@@ -423,16 +465,32 @@ def handle_discussion(item, old_item, put_url, index, total, format_title):
   new_name = format_title.format(display_number=display_number, name=old_name.split(':')[-1].lstrip())
   print(f"migrating {old_name} to {name}")
   old_body = old_item["message"]
-  old_soup = BeautifulSoup(old_body, 'lxml')
+  body = item["message"]
 
+  old_soup = BeautifulSoup(old_body, 'lxml')
+  soup = BeautifulSoup(body, 'lxml')
+
+  contents = old_soup.find('div', class_="column")
+
+  insert_el = soup.find('div', id="migrate_insert")
+  if not insert_el:
+    insert_el = soup.new_tag('div', id="migrate_insert")
+    soup.body.insert(len(soup.body.contents), insert_el)
+
+  if contents:
+    insert_el.clear()
+    insert_el.append(contents)
+
+  update_links(soup, files_lut, assignments_lut)
   response = requests.put(put_url, headers=headers, data= {
-    "title" : new_name
+    "title" : new_name,
+    "message" : soup.prettify()
     })
 
 
 
 
-def handle_assignment(item, old_item, put_url, index, total, format_title):
+def handle_assignment(item, old_item, put_url, index, total, format_title, files_lut, assignments_lut):
   old_name = old_item["name"]
   name = item["name"]
 
@@ -445,9 +503,27 @@ def handle_assignment(item, old_item, put_url, index, total, format_title):
 
   old_body = old_item["description"]
   old_soup = BeautifulSoup(old_body, 'lxml')
+  body = item["description"]
+  soup = BeautifulSoup(body, 'lxml')
+
+  contents = old_soup.find('div', class_="column")
+  if not contents:
+    contents = old_soup.body
+
+  insert_el = soup.find('div', id="migrate_insert")
+  if not insert_el:
+    insert_el = soup.new_tag('div', id="migrate_insert")
+    soup.body.insert(len(soup.body.contents), insert_el)
+
+  insert_el.clear()
+  insert_el.append(contents)
+  update_links(soup, files_lut, assignments_lut)
+
+  new_text = soup.prettify()
 
   response = requests.put(put_url, headers=headers, data= {
-    "assignment[name]" : new_name
+    "assignment[name]" : new_name,
+    "assignment[description]" : new_text
     })
 
 def populate_lookup_table(lut, items, old_items):
