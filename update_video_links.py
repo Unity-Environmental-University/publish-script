@@ -85,21 +85,12 @@ def main():
       update_syllabus_and_overview(course_id, old_course_id)
     if "overviews" in sys.argv:
       update_weekly_overviews(course_id, old_course_id)
-
-    if "assignment" in sys.argv:
-      update_weekly_overviews(course_id, old_course_id)
-      id_index = sys.argv('assignment') + 1
-      if not len(sys.argv) > id_index:
-        print("Error: Assignment id not provided")
-        exit()
-
-      assignment_id = sys.argv[id_index]
-
     if "assignments" in sys.argv:
       old_modules = get_modules(old_course_id)
       modules = get_modules(course_id)
-      assignments_lut = get_assignments_lookup_table(modules, old_modules, course_id, old_course_id)
+      print("creating missing assignments")
       create_missing_assignments(course_id, old_course_id)
+      assignments_lut = get_assignments_lookup_table(modules, old_modules, course_id, old_course_id)
       align_assignments(course_id, old_course_id, assignments_lut)
 
     if "rubrics" in sys.argv:
@@ -133,9 +124,9 @@ def main():
         print("Getting modules")
         old_modules = get_modules(old_course_id)
         modules = get_modules(course_id)
-        assignments_lut = assignments_lut if len(assignments_lut) > 0 else get_assignments_lookup_table(modules, old_modules, course_id, old_course_id)
         print("Creating missing assignments")
         create_missing_assignments(course_id, old_course_id)
+        assignments_lut = assignments_lut if len(assignments_lut) > 0 else get_assignments_lookup_table(modules, old_modules, course_id, old_course_id)
         print("Updating assignments")
         align_assignments(course_id, old_course_id, assignments_lut)
       except Exception as e:
@@ -158,6 +149,7 @@ def get_modules(course_id):
   return response.json()
   
 def create_missing_assignments(course_id, old_course_id):
+  print("Creating missing assignments ")
   modules = get_modules(course_id)
   old_modules = get_modules(old_course_id)
 
@@ -165,7 +157,7 @@ def create_missing_assignments(course_id, old_course_id):
 
   for old_module in old_modules:
     items = old_module["items"]
-
+    print(old_module["name"])
     #skip non-week modules
     number = get_old_module_number(old_module)
     name = get_old_module_title(old_module)
@@ -256,6 +248,8 @@ def get_assignments_lookup_table(modules, old_modules, course_id, old_course_id)
     discussions = list( filter( lambda item: item["type"] == "Discussion", module["items"]) )
     gallery_discussions = remove_gallery_discussions(discussions)
  
+    print(discussions)
+    print(old_discussions)
     populate_lookup_table(old_id_to_id_lut, assignments, old_assignments)
     populate_lookup_table(old_id_to_id_lut, discussions, old_discussions)
     populate_lookup_table(old_id_to_id_lut, gallery_discussions, old_gallery_discussions)
@@ -516,7 +510,8 @@ def handle_assignment(item, old_item, put_url, index, total, format_title, files
     soup.body.insert(len(soup.body.contents), insert_el)
 
   insert_el.clear()
-  insert_el.append(contents)
+  if contents:
+      insert_el.append(contents)
   update_links(soup, files_lut, assignments_lut)
 
   new_text = soup.prettify()
