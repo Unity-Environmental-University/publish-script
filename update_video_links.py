@@ -37,6 +37,7 @@ try:
 
   account_id = 169877
 except Exception as e:
+  print(e)
   tk.messagebox.showerror(message=f"It looks like your constants file is missing some values. Ask hallie for a current copy of the constants.json file.\n{e}")
 
 
@@ -255,57 +256,6 @@ def align_assignments(course_id, old_course_id):
   assignments_lut = get_assignments_lookup_table(modules, old_modules)
 
 
-  old_rubric_url = f"{api_url}/courses/{old_course_id}/rubrics?per_page=100"
-  rubric_url = f"{api_url}/courses/{course_id}/rubrics?per_page=100"
-
-  old_rubric_response = requests.post(old_rubric_url, headers=headers)
-  rubric_response = requests.post(rubric_url, headers=headers)
-
-
-  old_rubrics = get_paged_data(old_rubric_url)
-  rubrics = get_paged_data(rubric_url)
-
-  rubrics_lut = get_rubrics_lookup_table(rubrics, old_rubrics)
-  print(assignments_lut.keys())
-  for old_rubric in old_rubrics:
-    try:
-
-      response = requests.get(f"{api_url}/courses/{old_course_id}/rubrics/{old_rubric['id']}", headers=headers, data={ "include[]" : "associations"} )
-      assert response.ok, f"problem getting rubric {old_rubric['id']} : {old_rubric['description']}"
-      old_rubric_data = response.json()
-      for association in old_rubric_data["associations"]:
-        old_item_id = association["association_id"]
-        print(old_item_id)
-        if association["association_type"] == "Assignment":
-          url = f"{api_url}/courses/{course_id}/rubric_associations"
-          print(url)
-
-          rubric = rubrics_lut[ old_rubric["id"] ]
-          print("assigning...")
-          assignment = assignments_lut[str(old_item_id)]
-          print(type(assignment))
-          print(assignment)
-          print(rubric)
-          payload = {
-            "rubric_association[rubric_id]" : rubric["id"],
-            "rubric_association[association_id]": assignment["id"],        
-            "rubric_association[type]" : "Assessment",
-            "rubric_association[use_for_grading]" : True,
-            "rubric_association[purpose]": "grading",
-            "skip_updating_points_possible": False
-
-          }
-          print(payload)
-          url = f"{api_url}/courses/{course_id}/rubrics/{rubric['id']}"
-          response = requests.put(url, headers=headers, data = payload)
-          print (response.json())
-
-    except Exception as e:
-      print("---ERROR---")
-      print(f"Problem with {old_rubric['id']}...")
-      print(type(e))
-      print(e.args)
-      print("---/ERROR---")
 
 
 
@@ -625,13 +575,16 @@ def update_syllabus_and_overview(course_id, old_course_id):
         textbook = "\n".join(map(lambda p: p.prettify(), textbook_paras)),
       )
   except Exception as e:
+    print(e)
     tk.messagebox.showerror(message="syllabus_template.html missing. Please download the latests from drive.")
     exit()
 
   #update the new syllabus
-
+  print(text)
   submit_soup = BeautifulSoup(text, "lxml")
 
+
+  print(submit_soup.prettify())
 
   if is_course_grad:
     for el in list ( submit_soup.find_all("p", class_ = "undergrad") ):
@@ -643,6 +596,8 @@ def update_syllabus_and_overview(course_id, old_course_id):
       el.decompose()
     for el in list ( submit_soup.find_all("div", class_ = "grad") ):
       el.decompose()
+
+  print(submit_soup.prettify())
 
   response = requests.put(f'{api_url}/courses/{course_id}', 
     headers = headers,
@@ -662,8 +617,6 @@ def update_syllabus_and_overview(course_id, old_course_id):
 
   overview_module = next(filter(lambda module: module["position"] == 1, modules))
   page_id  = overview_module['items'][0]['page_url']
-  print(page_id)
-  print(overview_module ['items'][0])
   url = f"{api_url}/courses/{course_id}/pages/{page_id}"
 
   response = requests.get(url, headers=headers)
@@ -672,9 +625,7 @@ def update_syllabus_and_overview(course_id, old_course_id):
 
   overview_html = overview_page["body"]
   og_ov_soup = BeautifulSoup(overview_html, "lxml").body
-  print(og_ov_soup)
   overview_banner_img = og_ov_soup.find("img", width=750)
-  print(overview_banner_img)
   overview_banner_url = overview_banner_img["src"]
 
   #get assignment groups
@@ -727,11 +678,6 @@ def update_syllabus_and_overview(course_id, old_course_id):
       "wiki_page[body]" : submit_soup.prettify()
     }
   )  
-   #set_week_1_preview(new_page, get_week_1_preview(course_id))
-  #set_syllabus_description(new_page, description)
-  #set_syllabus_learning_objectives(new_page, learning_objectives)
-  #set_syllabus_dates(new_page, start_date, end_date, term_code)
-  #update_grading(new_page, is_course_grad)
 
 
   #update the new overview
@@ -744,7 +690,6 @@ def get_syllabus(course_id):
   url = f"{api_url}/courses/{course_id}?include[]=syllabus_body"
   response = requests.get(url, headers=headers)
   content = response.json()
-  print(content)
   return BeautifulSoup(content["syllabus_body"], "lxml")
 
 def find_syllabus_title(soup):
@@ -758,6 +703,8 @@ def get_section(soup, header_string):
   if not header:
     header = soup.find("strong", text=re.compile(header_string))
     print (header)
+    if not header:
+      return None
     header = header.parent
   print(header)
   paragraphs = []
