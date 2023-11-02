@@ -37,6 +37,7 @@ try:
 
   account_id = 169877
 except Exception as e:
+  print(e)
   tk.messagebox.showerror(message=f"It looks like your constants file is missing some values. Ask hallie for a current copy of the constants.json file.\n{e}")
 
 
@@ -271,7 +272,6 @@ def align_assignments(course_id, old_course_id):
     discussion = discussions_by_ids[ discussion_id ]
     print(old_discussion['assignment_id'])
     assignments_lut[ str(old_discussion['assignment_id']) ] = discussion
-
 
   old_rubric_url = f"{api_url}/courses/{old_course_id}/rubrics?per_page=100"
   rubric_url = f"{api_url}/courses/{course_id}/rubrics?per_page=100"
@@ -630,8 +630,9 @@ def update_syllabus_and_overview(course_id, old_course_id):
   is_course_grad = not old_page.find(string="Poor, but Passing")
 
   title = find_syllabus_title(old_page)
-  description_paras = get_section(old_page, "Course Description:")
-  learning_objectives_paras = get_section(old_page, "Course Outcomes:")
+  description_paras = get_section(old_page, "Description:")
+  print(description_paras)
+  learning_objectives_paras = get_section(old_page, "Outcomes:")
   textbook_paras = get_section(old_page, "Textbook:")
   week_1_preview = get_week_1_preview(course_id)
 
@@ -653,11 +654,17 @@ def update_syllabus_and_overview(course_id, old_course_id):
         textbook = "\n".join(map(lambda p: p.prettify(), textbook_paras)),
       )
   except Exception as e:
-    tk.messagebox.showerror(message="syllabus_template.html missing. Please download the latests from drive.")
+    print(type(e))
+    print(e)
+    tk.messagebox.showerror(message=f'''
+      syllabus_template.html problem. It may be missing or out of date. Please download the latests from drive.
+      {type(e)}
+      {e.args}      
+      {e}
+      ''')
     exit()
 
   #update the new syllabus
-
   submit_soup = BeautifulSoup(text, "lxml")
 
 
@@ -690,8 +697,6 @@ def update_syllabus_and_overview(course_id, old_course_id):
 
   overview_module = next(filter(lambda module: module["position"] == 1, modules))
   page_id  = overview_module['items'][0]['page_url']
-  print(page_id)
-  print(overview_module ['items'][0])
   url = f"{api_url}/courses/{course_id}/pages/{page_id}"
 
   response = requests.get(url, headers=headers)
@@ -700,9 +705,7 @@ def update_syllabus_and_overview(course_id, old_course_id):
 
   overview_html = overview_page["body"]
   og_ov_soup = BeautifulSoup(overview_html, "lxml").body
-  print(og_ov_soup)
   overview_banner_img = og_ov_soup.find("img", width=750)
-  print(overview_banner_img)
   overview_banner_url = overview_banner_img["src"]
 
   #get assignment groups
@@ -741,7 +744,9 @@ def update_syllabus_and_overview(course_id, old_course_id):
         textbook = "\n".join(map(lambda p: p.prettify(), textbook_paras)),
       )
   except Exception as e:
-    tk.messagebox.showerror(message="overview_template.html missing. Please download the latests from drive.")
+    print(type(e))
+    print(e)
+    tk.messagebox.showerror(message=f"overview_template.html problem. It may be missing or out of date. Please download the latests from drive.\n{e}\n{e.args}")
     exit()
 
 
@@ -755,11 +760,6 @@ def update_syllabus_and_overview(course_id, old_course_id):
       "wiki_page[body]" : submit_soup.prettify()
     }
   )  
-   #set_week_1_preview(new_page, get_week_1_preview(course_id))
-  #set_syllabus_description(new_page, description)
-  #set_syllabus_learning_objectives(new_page, learning_objectives)
-  #set_syllabus_dates(new_page, start_date, end_date, term_code)
-  #update_grading(new_page, is_course_grad)
 
 
   #update the new overview
@@ -772,7 +772,6 @@ def get_syllabus(course_id):
   url = f"{api_url}/courses/{course_id}?include[]=syllabus_body"
   response = requests.get(url, headers=headers)
   content = response.json()
-  print(content)
   return BeautifulSoup(content["syllabus_body"], "lxml")
 
 def find_syllabus_title(soup):
@@ -783,12 +782,22 @@ def find_syllabus_title(soup):
 
 def get_section(soup, header_string):
   header = soup.find("h4", text=re.compile(header_string))
+ 
+
   if not header:
     header = soup.find("strong", text=re.compile(header_string))
     print (header)
-    header = header.parent
-  print(header)
+    if not header:
+      return BeautifulSoup(f"<p>---Section {header_string} not found.---</p>", "lxml").find_all("p")
+    parent = header.parent
+    header.decompose()
+    header = parent
+    if len(header.text.rstrip()) > 0:
+      print (header.text)
+      return [header]
+
   paragraphs = []
+
   el =  header.find_next_sibling()
   print(el.name)
   while el and el.name != "h4":
