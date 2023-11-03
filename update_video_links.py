@@ -391,6 +391,9 @@ def align_assignments(course_id, old_course_id, assignments_lut):
 def update_links(soup, files_lut, assignments_lut):
   links = soup.find_all('a')
   for link in links:
+    print(link)
+    if not 'href' in link:
+      continue
     match = re.search(r"files\/([0-9]+)", link['href'])
     if match:
       groups = match.groups()
@@ -399,10 +402,14 @@ def update_links(soup, files_lut, assignments_lut):
         print(old_id)
         new_file = files_lut[old_id]
         link["href"] = new_file['url']
+        link["data_api_endpoint"] = new_file['url']
         print("--->" + link["href"])
 
   imgs = soup.find_all('img')
   for link in imgs:
+    print(link)
+    if not 'src' in link:
+      continue
     match = re.search(r"files\/([0-9]+)", link['src'])
     if match:
       groups = match.groups()
@@ -410,6 +417,7 @@ def update_links(soup, files_lut, assignments_lut):
       if old_id in files_lut:
         new_file = files_lut[old_id]
         link["src"] = new_file ['url']
+        link["data_api_endpoint"] = new_file['url']
         print("--->" + link["src"])
 
 def handle_items(items, old_items, handle_func, format_title, files_lut, assignments_lut):
@@ -456,7 +464,10 @@ def handle_discussion(item, old_item, put_url, index, total, format_title, files
   if total > 1:
     display_number = f"{index + 1} "
 
-  new_name = format_title.format(display_number=display_number, name=old_name.split(':')[-1].lstrip())
+  split = old_name.split(":")
+  if len(split) < 2:
+    split = old_name.split("-")
+  new_name = format_title.format(display_number=display_number, name=split[-1].lstrip())
   print(f"migrating {old_name} to {name}")
   old_body = old_item["message"]
   body = item["message"]
