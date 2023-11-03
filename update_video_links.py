@@ -48,9 +48,6 @@ def main():
   course_id = 0
   old_course_id = 0
 
-
-  #course = response.json()
-
   if len(sys.argv) > 1:
    course_id = sys.argv[1]
   else:
@@ -60,12 +57,12 @@ def main():
   url = f"{api_url}/courses/{course_id}"
   print(url)
   response = requests.get(url, headers=headers)
+  print(response)
   if response.status_code != 200:
     tk.messagebox.showinfo("report", f"Course not found.\n{response.text}")
     exit()
   course = response.json()
 
-  assignments_lut={}
   if not old_course_id or old_course_id == 0:
     code = course["course_code"].split("_")[1][0:7]
     print("Code", code)
@@ -78,32 +75,34 @@ def main():
       old_course_id = courses[0]["id"]
       print("Old course found", old_course_id, courses[0]["course_code"])
 
+
+  old_modules = get_modules(old_course_id)
+  modules = get_modules(course_id)
+
+  assignments_lut = get_assignments_lookup_table(modules, old_modules, course_id, old_course_id)
+  files_lut = get_old_file_url_to_new_file_lookup_table(course_id, old_course_id)
+
+
   if len(sys.argv) > 2:
     if  "lm" in sys.argv:
-      update_learning_materials(course_id)
+      update_learning_materials(course_id, old_course_id, files_lut, assignments_lut)
     if "syllabus" in sys.argv:
       update_syllabus_and_overview(course_id, old_course_id)
     if "overviews" in sys.argv:
       update_weekly_overviews(course_id, old_course_id)
     if "assignments" in sys.argv:
-      old_modules = get_modules(old_course_id)
-      modules = get_modules(course_id)
       print("creating missing assignments")
-      create_missing_assignments(course_id, old_course_id)
-      assignments_lut = get_assignments_lookup_table(modules, old_modules, course_id, old_course_id)
+      create_missing_assignments(modules, old_modules, course_id, old_course_id)
       align_assignments(course_id, old_course_id, assignments_lut)
 
     if "rubrics" in sys.argv:
-      old_modules = get_modules(old_course_id)
-      modules = get_modules(course_id)
-      assignments_lut = assignments_lut if len(assignments_lut) > 0 else get_assignments_lookup_table(modules, old_modules, course_id, old_course_id)
       align_rubrics(course_id, old_course_id, assignments_lut)
 
 
   else:
     if tk.messagebox.askyesno(message="Do you want to update learning materials?"):
       try:
-        update_learning_materials(course_id)
+        update_learning_materials(course_id, old_course_id, files_lut, assignments_lut)
       except Exception as e:
         tk.messagebox.showerror(message=f"there was a problem updating learning materials\n{e}")
 
@@ -121,25 +120,17 @@ def main():
 
     if tk.messagebox.askyesno(message="Do you want to update assignments?"):
       try:
-        print("Getting modules")
-        old_modules = get_modules(old_course_id)
-        modules = get_modules(course_id)
-        print("Creating missing assignments")
-        create_missing_assignments(course_id, old_course_id)
-        assignments_lut = assignments_lut if len(assignments_lut) > 0 else get_assignments_lookup_table(modules, old_modules, course_id, old_course_id)
-        print("Updating assignments")
+        create_missing_assignments(modules, old_modules, course_id, old_course_id)
+
         align_assignments(course_id, old_course_id, assignments_lut)
       except Exception as e:
-        tk.messagebox.showerror(message=f"there was a problem aligning assignments_lut\n{e}")
+        tk.messagebox.showerror(message=f"there was a problem updating assignments\n{e}")
 
     if tk.messagebox.askyesno(message="Do you want to update rubrics?"):
       try:
-        old_modules = get_modules(old_course_id)
-        modules = get_modules(course_id)
-        assignments_lut = assignments_lut if len(assignments_lut) > 0 else get_assignments_lookup_table(modules, old_modules, course_id, old_course_id)
         align_rubrics(course_id, old_course_id, assignments_lut)
       except Exception as e:
-        tk.messagebox.showerror(message=f"there was a problem aligning assignments_lut\n{e}")
+        tk.messagebox.showerror(message=f"there was a problem updating rubrics\n{e}")
   
     tk.messagebox.showinfo(message="Finished!")
 
@@ -148,7 +139,7 @@ def get_modules(course_id):
   response = requests.get(url, headers=headers)
   return response.json()
   
-def create_missing_assignments(course_id, old_course_id):
+def create_missing_assignments(modules, old_modules, course_id, old_course_id):
   print("Creating missing assignments ")
   modules = get_modules(course_id)
   old_modules = get_modules(old_course_id)
@@ -200,7 +191,7 @@ def create_missing_assignments_in_module(module, old_module, course_id, old_cour
   if difference > 0:
     added_items = True
 
-    #duplicate the first discussion as many times as it takes to get parity between assignments
+    #duplicate the first discussion as many times as it takes to get parity between discussions
     for _ in range(0, difference):
       duplicate_item(course_id, discussions[0], module)
 
@@ -208,7 +199,7 @@ def create_missing_assignments_in_module(module, old_module, course_id, old_cour
   if difference > 0:
     added_items = True
 
-    #duplicate the first discussion as many times as it takes to get parity between assignments
+    #duplicate the first gallery discussion as many times as it takes to get parity between gallery discussions
     for _ in range(0, difference):
       duplicate_item(course_id, gallery_discussion_template, module)
 
@@ -227,7 +218,10 @@ def get_old_file_url_to_new_file_lookup_table(course_id, old_course_id):
     return old_file_url_lookup_table  
 
 def get_assignments_lookup_table(modules, old_modules, course_id, old_course_id):
-  old_id_to_id_lut = dict()
+  assignments_lut = dict()
+
+  #build assignments from modules by getting assignments in order, discussions in order, and gallery discussion in order
+  print(old_modules)
   for old_module in old_modules:
     items = old_module["items"]
 
@@ -248,25 +242,10 @@ def get_assignments_lookup_table(modules, old_modules, course_id, old_course_id)
     discussions = list( filter( lambda item: item["type"] == "Discussion", module["items"]) )
     gallery_discussions = remove_gallery_discussions(discussions)
  
-    print(discussions)
-    print(old_discussions)
-    populate_lookup_table(old_id_to_id_lut, assignments, old_assignments)
-    populate_lookup_table(old_id_to_id_lut, discussions, old_discussions)
-    populate_lookup_table(old_id_to_id_lut, gallery_discussions, old_gallery_discussions)
+    populate_lookup_table(assignments_lut, assignments, old_assignments)
+    populate_lookup_table(assignments_lut, discussions, old_discussions)
+    populate_lookup_table(assignments_lut, gallery_discussions, old_gallery_discussions)
 
-  return old_id_to_id_lut
-
-def get_rubrics_lookup_table(rubrics, old_rubrics ):
-  out = dict()
-  for old_rubric in old_rubrics:
-    print(old_rubric["title"])
-    rubric = next( filter( lambda a: a["title"] == old_rubric["title"], rubrics) ) 
-    print(rubric["title"])
-    out[ old_rubric["id"] ] = rubric
-
-  return out
-
-def align_rubrics(course_id, old_course_id, assignments_lut):
   discussions = get_paged_data(f"{api_url}/courses/{course_id}/discussion_topics")
   old_discussions = get_paged_data(f"{api_url}/courses/{old_course_id}/discussion_topics")
 
@@ -285,6 +264,21 @@ def align_rubrics(course_id, old_course_id, assignments_lut):
     discussion = discussions_by_ids[ discussion_id ]
     print(old_discussion['assignment_id'])
     assignments_lut[ str(old_discussion['assignment_id']) ] = discussion
+
+
+  return assignments_lut
+
+def get_rubrics_lookup_table(rubrics, old_rubrics ):
+  out = dict()
+  for old_rubric in old_rubrics:
+    print(old_rubric["title"])
+    rubric = next( filter( lambda a: a["title"] == old_rubric["title"], rubrics) ) 
+    print(rubric["title"])
+    out[ old_rubric["id"] ] = rubric
+
+  return out
+
+def align_rubrics(course_id, old_course_id, assignments_lut):
 
   old_rubric_url = f"{api_url}/courses/{old_course_id}/rubrics?per_page=100"
   rubric_url = f"{api_url}/courses/{course_id}/rubrics?per_page=100"
@@ -383,46 +377,120 @@ def align_assignments(course_id, old_course_id, assignments_lut):
     assignment_number = 1
 
 
-    handle_items(gallery_discussions, old_gallery_discussions, handle_discussion, f"Week {number} " +  "Gallery Discussion {display_number}- {name}", files_lut, assignments_lut)
-    handle_items(discussions, old_discussions, handle_discussion, f"Week {number} " + "Discussion {display_number}- {name}", files_lut, assignments_lut)
-    handle_items(assignments, old_assignments, handle_assignment, f"Week {number} " + " Assignment {display_number}- {name}", files_lut, assignments_lut)
+    ctx = {
+        "files_lut" : files_lut,
+        "assignments_lut" : assignments_lut,
+        "course_id" : course_id,
+        "old_course_id" : old_course_id,
+    }
 
+    handle_items(gallery_discussions, old_gallery_discussions, handle_discussion, f"Week {number} " +  "Gallery Discussion {display_number}- {name}", ctx)
+    handle_items(discussions, old_discussions, handle_discussion, f"Week {number} " + "Discussion {display_number}- {name}", ctx)
+    handle_items(assignments, old_assignments, handle_assignment, f"Week {number} " + " Assignment {display_number}- {name}", ctx)
 
-def update_links(soup, files_lut, assignments_lut):
+#look through img and a tags. Replace src and href tags if they point to a file we know about. 
+#assignments coming
+
+def get_new_file_url(src, ctx):
+  files_lut = ctx["files_lut"]
+
+  file_match = re.search(r"files\/([0-9]+)", src)
+  if file_match:
+    groups = file_match.groups()
+    old_id = groups[0]
+    if old_id in files_lut:
+      print(old_id)
+      new_file = files_lut[old_id]
+      url = new_file['url']
+      url = re.sub('/download(.*)', '', url)        
+
+      return(url) 
+
+    return None
+
+def get_new_assignment_url(src, ctx):
+  assignments_lut = ctx["assignments_lut"]
+
+  file_match = re.search(r"(assignments|discussion_topics)\/([0-9]+)", src)
+  if file_match:
+    groups = file_match.groups()
+    old_id = groups[1]
+    if str(old_id) in assignments_lut:
+      print(old_id)
+      new_assignment = assignments_lut[str(old_id)]
+  
+      url = new_assignment['url']
+      url = re.sub('/download(.*)', '', url)        
+
+      return(url) 
+
+  return None
+
+def get_new_page_url(src, ctx):
+  #naively update link by keeping same path and updating course if
+  page_match = re.search(fr"courses\/{ctx['old_course_id']}/pages\/(.+)", src)
+  print(f"Remapping page {src}")
+  if page_match:
+    groups = page_match.groups()
+    path = groups[0]
+    print(path)
+    url = re.sub(f'/courses/.*', f'/courses/{ctx["course_id"]}/pages/{path}', src)        
+    print(url)
+    return url
+
+def update_links(soup, ctx):
+  files_lut  = ctx["files_lut"]
+  assignments_lut = ctx["assignments_lut"]
+  course_id = ctx["course_id"]
+  old_course_id = ctx["old_course_id"]
+
+  print("Updating Links")
+  #handle a tags
   links = soup.find_all('a')
   for link in links:
-    print(link)
-    if not 'href' in link:
+    if not link.has_attr('href'):
+      print("No Href in Link")
+      print(link)
       continue
-    match = re.search(r"files\/([0-9]+)", link['href'])
-    if match:
-      groups = match.groups()
-      old_id = groups[0]
-      if old_id in files_lut:
-        print(old_id)
-        new_file = files_lut[old_id]
-        link["href"] = new_file['url']
-        link["data_api_endpoint"] = new_file['url']
-        print("--->" + link["href"])
 
+    #skip outside links
+    if not "instructure" in link['href']: 
+      continue
+
+    print(link['href'])
+
+    #see if we can turn it into a new page, file, or assignment url
+    for func in [get_new_page_url, get_new_file_url, get_new_assignment_url]:
+      new_url = func(link["href"], ctx)
+      if new_url:
+        old_url = link['href']
+        link["href"] = new_url
+        link["data_api_endpoint"] = new_url
+        print(old_url + " ---> " + link["href"])
+        break
+
+
+
+
+
+  #handle images
   imgs = soup.find_all('img')
-  for link in imgs:
-    print(link)
-    if not 'src' in link:
+  for img in imgs:
+    if not img.has_attr('src'):
       continue
-    match = re.search(r"files\/([0-9]+)", link['src'])
-    if match:
-      groups = match.groups()
-      old_id = groups[0]
-      if old_id in files_lut:
-        new_file = files_lut[old_id]
-        link["src"] = new_file ['url']
-        link["data_api_endpoint"] = new_file['url']
-        print("--->" + link["src"])
+    if not 'instructure' in img['src']:
+      continue
+    new_url = get_new_file_url(img["src"], ctx)
+    
+    if new_url:
+      old_url = img['src']
+      img["src"] = new_file ['url']
+      img["data_api_endpoint"] = new_file['url']
+      print(old_url + " ---> " + img["src"])
 
-def handle_items(items, old_items, handle_func, format_title, files_lut, assignments_lut):
+
+def handle_items(items, old_items, handle_func, format_title, ctx):
   i = 0
-
 
   for old_item in old_items:
     item = items[i]
@@ -452,10 +520,13 @@ def handle_items(items, old_items, handle_func, format_title, files_lut, assignm
     item = response.json()
     old_item = old_response.json()
 
-    handle_func(item, old_item, url, i, len(old_items), format_title, files_lut, assignments_lut)
+    handle_func(item, old_item, url, i, len(old_items), format_title, ctx)
     i = i + 1
 
-def handle_discussion(item, old_item, put_url, index, total, format_title, files_lut, assignments_lut):
+def handle_discussion(item, old_item, put_url, index, total, format_title, ctx):
+
+  files_lut  = ctx["files_lut"]
+  assignments_lut = ctx["assignments_lut"]
 
   old_name = old_item["title"]
   name = item["title"]
@@ -486,7 +557,8 @@ def handle_discussion(item, old_item, put_url, index, total, format_title, files
     insert_el.clear()
     insert_el.append(contents)
 
-  update_links(soup, files_lut, assignments_lut)
+  update_links(soup, ctx)
+
   response = requests.put(put_url, headers=headers, data= {
     "title" : new_name,
     "message" : soup.prettify()
@@ -495,7 +567,12 @@ def handle_discussion(item, old_item, put_url, index, total, format_title, files
 
 
 
-def handle_assignment(item, old_item, put_url, index, total, format_title, files_lut, assignments_lut):
+def handle_assignment(item, old_item, put_url, index, total, format_title, ctx):
+
+  files_lut  = ctx["files_lut"]
+  assignments_lut = ctx["assignments_lut"]
+
+
   old_name = old_item["name"]
   name = item["name"]
 
@@ -523,7 +600,7 @@ def handle_assignment(item, old_item, put_url, index, total, format_title, files
   insert_el.clear()
   if contents:
       insert_el.append(contents)
-  update_links(soup, files_lut, assignments_lut)
+  update_links(soup, ctx)
 
   new_text = soup.prettify()
 
@@ -848,12 +925,6 @@ def update_syllabus_and_overview(course_id, old_course_id):
   )  
 
 
-  #update the new overview
-
-  #get existing course overview
-
-
-
 def get_syllabus(course_id):
   url = f"{api_url}/courses/{course_id}?include[]=syllabus_body"
   response = requests.get(url, headers=headers)
@@ -903,7 +974,6 @@ def replace_content(soup, header_string, list_of_new_contents):
 
   print(container)
 
-
 #https://codereview.stackexchange.com/questions/272811/converting-a-youtube-embed-link-to-a-regular-link-in-python
 def convert_to_watch_url(embed_url: str) -> str:
     """Convert a YouTube embed URL into a watch URL."""
@@ -927,7 +997,6 @@ def get_week_1_preview(course_id):
 
     h4 = lm_soup.find("h4")
     learning_materials =  get_section(lm_soup, "Please read and watch the following materials:")
-
 
     iframe = lm_soup.find("iframe")
     youtube_iframe_source = iframe["src"]
@@ -961,7 +1030,7 @@ def get_week_1_preview(course_id):
     return learning_materials
 
 
-def update_learning_materials(course_id):
+def update_learning_materials(course_id, old_course_id, files_lut, assignments_lut ):
   for i in range(1,9):
 
     #get the latest page matching the learning materials search
@@ -1050,10 +1119,9 @@ def update_learning_materials(course_id):
 
 
     #handle learning materials
-    accordion = new_soup.find("div", class_="cbt-accordion-container")
-
 
     #make a new accordion and just all the learning materials into it IF this accordion is a template
+    accordion = new_soup.find("div", class_="cbt-accordion-container")
     if accordion.find(string="[Title for first category of LMs]"):
       print("adding Learning Materials")
       new_content = copy.copy(accordion)
@@ -1065,6 +1133,14 @@ def update_learning_materials(course_id):
         print(el)
 
 
+
+    #update links
+    update_links(new_soup, {
+      "course_id" : course_id,
+      "old_course_id" : old_course_id,
+      "files_lut" : files_lut,
+      "assignments_lut" : assignments_lut,
+      })
 
     #save changes
     response = requests.put(f'{api_url}/courses/{course_id}/pages/{new_page["page_id"]}', 
