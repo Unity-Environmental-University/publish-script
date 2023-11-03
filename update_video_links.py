@@ -144,8 +144,6 @@ def create_missing_assignments(modules, old_modules, course_id, old_course_id):
   modules = get_modules(course_id)
   old_modules = get_modules(old_course_id)
 
-  gallery_discussion = None
-
   for old_module in old_modules:
     items = old_module["items"]
     print(old_module["name"])
@@ -160,6 +158,7 @@ def create_missing_assignments(modules, old_modules, course_id, old_course_id):
     #save off the gallery discussion
     print(number)
     if number == "1":
+      gallery_search = filter( lambda item: "Gallery Discussion" in item["title"], module["items"])
       gallery_discussion_template = next( filter( lambda item: "Gallery Discussion" in item["title"], module["items"]))
       print (gallery_discussion_template)
 
@@ -182,6 +181,11 @@ def create_missing_assignments_in_module(module, old_module, course_id, old_cour
   #get discussions and pull out gallery discussions to handle differently
   old_discussions = list ( filter( lambda item: item["type"] == "Discussion", old_module["items"]) )
   old_gallery_discussions = remove_gallery_discussions(old_discussions)
+  print("---------------------------------------")
+  print(old_discussions)
+  print("---------------------------------------")
+  print(old_gallery_discussions)
+  print("---------------------------------------")
 
   discussions = list( filter( lambda item: item["type"] == "Discussion", module["items"]) )
   gallery_discussions = remove_gallery_discussions(discussions)
@@ -199,7 +203,7 @@ def create_missing_assignments_in_module(module, old_module, course_id, old_cour
   if difference > 0:
     added_items = True
 
-    #duplicate the first gallery discussion as many times as it takes to get parity between gallery discussions
+    #duplicate the gallery discussion template as many times as it takes to get parity between gallery discussions
     for _ in range(0, difference):
       duplicate_item(course_id, gallery_discussion_template, module)
 
@@ -305,8 +309,6 @@ def align_rubrics(course_id, old_course_id, assignments_lut):
           rubric = rubrics_lut[ old_rubric["id"] ]
           print("assigning...")
           assignment = assignments_lut[str(old_item_id)]
-          print(assignment.keys())
-          print(json.dumps(assignment, indent=2))
           assignment_id = ""
           if "content_id" in assignment:
             assignment_id = assignment["content_id"]
@@ -322,10 +324,8 @@ def align_rubrics(course_id, old_course_id, assignments_lut):
           }
 
 
-          print(payload)
           site_url = re.sub(r"/api/v1", "", api_url)
           url = f"{api_url}/courses/{course_id}/rubric_associations"
-          print(url)
           response = requests.post(url, headers=headers, data = payload)
           print(response)
 
@@ -372,6 +372,8 @@ def align_assignments(course_id, old_course_id, assignments_lut):
     discussions = list( filter( lambda item: item["type"] == "Discussion", module["items"]) )
     gallery_discussions = remove_gallery_discussions(discussions)
 
+    print(old_gallery_discussions)
+
     discussion_number = 1
     gallery_discussion_number = 1
     assignment_number = 1
@@ -384,9 +386,9 @@ def align_assignments(course_id, old_course_id, assignments_lut):
         "old_course_id" : old_course_id,
     }
 
-    handle_items(gallery_discussions, old_gallery_discussions, handle_discussion, f"Week {number} " +  "Gallery Discussion {display_number}- {name}", ctx)
-    handle_items(discussions, old_discussions, handle_discussion, f"Week {number} " + "Discussion {display_number}- {name}", ctx)
-    handle_items(assignments, old_assignments, handle_assignment, f"Week {number} " + " Assignment {display_number}- {name}", ctx)
+    handle_items(gallery_discussions, old_gallery_discussions, handle_discussion, f"Week {number} " +  "Gallery Discussion {number}- {name}", ctx)
+    handle_items(discussions, old_discussions, handle_discussion, f"Week {number} " + "Discussion {number}- {name}", ctx)
+    handle_items(assignments, old_assignments, handle_assignment, f"Week {number} " + "Assignment {number}- {name}", ctx)
 
 #look through img and a tags. Replace src and href tags if they point to a file we know about. 
 #assignments coming
@@ -399,7 +401,6 @@ def get_new_file_url(src, ctx):
     groups = file_match.groups()
     old_id = groups[0]
     if old_id in files_lut:
-      print(old_id)
       new_file = files_lut[old_id]
       url = new_file['url']
       url = re.sub('/download(.*)', '', url)        
@@ -416,7 +417,6 @@ def get_new_assignment_url(src, ctx):
     groups = file_match.groups()
     old_id = groups[1]
     if str(old_id) in assignments_lut:
-      print(old_id)
       new_assignment = assignments_lut[str(old_id)]
   
       url = new_assignment['url']
@@ -433,9 +433,7 @@ def get_new_page_url(src, ctx):
   if page_match:
     groups = page_match.groups()
     path = groups[0]
-    print(path)
     url = re.sub(f'/courses/.*', f'/courses/{ctx["course_id"]}/pages/{path}', src)        
-    print(url)
     return url
 
 def update_links(soup, ctx):
@@ -466,7 +464,6 @@ def update_links(soup, ctx):
         old_url = link['href']
         link["href"] = new_url
         link["data_api_endpoint"] = new_url
-        print(old_url + " ---> " + link["href"])
         break
 
 
@@ -535,11 +532,9 @@ def handle_discussion(item, old_item, put_url, index, total, format_title, ctx):
   if total > 1:
     display_number = f"{index + 1} "
 
-  split = old_name.split(":")
-  if len(split) < 2:
-    split = old_name.split("-")
-  new_name = format_title.format(display_number=display_number, name=split[-1].lstrip())
-  print(f"migrating {old_name} to {name}")
+  title = re.sub(r'^.*[:-]\W+', '', old_name)
+  new_name = format_title.format(number=display_number, name=title)
+  print(f"migrating {old_name} to {new_name}")
   old_body = old_item["message"]
   body = item["message"]
 
@@ -580,8 +575,9 @@ def handle_assignment(item, old_item, put_url, index, total, format_title, ctx):
   if total > 1:
     display_number = f"{index + 1} "
 
-  new_name = format_title.format(display_number=display_number, name=old_name.split(':')[-1].lstrip())
-  print(f"migrating {old_name} to {name}")
+  title = re.sub(r'^.*[:—-]\W+', '', old_name)
+  new_name = format_title.format(number=display_number, name=title)
+  print(f"migrating {old_name} to {new_name}")
 
   old_body = old_item["description"]
   old_soup = BeautifulSoup(old_body, 'lxml')
@@ -620,15 +616,23 @@ def populate_lookup_table(lut, items, old_items):
     lut[str(old_item["content_id"]) ] = item
 
 def remove_gallery_discussions(discussions, remove_introduction = True):
+  print(discussions)
   gallery_discussions = []
+  to_remove = []
   for discussion in discussions:
     #just throw away introductions
     if remove_introduction and "Introduction" in discussion["title"]:
-      discussions.remove(discussion)
+      to_remove.append(discussion)
 
-    if "Gallery" in discussion["title"]:
+    print("removing gallery discussions")
+    print(discussion['title'])
+    print("Gallery in the title?", "allery" in discussion["title"])
+    if re.search(r'allery', discussion['title']):
       gallery_discussions.append(discussion)
-      discussions.remove(discussion)
+      to_remove.append(discussion)
+
+  for discussion in to_remove:
+    discussions.remove(discussion)
   return gallery_discussions
 
 def duplicate_item(course_id, item, module=None):
