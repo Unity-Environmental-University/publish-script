@@ -42,6 +42,9 @@ headers = {"Authorization": f"Bearer {api_token}" }
 live_headers = {"Authorization": f'Bearer {constants["liveApiToken"]}' }
 def main():
 
+
+
+
   number = 0
   if len(sys.argv) > 1:
     number = sys.argv[1]
@@ -67,12 +70,20 @@ def main():
   if not courses:
     courses = [bp_course]
 
-  profiles = replace_faculty_profiles(courses, root, progress_bar)
+
+  force = False if "force" in sys.argv else tk.messagebox.askyesno(message="Do you want to import current profile data?")
+
+  pages = get_faculty_pages(force=force)
+
+  profiles = replace_faculty_profiles(courses, pages, root, progress_bar)
 
   bio_count = 0
   error_text = ""
   emails = []
   for profile in profiles:
+    if not profile:
+      error_text = error_text + "A course does not have a user associated"
+      continue
     if len(profile["bio"]) < 5:
       error_text = error_text + f'{profile["user"]["name"]} does NOT have a bio we can find\n'
     else:
@@ -115,8 +126,7 @@ def main():
 
 
 
-def replace_faculty_profiles(courses, ui_root, progress_bar):
-  pages = get_faculty_pages()
+def replace_faculty_profiles(courses, pages, ui_root, progress_bar):
   profiles = []
   i = 1
   for course in courses:
@@ -137,8 +147,9 @@ def save_bios(bios, path="bios.json"):
   with open(path, 'w') as f:
     json.dump(bios, f)
 
-def get_faculty_pages():
-  if os.path.isfile("bios.json"):
+def get_faculty_pages(force=False):
+  print(force)
+  if os.path.isfile("bios.json") and not force:
     with open("bios.json", 'r') as f:
       pages = json.load(f)
       print(len(pages))
@@ -172,8 +183,9 @@ def get_course_profile(course, pages):
 
 def get_course_profile_from_pages(course, pages):
   instructor = get_canvas_instructor(course["id"])
+  if not instructor:
+    return None
   course_id = course["id"]
-
   profile = get_instructor_profile_from_pages(instructor, pages)
   #this does not fully format the bio present yet so leaving it off for now
   if len(profile["bio"]) == 0:
@@ -238,10 +250,13 @@ def overwrite_home_page(profile, course):
   if len(h2Tags) > 0:
     homepage["title"] = h2Tags[0].text
 
-  data = {'wiki_page[body]': format_profile_page(profile, course, homepage)}
+  if profile:
+    data = {'wiki_page[body]': format_profile_page(profile, course, homepage)}
 
-  response = requests.put(url, headers=headers, data=data)
-  print(response)
+    response = requests.put(url, headers=headers, data=data)
+    print(response)
+  else:
+    print("instructor not found for this course; skipping")
 
 
 
@@ -312,15 +327,16 @@ def get_instructor_profile_submission(user):
       url = attachment["url"]
       attachmentData = requests.get(url, headers=headers)
 
-      with open (attachment["filename"], 'wb') as f:
+      filename = attachment["filename"]
+      with open (filename, 'wb') as f:
         f.write(attachmentData.content)
       filename = attachment["filename"]
 
 
       #handle doc
       if os.path.splitext(filename)[1] == ".docx" or os.path.splitext(filename)[1] == ".zip":
-        doc = docx.Document(attachment["filename"])
-        with open(attachment["filename"], 'rb') as f:
+        doc = docx.Document(filename)
+        with open(filename, 'rb') as f:
           zip = zipfile.ZipFile(f)
 
           for info in zip.infolist():
