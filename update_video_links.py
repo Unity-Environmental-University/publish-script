@@ -481,8 +481,8 @@ def update_links(soup, ctx):
     
     if new_url:
       old_url = img['src']
-      img["src"] = new_file ['url']
-      img["data_api_endpoint"] = new_file['url']
+      img["src"] = new_url
+      img["data_api_endpoint"] = new_url
       print(old_url + " ---> " + img["src"])
 
 
