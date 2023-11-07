@@ -174,8 +174,8 @@ def format_profile_page(profile, course, homepage):
     img_src = profile["img_src"],
     bio=profile["bio"])
 
-  with open(f'profiles/{profile["user"]["id"]}_{course["id"]}.htm', 'w') as f:
-    f.write(text)
+  with open(f'profiles/{profile["user"]["id"]}_{course["id"]}.htm', 'wb') as f:
+    f.write(text.encode("utf-8", "replace"))
   return text
 
 def get_course_profile(course, pages):
@@ -187,7 +187,7 @@ def get_course_profile_from_pages(course, pages):
     return None
   course_id = course["id"]
   profile = get_instructor_profile_from_pages(instructor, pages)
-  #this does not fully format the bio present yet so leaving it off for now
+
   if len(profile["bio"]) == 0:
     profile = get_instructor_profile_submission(instructor)
   return profile
@@ -273,9 +273,13 @@ def get_instructor_profile_from_pages(user, pages):
   if len(potentials) == 0:
     potentials = list(filter(premissive_filter_func, pages))
 
+
   out = dict( user=user, bio = "", img = "", img_src = "")
   if len(potentials) > 1:
-    print(potentials)
+    print(json.dumps(user, indent=2))
+    print("_________________POTENTIALS______________________")
+    print(json.dumps(potentials, indent=2))
+    print("----------------------------------------------------")
     return out
   for potential in potentials:
     if not "body" in potential:
@@ -300,6 +304,9 @@ def get_instructor_profile_from_pages(user, pages):
         bio = f"{bio}\n<p>{paragraph}</p>"
     out["bio"] = bio
 
+    print("---------------BIO------------------")
+    print(bio)
+    print("------------------------------")
     #get display name just in case
     out["display_name"] = False
     for p in soup.find_all('p'):
