@@ -80,6 +80,10 @@ def main():
   modules = get_modules(course_id)
 
   create_missing_assignments(modules, old_modules, course_id, old_course_id)
+
+  old_modules = get_modules(old_course_id)
+  modules = get_modules(course_id)
+
   assignments_lut = get_assignments_lookup_table(modules, old_modules, course_id, old_course_id)
   files_lut = get_old_file_url_to_new_file_lookup_table(course_id, old_course_id)
 
@@ -92,8 +96,6 @@ def main():
     if "overviews" in sys.argv:
       update_weekly_overviews(course_id, old_course_id)
     if "assignments" in sys.argv:
-      print("creating missing assignments")
-      create_missing_assignments(modules, old_modules, course_id, old_course_id)
       align_assignments(course_id, old_course_id, assignments_lut)
 
     if "rubrics" in sys.argv:
@@ -121,8 +123,6 @@ def main():
 
     if tk.messagebox.askyesno(message="Do you want to update assignments?"):
       try:
-        create_missing_assignments(modules, old_modules, course_id, old_course_id)
-
         align_assignments(course_id, old_course_id, assignments_lut)
       except Exception as e:
         tk.messagebox.showerror(message=f"there was a problem updating assignments\n{e}")
@@ -655,11 +655,16 @@ def duplicate_item(course_id, item, module=None):
     raise response.raise_for_status()
   item = response.json()
 
-  print(f"Adding {type_} {item['title']} to module {module['name']}")
+  item_name = ""
+  if 'title' in item:
+    item_name = item['title']
+  elif 'name' in item:
+    item_name = item['name']
+  print(f"Adding {type_} {item_name} to module {module['name']}")
   url = f"{api_url}/courses/{course_id}/modules/{module['id']}/items"
   print(url)
   payload = {
-    "module_item[title]" : item["title"],
+    "module_item[title]" : item_name,
     "module_item[content_id]" : item["id"],
     "module_item[type]" : type_,
     "module_item[indent]" : 1,
