@@ -79,6 +79,7 @@ def main():
   old_modules = get_modules(old_course_id)
   modules = get_modules(course_id)
 
+  create_missing_assignments(modules, old_modules, course_id, old_course_id)
   assignments_lut = get_assignments_lookup_table(modules, old_modules, course_id, old_course_id)
   files_lut = get_old_file_url_to_new_file_lookup_table(course_id, old_course_id)
 
@@ -240,12 +241,14 @@ def get_assignments_lookup_table(modules, old_modules, course_id, old_course_id)
     old_assignments = list ( filter( lambda item: item["type"] == "Assignment", old_module["items"]) )
     assignments = list( filter( lambda item: item["type"] == "Assignment", module["items"]) )
   
-    old_discussions = list ( filter( lambda item: item["type"] == "Discussion", old_module["items"]) )
-    old_gallery_discussions = remove_gallery_discussions(old_discussions)
-
     discussions = list( filter( lambda item: item["type"] == "Discussion", module["items"]) )
+    old_discussions = list ( filter( lambda item: item["type"] == "Discussion", old_module["items"]) )
+  
+    old_gallery_discussions = remove_gallery_discussions(old_discussions)
     gallery_discussions = remove_gallery_discussions(discussions)
- 
+
+
+   
     populate_lookup_table(assignments_lut, assignments, old_assignments)
     populate_lookup_table(assignments_lut, discussions, old_discussions)
     populate_lookup_table(assignments_lut, gallery_discussions, old_gallery_discussions)
