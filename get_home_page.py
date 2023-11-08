@@ -20,8 +20,6 @@ from PIL import Image
 
 def log(output):
   print(output)
-  with open(log_filename, 'a') as file:
-    file.write(f"\n{output}")
 
 
 CONSTANTS_FILE = 'constants.json'
