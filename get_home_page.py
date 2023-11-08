@@ -18,6 +18,10 @@ from tkinter import ttk
 
 from PIL import Image
 
+def log(output):
+  print(output)
+  with open(log_filename, 'a') as file:
+    file.write(f"\n{output}")
 
 
 CONSTANTS_FILE = 'constants.json'
@@ -27,9 +31,13 @@ max_profile_image_size = 400
 with open(CONSTANTS_FILE, 'r') as f:
     constants = json.load(f)
 
+log_filename = "log.txt"
+
 # save the api key
 api_token = constants["apiToken"]
 api_url = constants["apiUrl"]
+html_url = re.sub('\/api\/v1', '', constants["apiUrl"])
+log(html_url)
 
 instructor_course_id = constants["instructorCourseId"]
 profile_assignment_id = constants["profileAssignmentId"] 
@@ -41,6 +49,9 @@ live_url = constants["liveUrl"]
 # Authorize the request.
 headers = {"Authorization": f"Bearer {api_token}" }
 live_headers = {"Authorization": f'Bearer {constants["liveApiToken"]}' }
+
+log_string = ""
+
 def main():
 
 
@@ -65,7 +76,7 @@ def main():
 
   bp_course = get_course(bp_id)
   courses = get_blueprint_courses(bp_id)
-  print(courses)
+  log(courses)
 
   if tk.messagebox.askyesno(message="Do you want to lock module items?"):
     lock_module_items(bp_id)
@@ -110,19 +121,31 @@ def main():
   code = bp_course["course_code"][3:]
 
   tk.messagebox.showinfo("report", dialog_text)
+
+
  
   if tk.messagebox.askyesno(message="Do you want to try to generate an email?"):
+    email_subject = f'{bp_course["course_code"][3:]} Section(s) Ready Notification'
+    email_body = template.format(
+      term = constants["term"],
+      creator = constants["creator"],
+      code = code,
+      course = base_course,
+    )  
+    text = f'''
+    
+    {','.join(emails)}
+
+    {email_subject}
+
+    {email_body}
+    '''
+
+    text = re.sub('<\/?\w+>', '', text)
+    log(text)
+
+
     try:
-      email_body = template.format(
-        term = constants["term"],
-        creator = constants["creator"],
-        code = code,
-        course = base_course,
-      )  
-
-
-      email_subject = f'{bp_course["course_code"][3:]} Section(s) Ready Notification'
-
       outlook = win32.Dispatch('outlook.application')
       mail = outlook.CreateItem(0)
       for recipient in emails:
@@ -131,18 +154,14 @@ def main():
       mail.Subject = email_subject
       mail.HtmlBody = email_body
       mail.Display()
-      #webbrowser.open(f'mailto:none@hello.com?bcc={",".join(emails)}&subject={email_subject}&body={email_body}', new=1)
     except Exception as e:
-      text = f'''
-      
-      {','.join(emails)}
+      #webbrowser.open(f'mailto:hallie@gmail.org?bcc={",".join(emails)}&subject={email_subject}&body={email_body}', new=1)
+      with open("email.txt","w") as file:
+        file.write(text)
+      tk.messagebox.showerror(message="Error Generating Email. Text was written to 'email.txt' ")
 
-      {email_subject}
 
-      {email_body}
-      '''
-      print(text)
-      tk.messagebox.showerror(message="Error Generating Email")
+
 
 
 def lock_module_items(course_id):
@@ -150,7 +169,7 @@ def lock_module_items(course_id):
   for module in modules:
     for item in module['items']:
       url= f"{api_url}/courses/{course_id}/blueprint_templates/default/restrict_item"
-      print(url)
+      log(url)
       id_ = ""
       print
       type_ = item["type"]
@@ -173,9 +192,9 @@ def lock_module_items(course_id):
         type_ = "wiki_page"
         page_url = item["url"]
         response = requests.get(page_url, headers=headers)
-        print(response)
+        log(response)
         if response.ok and response.status_code == 200:
-          print(response.json())
+          log(response.json())
           id_ = response.json()["page_id"]
       elif type_ == "File":
         type_ = "file"
@@ -190,18 +209,18 @@ def lock_module_items(course_id):
         "restricted" : True,
         })
       if response.ok:
-        print(response.json())
+        log(response.json())
       else:
-        print(response)
-        print(response.text)
-        print(json.dumps(item, indent=2))
+        log(response)
+        log(response.text)
+        log(json.dumps(item, indent=2))
 
 def get_modules(course_id):
   url = f"{api_url}/courses/{course_id}/modules?include[]=items&include[]=content_details"
-  print(url)
+  log(url)
   response = requests.get(url, headers=headers)
-  print(response)
-  print(response.json())
+  log(response)
+  log(response.json())
   return response.json()
 
 def replace_faculty_profiles(courses, pages, ui_root, progress_bar):
@@ -227,11 +246,11 @@ def save_bios(bios, path="bios.json"):
     json.dump(bios, f)
 
 def get_faculty_pages(force=False):
-  print(force)
+  log(force)
   if os.path.isfile("bios.json") and not force:
     with open("bios.json", 'r') as f:
       pages = json.load(f)
-      print(len(pages))
+      log(len(pages))
   else:
     pages = get_paged_data(f"{live_url}/courses/{profile_pages_course_id}/pages?per_page=50&include=body", live_headers)
     save_bios(pages)    
@@ -240,7 +259,7 @@ def get_faculty_pages(force=False):
 def get_course(course_id):
   url = f'{api_url}/courses/{course_id}'
   response = requests.get(url, headers=headers)
-  print(response)
+  log(response)
   return response.json()
 
 
@@ -276,8 +295,8 @@ def get_course_profile_from_pages(course, pages):
         if instructor:
           break
       else:
-        print(result)
-        print(result.json())
+        log(result)
+        log(result.json())
         prompt = f"No results found for {name}. Do you want to search for another instructor?"
     if not instructor:    
       return None
@@ -294,9 +313,9 @@ def get_course_profile_from_assignment(course):
   instructor = get_canvas_instructor(course["id"])
   course_id = course["id"]
   if instructor is not None:
-    print("The instructor of the course {} is {}".format(course_id, instructor))
+    log("The instructor of the course {} is {}".format(course_id, instructor))
   else:
-    print("The instructor of the course {} cannot be found.".format(course_id))
+    log("The instructor of the course {} cannot be found.".format(course_id))
   return get_instructor_profile_submission(instructor)
 
 
@@ -306,7 +325,7 @@ def get_blueprint_courses(bp_id):
   courses = response.json()
 
   if "errors" in courses:
-    print(courses["errors"])
+    log(courses["errors"])
     return False
 
   next_page_link  = "!"
@@ -317,11 +336,11 @@ def get_blueprint_courses(bp_id):
         next_page_link = link.split(";")[0].split("<")[1].split(">")[0]
         response = requests.get(next_page_link, headers=headers)
         courses = courses + response.json()
-        print("added courses at", next_page_link )
+        log("added courses at", next_page_link )
         break
       else:
         next_page_link = ""
-      print(link)
+      log(link)
 
 
   return courses
@@ -329,12 +348,15 @@ def get_blueprint_courses(bp_id):
 def overwrite_home_page(profile, course):
   # Make a GET request to the Canvas LMS API to get the homepage of the course.
   url = f'{api_url}/courses/{course["id"]}/front_page'
-  print(url)
+  page_url = f'{html_url}/courses/{course["id"]}/'
+  log(page_url)
   response = requests.get(url, headers=headers)
 
   # Check the response status code.
   if response.status_code != 200:
     raise ValueError('Failed to get homepage of course: {}'.format(response.status_code))
+
+  webbrowser.open(page_url, new=1)
 
 
   # Parse the homepage HTML content.
@@ -350,9 +372,9 @@ def overwrite_home_page(profile, course):
     data = {'wiki_page[body]': format_profile_page(profile, course, homepage)}
 
     response = requests.put(url, headers=headers, data=data)
-    print(response)
+    log(response)
   else:
-    print("instructor not found for this course; skipping")
+    log("instructor not found for this course; skipping")
 
 
 
@@ -372,10 +394,10 @@ def get_instructor_profile_from_pages(user, pages):
 
   out = dict( user=user, bio = "", img = "", img_src = "")
   if len(potentials) > 1:
-    print(json.dumps(user, indent=2))
-    print("_________________POTENTIALS______________________")
-    print(json.dumps(potentials, indent=2))
-    print("----------------------------------------------------")
+    log(json.dumps(user, indent=2))
+    log("_________________POTENTIALS______________________")
+    log(json.dumps(potentials, indent=2))
+    log("----------------------------------------------------")
     return out
   for potential in potentials:
     if not "body" in potential:
@@ -400,9 +422,9 @@ def get_instructor_profile_from_pages(user, pages):
         bio = f"{bio}\n<p>{paragraph}</p>"
     out["bio"] = bio
 
-    print("---------------BIO------------------")
-    print(bio)
-    print("------------------------------")
+    log("---------------BIO------------------")
+    log(bio)
+    log("------------------------------")
     #get display name just in case
     out["display_name"] = False
     for p in soup.find_all('p'):
@@ -422,7 +444,7 @@ def get_instructor_profile_submission(user):
   url = f"{api_url}/courses/{instructor_course_id}/assignments/{profile_assignment_id}/submissions/{user['id']}"
   response = requests.get(url, headers=headers)
   submission = response.json()
-  print(submission)
+  log(submission)
   bio = submission["body"] if ("body" in submission and submission["body"] is not None) else ""
   pic_path = ""
   if "attachments" in submission:
@@ -488,7 +510,7 @@ def resize_image(path, max_width):
 
         # Save the resized image
         resized_img.save(output_path)
-        print(output_path)
+        log(output_path)
     return output_path
 
 #TODO: write this in
@@ -507,7 +529,7 @@ def get_instructor_page(user):
     firstTime = True
     while len(pagination_links)  > 4 or firstTime:
         firstTime = False
-        print(len(pagination_links))
+        log(len(pagination_links))
         # Make a request to the next page
         response = requests.get(next_page_link, headers=headers)
 
@@ -520,12 +542,12 @@ def get_instructor_page(user):
 
             # Get the next page link from the response headers
             pagination_links = response.headers["Link"].split(",")
-            print(pagination_links)
+            log(pagination_links)
             next_page_link = pagination_links[1].split(";")[0].split("<")[1].split(">")[0]
-            print(next_page_link)
+            log(next_page_link)
 
     for page in pages:
-      print(page["title"])
+      log(page["title"])
 
 
 def get_canvas_course_home_page(course_id):
@@ -555,13 +577,13 @@ def get_paged_data(url, headers=headers):
       for link in pagination_links:
         if 'next' in link:
           next_page_link = link.split(";")[0].split("<")[1].split(">")[0]
-          print(next_page_link)
+          log(next_page_link)
           response = requests.get(next_page_link, headers=headers)
           out = out + response.json()
           break
         else:
           next_page_link = ""  
-  print(len(out))
+  log(len(out))
 
   return out
 main()
