@@ -88,9 +88,8 @@ def main():
     else:
       exit()
 
+  force = True if "force_import" in sys.argv else False if "bypass_import" in sys.argv else tk.messagebox.askyesno(message="Do you want to import current profile data?")
 
-
-  force = False if "force" in sys.argv else tk.messagebox.askyesno(message="Do you want to import current profile data?")
 
   pages = get_faculty_pages(force=force)
 
@@ -422,9 +421,6 @@ def get_instructor_profile_from_pages(user, pages):
         bio = f"{bio}\n<p>{paragraph}</p>"
     out["bio"] = bio
 
-    log("---------------BIO------------------")
-    log(bio)
-    log("------------------------------")
     #get display name just in case
     out["display_name"] = False
     for p in soup.find_all('p'):
