@@ -83,7 +83,7 @@ def main():
 
   #if the course has no associations, JUST queue up to update the input course
   if not courses:
-    if tk.messagebox.askyesno(message=f"Course {bp_course['name']} is not a blueprint. Do you want to just get the bio for this course?"):
+    if tk.messagebox.askyesno(message=f"Course {bp_course['name']} does not have associated courses. Do you want to just get the bio for this course?"):
       courses = [bp_course]
     else:
       exit()
@@ -242,7 +242,7 @@ def replace_faculty_profiles(courses, pages, ui_root, progress_bar):
 
 def save_bios(bios, path="bios.json"):
   with open(path, 'w') as f:
-    json.dump(bios, f)
+    json.dump(bios, f, indent=2)
 
 def get_faculty_pages(force=False):
   log(force)
@@ -280,6 +280,8 @@ def get_course_profile(course, pages):
 
 def get_course_profile_from_pages(course, pages):
   instructor = get_canvas_instructor(course["id"])
+
+
   prompt = "No instructor found for " + course["name"] + " do you want to to search for an instructor by name?"
   if not instructor:
     while tk.messagebox.askyesno(message=prompt):
@@ -385,54 +387,73 @@ def get_instructor_profile_from_pages(user, pages):
     return user["name"].lower() in entry["title"].lower()
   def premissive_filter_func(entry):
     return last_name.lower() in entry["title"].lower() and first_name.lower() in entry["title"].lower()
+  def extremely_permissive_filter_func(entry):
+    return last_name.lower() in entry["title"].lower() or first_name.lower() in entry["title"].lower()
 
+  prompt_user = False
   potentials = list(filter(restrictive_filter_func, pages))
   if len(potentials) == 0:
     potentials = list(filter(premissive_filter_func, pages))
 
+  if len(potentials) == 0:
+    prompt_user = True #Prompt the user to check this/these names because we've used the extremely permissive function
+    potentials = list(filter(extremely_permissive_filter_func, pages))
+
 
   out = dict( user=user, bio = "", img = "", img_src = "")
-  if len(potentials) > 1:
+  page = None
+
+  if len(potentials) > 1 or prompt_user:
     log(json.dumps(user, indent=2))
     log("_________________POTENTIALS______________________")
     log(json.dumps(potentials, indent=2))
     log("----------------------------------------------------")
-    return out
-  for potential in potentials:
-    if not "body" in potential:
-      continue
-    html = potential["body"]
-    soup = BeautifulSoup(html, 'html.parser')
 
-    h4_tags = soup.find_all('h4')
+    for potential in potentials:
+      if not "body" in potential:
+        continue
+      if tk.messagebox.askyesno(message=f"No direct match found for {user['name']}. Do you want to use { potential['title'] }?"):
+        page = potential
+  else:
+    page = potentials[0]
 
-    # Iterate over the h4 tags and find the next sibling paragraph tag
-    paragraphs = []
-    bio = ""
-    for h4_tag in h4_tags:
-        if "instructor" in h4_tag.text.lower():
-          next_sibling = h4_tag.find_next_sibling('p')
-          while next_sibling is not None:
-            paragraphs.append(next_sibling.text)
-            next_sibling = next_sibling.find_next_sibling('p')
 
-    # Create the bio output
-    for paragraph in paragraphs:
-        bio = f"{bio}\n<p>{paragraph}</p>"
-    out["bio"] = bio
+  if not page:
+    tk.messagebox.showinfo(message=f"No profile found matching {user['name']}")
 
-    #get display name just in case
-    out["display_name"] = False
-    for p in soup.find_all('p'):
-      previous_p = p.find_previous_sibling('p')
-      if "instructor" in p.text.lower() and previous_p is not None:
-        print (previous_p.text)
-        out["display_name"] = previous_p.text
+  html = page["body"]
+  soup = BeautifulSoup(html, 'html.parser')
 
-    #get image output
-    imgs = soup.find_all("img")
-    for img in imgs:
-      out["img_src"] = img["src"]
+  h4_tags = soup.find_all('h4')
+
+  # Iterate over the h4 tags and find the next sibling paragraph tag
+  paragraphs = []
+  bio = ""
+  for h4_tag in h4_tags:
+      if "instructor" in h4_tag.text.lower():
+        next_sibling = h4_tag.find_next_sibling('p')
+        while next_sibling is not None:
+          paragraphs.append(next_sibling.text)
+          next_sibling = next_sibling.find_next_sibling('p')
+
+  # Create the bio output
+  for paragraph in paragraphs:
+      bio = f"{bio}\n<p>{paragraph}</p>"
+  out["bio"] = bio
+
+  #get display name just in case
+  out["display_name"] = False
+  for p in soup.find_all('p'):
+    previous_p = p.find_previous_sibling('p')
+    if "instructor" in p.text.lower() and previous_p is not None:
+      print (previous_p.text)
+      out["display_name"] = previous_p.text
+
+  #get image output
+  imgs = soup.find_all("img")
+  for img in imgs:
+    out["img_src"] = img["src"]
+
   return out
 
 
