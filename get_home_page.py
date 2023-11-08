@@ -1,3 +1,4 @@
+import re
 from bs4 import BeautifulSoup
 import docx
 import sys
@@ -88,7 +89,10 @@ def main():
       error_text = error_text + f'{profile["user"]["name"]} does NOT have a bio we can find\n'
     else:
       bio_count = bio_count + 1
-      emails.append(profile["user"]["email"])
+      if "email" in profile["user"]:
+        emails.append(profile["user"]["email"])
+      else:
+        error_text = error_text + ("\nNo Email Found for " + profile["user"]["name"])
   dialog_text = f"Finished, {bio_count} records updated successfully\n{error_text}"
 
   with open("email_template.html", 'r') as f:
@@ -97,34 +101,47 @@ def main():
 
   base_course = courses[0]
   code = bp_course["course_code"][3:]
- 
 
-  try:
-    email_body = template.format(
-      term = constants["term"],
-      creator = constants["creator"],
-      code = code,
-      course = base_course,
-    )  
-
-
-    email_subject = f'{bp_course["course_code"][3:]} Section(s) Ready Notification'
-
-
-    outlook = win32.Dispatch('outlook.application')
-    mail = outlook.CreateItem(0)
-    for recipient in emails:
-       mail.Recipients.Add(recipient).Type = 3  
-    #Email.Bcc = ",".join(emails)
-    mail.Subject = email_subject
-    mail.HtmlBody = email_body
-    mail.Display()
-    #webbrowser.open(f'mailto:none@hello.com?bcc={",".join(emails)}&subject={email_subject}&body={email_body}', new=1)
-  except e:
-    dialog_text = dialog_text + "\nError Generating Email"
   tk.messagebox.showinfo("report", dialog_text)
+ 
+  if tk.messagebox.askyesno(message="Do you want to try to generate an email?"):
+    try:
+      email_body = template.format(
+        term = constants["term"],
+        creator = constants["creator"],
+        code = code,
+        course = base_course,
+      )  
 
 
+      email_subject = f'{bp_course["course_code"][3:]} Section(s) Ready Notification'
+
+      outlook = win32.Dispatch('outlook.application')
+      mail = outlook.CreateItem(0)
+      for recipient in emails:
+         mail.Recipients.Add(recipient).Type = 3  
+      #Email.Bcc = ",".join(emails)
+      mail.Subject = email_subject
+      mail.HtmlBody = email_body
+      mail.Display()
+      #webbrowser.open(f'mailto:none@hello.com?bcc={",".join(emails)}&subject={email_subject}&body={email_body}', new=1)
+    except Exception as e:
+      text = f'''
+      
+      {','.join(emails)}
+
+      {email_subject}
+
+      {email_body}
+      '''
+      print(text)
+      tk.messagebox.showerror(message="Error Generating Email")
+
+
+def get_modules(course_id):
+  url = f"{api_url}/courses/{course_id}/modules?include[]=items&include[]=content_details"
+  response = requests.get(url, headers=headers)
+  return response.json()
 
 def replace_faculty_profiles(courses, pages, ui_root, progress_bar):
   profiles = []
@@ -133,6 +150,7 @@ def replace_faculty_profiles(courses, pages, ui_root, progress_bar):
 
     profile = get_course_profile(course, pages)
     profiles.append(profile)
+
     overwrite_home_page(profile, course)
   
     #update loading UI value after processing
@@ -183,8 +201,25 @@ def get_course_profile(course, pages):
 
 def get_course_profile_from_pages(course, pages):
   instructor = get_canvas_instructor(course["id"])
+  prompt = "No instructor found for " + course["name"] + " do you want to to search for an instructor by name?"
   if not instructor:
-    return None
+    while tk.messagebox.askyesno(message=prompt):
+      name = tk.simpledialog.askstring(title="Name", prompt="Please enter the full user name of the person you would like to find")
+      users = []
+      result = requests.get(f"{api_url}/accounts/self/users?search_term={name}", headers=headers)
+      if result.ok and len(result.json()) > 0:
+        for user in result.json():
+          if tk.messagebox.askyesno(message=f"Do you want to use {user['name']}?"):
+            instructor = user
+            break
+        if instructor:
+          break
+      else:
+        print(result)
+        print(result.json())
+        prompt = f"No results found for {name}. Do you want to search for another instructor?"
+    if not instructor:    
+      return None
   course_id = course["id"]
   profile = get_instructor_profile_from_pages(instructor, pages)
 
