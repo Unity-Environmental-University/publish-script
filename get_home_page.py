@@ -66,10 +66,17 @@ def main():
   bp_course = get_course(bp_id)
   courses = get_blueprint_courses(bp_id)
   print(courses)
-  #if the course has no associations, JUST queue up to update the input course
 
+  if tk.messagebox.askyesno(message="Do you want to lock module items?"):
+    lock_module_items(bp_id)
+
+  #if the course has no associations, JUST queue up to update the input course
   if not courses:
-    courses = [bp_course]
+    if tk.messagebox.askyesno(message=f"Course {bp_course['name']} is not a blueprint. Do you want to just get the bio for this course?"):
+      courses = [bp_course]
+    else:
+      exit()
+
 
 
   force = False if "force" in sys.argv else tk.messagebox.askyesno(message="Do you want to import current profile data?")
@@ -138,9 +145,63 @@ def main():
       tk.messagebox.showerror(message="Error Generating Email")
 
 
+def lock_module_items(course_id):
+  modules = get_modules(course_id)
+  for module in modules:
+    for item in module['items']:
+      url= f"{api_url}/courses/{course_id}/blueprint_templates/default/restrict_item"
+      print(url)
+      id_ = ""
+      print
+      type_ = item["type"]
+      if type_ == "Assignment":
+        type_ = "assignment"
+        id_ = item["content_id"]
+      elif type_ == "Discussion":
+        type_ = "discussion_topic"
+        id_ = item["content_id"]
+      elif type_ == "Quiz":
+        type_ = "quiz"
+        id_ = item["content_id"]
+      elif type_ == "Attachment":
+        type_ = "attachment"
+        id_ = item["content_id"]
+      elif type_ == "External Tool":
+        type_ = "external_tool"
+        id_ = item["content_id"]
+      elif type_ == "Page":
+        type_ = "wiki_page"
+        page_url = item["url"]
+        response = requests.get(page_url, headers=headers)
+        print(response)
+        if response.ok and response.status_code == 200:
+          print(response.json())
+          id_ = response.json()["page_id"]
+      elif type_ == "File":
+        type_ = "file"
+        id_ = item["content_id"]
+      else:
+        continue
+
+
+      response = requests.put(url, headers=headers, data={
+        "content_type" : type_,
+        "content_id" : id_,
+        "restricted" : True,
+        })
+      if response.ok:
+        print(response.json())
+      else:
+        print(response)
+        print(response.text)
+        print(json.dumps(item, indent=2))
+
 def get_modules(course_id):
   url = f"{api_url}/courses/{course_id}/modules?include[]=items&include[]=content_details"
+  print(url)
   response = requests.get(url, headers=headers)
+  print(response)
+  print(response.json())
   return response.json()
 
 def replace_faculty_profiles(courses, pages, ui_root, progress_bar):
