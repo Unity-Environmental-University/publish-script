@@ -79,9 +79,6 @@ def main():
   old_modules = get_modules(old_course_id)
   modules = get_modules(course_id)
 
-  old_modules = get_modules(old_course_id)
-  modules = get_modules(course_id)
-
 
 
   if len(sys.argv) > 2:
@@ -159,19 +156,25 @@ def create_missing_assignments(modules, old_modules, course_id, old_course_id):
 
     module = find_new_module_by_number(number, modules)
 
+    add_quizzes(module, old_module, course_id, old_course_id)
     #save off the gallery discussion
     print(number)
     if number == "1":
       gallery_search = filter( lambda item: "Gallery Discussion" in item["title"], module["items"])
       gallery_discussion_template = next( filter( lambda item: "Gallery Discussion" in item["title"], module["items"]))
-      print (gallery_discussion_template)
+      
 
     create_missing_assignments_in_module(module, old_module, course_id, old_course_id, gallery_discussion_template)
 
-
-
 def create_missing_assignments_in_module(module, old_module, course_id, old_course_id, gallery_discussion_template):
+  add_assignments(module, old_module, course_id, old_course_id)
+  add_discussions(module, old_module, course_id, old_course_id, gallery_discussion_template)
 
+def add_quizzes(module, old_module, course_id, old_course_id):
+  old_quizzes = list ( filter( lambda item: item["type"] == "Quiz", old_module["items"]) )
+  quizzes = list( filter( lambda item: item["type"] == "Quiz", module["items"]) )
+
+def add_assignments(module, old_module, course_id, old_course_id):
   old_assignments = list ( filter( lambda item: item["type"] == "Assignment", old_module["items"]) )
   assignments = list( filter( lambda item: item["type"] == "Assignment", module["items"]) )
   difference = len(old_assignments)  - len(assignments)
@@ -182,6 +185,7 @@ def create_missing_assignments_in_module(module, old_module, course_id, old_cour
     for _ in range(0, difference):
       duplicate_item(course_id, assignments[0], module)
 
+def add_discussions(module, old_module, course_id, old_course_id, gallery_discussion_template):
   #get discussions and pull out gallery discussions to handle differently
   old_discussions = list ( filter( lambda item: item["type"] == "Discussion", old_module["items"]) )
   old_gallery_discussions = remove_gallery_discussions(old_discussions)
@@ -193,6 +197,11 @@ def create_missing_assignments_in_module(module, old_module, course_id, old_cour
 
   discussions = list( filter( lambda item: item["type"] == "Discussion", module["items"]) )
   gallery_discussions = remove_gallery_discussions(discussions)
+
+
+  #if we don't have a gallery discussion template, just duplicate the first discussion
+  if not gallery_discussion_template:
+    gallery_discussion_template = discussions[0]
 
   #add discussions if there is disparity
   difference = len(old_discussions)  - len(discussions)
@@ -212,7 +221,9 @@ def create_missing_assignments_in_module(module, old_module, course_id, old_cour
       duplicate_item(course_id, gallery_discussion_template, module)
 
 
-files_lut_cache = False
+
+
+files_lut_cache = None
 def get_file_lookup_table(course_id, old_course_id):
   global files_lut_cache
   if files_lut_cache:
@@ -232,7 +243,7 @@ def get_file_lookup_table(course_id, old_course_id):
   return old_file_url_lookup_table  
 
 
-assignments_lut_cache = False
+assignments_lut_cache = None
 def get_assignments_lookup_table(modules, old_modules, course_id, old_course_id):
   global assignments_lut_cache
   if assignments_lut_cache:
@@ -244,6 +255,10 @@ def get_assignments_lookup_table(modules, old_modules, course_id, old_course_id)
   assignments_lut = dict()
 
   #build assignments from modules by getting assignments in order, discussions in order, and gallery discussion in order
+
+  old_modules = get_modules(old_course_id)
+  modules = get_modules(course_id)
+
   print(old_modules)
   for old_module in old_modules:
     items = old_module["items"]
@@ -266,7 +281,7 @@ def get_assignments_lookup_table(modules, old_modules, course_id, old_course_id)
     gallery_discussions = remove_gallery_discussions(discussions)
 
 
-   
+    print(json.dumps(assignments))   
     populate_lookup_table(assignments_lut, assignments, old_assignments)
     populate_lookup_table(assignments_lut, discussions, old_discussions)
     populate_lookup_table(assignments_lut, gallery_discussions, old_gallery_discussions)
