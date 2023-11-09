@@ -280,7 +280,7 @@ def get_course_profile_from_pages(course, pages):
   instructor = get_canvas_instructor(course["id"])
 
 
-  prompt = "No instructor found for " + course["name"] + " do you want to to search for an instructor by name?"
+  prompt = f'No instructor found for {course["name"]} do you want to to search for an instructor by name?'
   if not instructor:
     while tk.messagebox.askyesno(message=prompt):
       name = tk.simpledialog.askstring(title="Name", prompt="Please enter the full user name of the person you would like to find")

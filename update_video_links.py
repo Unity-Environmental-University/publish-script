@@ -507,8 +507,6 @@ def handle_items(items, old_items, handle_func, format_title, ctx):
     old_course_id = old_match.group(1)
     old_item_id = old_match.group(1)
 
-
-
     url = item["url"]
     old_url = old_item["url"]
     response = requests.get(url, headers=headers)
@@ -537,6 +535,7 @@ def handle_discussion(item, old_item, put_url, index, total, format_title, ctx):
 
   title = re.sub(r'^.*[:-]\W+', '', old_name)
   new_name = format_title.format(number=display_number, name=title)
+  subhead = re.sub(r'[:-].*', '', new_name)
   print(f"migrating {old_name} to {new_name}")
   old_body = old_item["message"]
   body = item["message"]
@@ -550,6 +549,14 @@ def handle_discussion(item, old_item, put_url, index, total, format_title, ctx):
   if not insert_el:
     insert_el = soup.new_tag('div', id="migrate_insert")
     soup.body.insert(len(soup.body.contents), insert_el)
+
+  #replace_header
+  head = soup.h1
+  head.string.replace_with(title)
+
+  subhead_el = soup.find('h1').find_previous_sibling('p')
+  subhead_el.string.replace_with(subhead)
+
 
   if contents:
     insert_el.clear()
@@ -578,8 +585,9 @@ def handle_assignment(item, old_item, put_url, index, total, format_title, ctx):
   if total > 1:
     display_number = f"{index + 1} "
 
-  title = re.sub(r'^.*[:—-]\W+', '', old_name)
+  title = re.sub(r'^.*[:-]\W+', '', old_name)
   new_name = format_title.format(number=display_number, name=title)
+  subhead = re.sub(r'[:-].*', '', new_name)
   print(f"migrating {old_name} to {new_name}")
 
   old_body = old_item["description"]
@@ -587,6 +595,13 @@ def handle_assignment(item, old_item, put_url, index, total, format_title, ctx):
   body = item["description"]
   soup = BeautifulSoup(body, 'lxml')
 
+  head = soup.h1
+  head.string.replace_with(title)
+
+  subhead_el = soup.find('h1').find_previous_sibling('p')
+  subhead_el.string.replace_with(subhead)
+
+  #insert the contents of the old page into the bottom of the new page
   contents = old_soup.find('div', class_="column")
   if not contents:
     contents = old_soup.body
@@ -599,6 +614,8 @@ def handle_assignment(item, old_item, put_url, index, total, format_title, ctx):
   insert_el.clear()
   if contents:
       insert_el.append(contents)
+
+  #update links on the whole thing
   update_links(soup, ctx)
 
   new_text = soup.prettify()
@@ -998,8 +1015,6 @@ def convert_to_watch_url(embed_url: str) -> str:
 def get_week_1_preview(course_id):
 
     old_lm_url = f"{api_url}/courses/{course_id}/pages/week_1_learning_materials-2"
-
-
     lm_response = requests.get(old_lm_url, headers=headers)
 
     print(lm_response)
