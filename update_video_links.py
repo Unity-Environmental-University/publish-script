@@ -156,7 +156,6 @@ def create_missing_assignments(modules, old_modules, course_id, old_course_id):
 
     module = find_new_module_by_number(number, modules)
 
-    add_quizzes(module, old_module, course_id, old_course_id)
     #save off the gallery discussion
     print(number)
     if number == "1":
@@ -167,12 +166,43 @@ def create_missing_assignments(modules, old_modules, course_id, old_course_id):
     create_missing_assignments_in_module(module, old_module, course_id, old_course_id, gallery_discussion_template)
 
 def create_missing_assignments_in_module(module, old_module, course_id, old_course_id, gallery_discussion_template):
+  add_quizzes(module, old_module, course_id, old_course_id)
   add_assignments(module, old_module, course_id, old_course_id)
   add_discussions(module, old_module, course_id, old_course_id, gallery_discussion_template)
 
 def add_quizzes(module, old_module, course_id, old_course_id):
+  print("ADDDDDDDDDING QUIZZZZZZZZZZZZZZZES")
   old_quizzes = list ( filter( lambda item: item["type"] == "Quiz", old_module["items"]) )
   quizzes = list( filter( lambda item: item["type"] == "Quiz", module["items"]) )
+
+  difference = len(old_quizzes) - len(quizzes)
+  print(json.dumps(old_quizzes, indent=2))
+  print(json.dumps(quizzes, indent=2))
+  print(f"--- Quiz Difference: {difference} ---")
+  if difference > 0:
+  #we're looking for imported quizzes now
+
+    url = f"{api_url}/courses/{course_id}/quizzes"
+    all_quizzes_in_course = get_paged_data(url)
+    for old_quiz in old_quizzes:
+      #if the quiz is there, we're good
+      if next(filter(lambda item: item["title"] == old_quiz["title"], quizzes), None):
+        print(item["title"] + "----------" + old_quiz["title"])
+        continue
+      else:
+        print("Adding Quiz To Module")
+        new_quiz = next( filter(lambda item: item["title"] == old_quiz["title"], all_quizzes_in_course), None)
+        assert new_quiz, f"Quiz not found:{old_quiz['title']}"
+        url = f"{api_url}/courses/{course_id}/modules/{module['id']}/items"
+        result = requests.post(url, headers=headers, data={
+          "module_item[type]" : "Quiz",
+          "module_item[content_id]" : new_quiz["id"],
+          "module_item[completion_requirement][type]" : "must_submit" ,
+          "module_item[indent]" : 1,
+          "module_item[position]" : 999
+          })
+        print(result, result.text)
+
 
 def add_assignments(module, old_module, course_id, old_course_id):
   old_assignments = list ( filter( lambda item: item["type"] == "Assignment", old_module["items"]) )
@@ -721,6 +751,13 @@ def duplicate_item(course_id, item, module=None):
     "module_item[indent]" : 1,
     "module_item[position]" : 999
     }
+
+  if type_ == "Assignment":
+    payload["module_item[completion_requirement][type]"] = "must_submit"
+
+  if type_ == "Discussion":
+    payload["module_item[completion_requirement][type]"] = "min_score"
+    payload["module_item[completion_requirement][min_score]"] = "1"
 
   print(payload)
   response = requests.post(url, headers=headers, data = payload)
