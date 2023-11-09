@@ -79,36 +79,29 @@ def main():
   old_modules = get_modules(old_course_id)
   modules = get_modules(course_id)
 
-  create_missing_assignments(modules, old_modules, course_id, old_course_id)
-
   old_modules = get_modules(old_course_id)
   modules = get_modules(course_id)
 
-  assignments_lut = get_assignments_lookup_table(modules, old_modules, course_id, old_course_id)
-  files_lut = get_old_file_url_to_new_file_lookup_table(course_id, old_course_id)
 
 
   if len(sys.argv) > 2:
-    if  "lm" in sys.argv:
-      update_learning_materials(course_id, old_course_id, files_lut, assignments_lut)
     if "syllabus" in sys.argv:
       update_syllabus_and_overview(course_id, old_course_id)
     if "overviews" in sys.argv:
       update_weekly_overviews(course_id, old_course_id)
     if "assignments" in sys.argv:
+      assignments_lut = get_assignments_lookup_table(modules, old_modules, course_id, old_course_id)
+      files_lut = get_file_lookup_table(course_id, old_course_id)
       align_assignments(course_id, old_course_id, assignments_lut)
-
     if "rubrics" in sys.argv:
       align_rubrics(course_id, old_course_id, assignments_lut)
+    if  "lm" in sys.argv:
+      assignments_lut = get_assignments_lookup_table(modules, old_modules, course_id, old_course_id)
+      files_lut = get_file_lookup_table(course_id, old_course_id)
+      update_learning_materials(course_id, old_course_id, files_lut, assignments_lut)
 
 
   else:
-    if tk.messagebox.askyesno(message="Do you want to update learning materials?"):
-      try:
-        update_learning_materials(course_id, old_course_id, files_lut, assignments_lut)
-      except Exception as e:
-        tk.messagebox.showerror(message=f"there was a problem updating learning materials\n{e}")
-
     if tk.messagebox.askyesno(message="Do you want to update the syllabus and course overview?"):
       try:
         update_syllabus_and_overview(course_id, old_course_id) 
@@ -123,9 +116,19 @@ def main():
 
     if tk.messagebox.askyesno(message="Do you want to update assignments?"):
       try:
+        assignments_lut = get_assignments_lookup_table(modules, old_modules, course_id, old_course_id)
+        files_lut = get_file_lookup_table(course_id, old_course_id)        
         align_assignments(course_id, old_course_id, assignments_lut)
       except Exception as e:
         tk.messagebox.showerror(message=f"there was a problem updating assignments\n{e}")
+
+    if tk.messagebox.askyesno(message="Do you want to update learning materials?\nNOTE: this will also create missing assignments, discussions, if they don't exist so links can be migrated"):
+      try:
+        assignments_lut = get_assignments_lookup_table(modules, old_modules, course_id, old_course_id)
+        files_lut = get_file_lookup_table(course_id, old_course_id)        
+        update_learning_materials(course_id, old_course_id, files_lut, assignments_lut)
+      except Exception as e:
+        tk.messagebox.showerror(message=f"there was a problem updating learning materials\n{e}")
 
     if tk.messagebox.askyesno(message="Do you want to update rubrics?"):
       try:
@@ -208,21 +211,36 @@ def create_missing_assignments_in_module(module, old_module, course_id, old_cour
     for _ in range(0, difference):
       duplicate_item(course_id, gallery_discussion_template, module)
 
-def get_old_file_url_to_new_file_lookup_table(course_id, old_course_id):
 
-    files = get_paged_data(f"{api_url}/courses/{course_id}/files?per_page=100")
-    old_files = get_paged_data(f"{api_url}/courses/{old_course_id}/files?per_page=100")
+files_lut_cache = False
+def get_file_lookup_table(course_id, old_course_id):
+  global files_lut_cache
+  if files_lut_cache:
+    return files_lut_cache
+
+  files = get_paged_data(f"{api_url}/courses/{course_id}/files?per_page=100")
+  old_files = get_paged_data(f"{api_url}/courses/{old_course_id}/files?per_page=100")
 
 
-    old_file_url_lookup_table = dict()
-    for old_file in old_files:
-      #match files by name and size
-      file = list( filter( lambda a: old_file["filename"] == a["filename"], files) )[0]
-      old_file_url_lookup_table[str(old_file["id"])] = file
+  old_file_url_lookup_table = dict()
+  for old_file in old_files:
+    #match files by name and size
+    file = list( filter( lambda a: old_file["filename"] == a["filename"], files) )[0]
+    old_file_url_lookup_table[str(old_file["id"])] = file
 
-    return old_file_url_lookup_table  
+  files_lut_cache = old_file_url_lookup_table
+  return old_file_url_lookup_table  
 
+
+assignments_lut_cache = False
 def get_assignments_lookup_table(modules, old_modules, course_id, old_course_id):
+  global assignments_lut_cache
+  if assignments_lut_cache:
+    return assignments_lut_cache
+
+  #we have to create missing assignments as part of getting assignments lookup table
+  create_missing_assignments(modules, old_modules, course_id, old_course_id)
+
   assignments_lut = dict()
 
   #build assignments from modules by getting assignments in order, discussions in order, and gallery discussion in order
@@ -273,6 +291,7 @@ def get_assignments_lookup_table(modules, old_modules, course_id, old_course_id)
     assignments_lut[ str(old_discussion['assignment_id']) ] = discussion
 
 
+  assignments_lut_cache = assignments_lut
   return assignments_lut
 
 def get_rubrics_lookup_table(rubrics, old_rubrics ):
@@ -352,7 +371,7 @@ def align_assignments(course_id, old_course_id, assignments_lut):
   old_modules = get_modules(old_course_id)
   old_id_to_id_lut = dict()
 
-  files_lut = get_old_file_url_to_new_file_lookup_table(course_id, old_course_id)
+  files_lut = get_file_lookup_table(course_id, old_course_id)
 
 
   for old_module in old_modules:
