@@ -96,6 +96,8 @@ def main():
       assignments_lut = get_assignments_lookup_table(modules, old_modules, course_id, old_course_id)
       files_lut = get_file_lookup_table(course_id, old_course_id)
       update_learning_materials(course_id, old_course_id, files_lut, assignments_lut)
+    if  "delete" in sys.argv:
+      remove_assignments_and_discussions_not_in_modules(course_id)
 
 
   else:
@@ -132,6 +134,12 @@ def main():
         align_rubrics(course_id, old_course_id, assignments_lut)
       except Exception as e:
         tk.messagebox.showerror(message=f"there was a problem updating rubrics\n{e}")
+
+    if tk.messagebox.askyesno(message="Do you want to try to delete assignments no in discussions and modules?\nYou will see a list of items to confirm."):
+      try:
+        remove_assignments_and_discussions_not_in_modules(course_id)
+      except Exception as e:
+        tk.messagebox.showerror(message=f"there was a problem deleting assigments and or discussions\n{e}")        
   
     tk.messagebox.showinfo(message="Finished!")
 
@@ -170,7 +178,7 @@ def create_missing_assignments(modules, old_modules, course_id, old_course_id):
   #remove named modules that were not handled
   to_remove = list( filter( lambda module: (not module in handled) and "Module" in module["name"], modules))
   module_name_list = "\n".join(list( map(lambda module: module["name"], to_remove)))
-  if tk.messagebox.askyesno(message=f"Do you want to remove the following modules and their contents?\n{module_name_list}"):
+  if len(to_remove) and tk.messagebox.askyesno(message=f"Do you want to remove the following modules and their contents?\n{module_name_list}"):
     for module in to_remove:
       remove_module(course_id, module, True)
 
@@ -730,6 +738,54 @@ def populate_lookup_table(lut, items, old_items):
     i = i + 1
     lut[str(old_item["content_id"]) ] = item
 
+def remove_assignments_and_discussions_not_in_modules(course_id):
+  modules = get_modules(course_id)
+  discussions_in_modules = []
+  assignments_in_modules = []
+  quizzes_in_modules = []
+  for module in modules:
+    for item in module["items"]:
+      if item["type"] == 'Discussion':
+        print(item['content_id'])
+        discussions_in_modules.append(item['content_id'])
+      if item["type"] == 'Assignment':
+        print(item['content_id'])
+        assignments_in_modules.append(item['content_id'])
+
+  url = f"{api_url}/courses/{course_id}/assignments"
+  assignments = get_paged_data(url)
+
+
+  assignments_to_delete = []
+  discussions_to_delete =[]
+  for assignment in assignments:
+    #For now, we're not deleting quizzes
+    #This stub is to keep them from being deleted and be a place if want to deal with them later
+    if 'quiz_id' in assignment:
+      continue
+
+    if 'discussion_topic' in assignment:
+      discussion = assignment["discussion_topic"]
+      if discussion['id'] not in discussions_in_modules:
+        discussions_to_delete.append(discussion)
+      continue
+
+    if assignment["id"] not in assignments_in_modules:
+      assignments_to_delete.append(assignment)
+
+  assignments_string = '\n'.join( list( map( lambda item: item["name"], assignments_to_delete)))
+  if tk.messagebox.askyesno(message=f"Do you want to delete the following assignments?\n{assignments_string}"):
+    for assignment in assignments_to_delete:
+      result = requests.delete(f"{api_url}/courses/{course_id}/assignments/{assignment['id']}", headers=headers) 
+      print(result)
+
+
+  discussions_string = '\n'.join( list( map( lambda item: item["title"], discussions_to_delete)))
+  if tk.messagebox.askyesno(message=f"Do you want to delete the following discussions?\n{discussions_string}"):
+    for discussion in discussions_to_delete:
+      result = requests.delete(f"{api_url}/courses/{course_id}/discussion_topics/{discussion['id']}", headers=headers) 
+      print(result)
+
 def remove_gallery_discussions(discussions, remove_introduction = True):
   print(discussions)
   gallery_discussions = []
@@ -1176,7 +1232,7 @@ def update_learning_materials(course_id, old_course_id, files_lut, assignments_l
       continue
     old_lm_url = response.json()[-1]["url"]
 
-    old_url = f"{api_url}/courses/{course_id}/pages/{old_lm_url}"
+    old_url = f"{api_url}/courses/{old_course_id}/pages/week_{i}_learning_materials"
     new_url = f"{api_url}/courses/{course_id}/pages/week_{i}_learning_materials"
     print(f"copying from {old_url} to {new_url}")
 
