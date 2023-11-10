@@ -141,9 +141,11 @@ def get_modules(course_id):
   return response.json()
   
 def create_missing_assignments(modules, old_modules, course_id, old_course_id):
-  print("Creating missing assignments ")
+  print("Creating missing assignments")
   modules = get_modules(course_id)
   old_modules = get_modules(old_course_id)
+
+  handled = []
 
   for old_module in old_modules:
     items = old_module["items"]
@@ -160,10 +162,29 @@ def create_missing_assignments(modules, old_modules, course_id, old_course_id):
     print(number)
     if number == "1":
       gallery_search = filter( lambda item: "Gallery Discussion" in item["title"], module["items"])
-      gallery_discussion_template = next( filter( lambda item: "Gallery Discussion" in item["title"], module["items"]))
-      
+      gallery_discussion_template = next( filter( lambda item: "Gallery Discussion" in item["title"], module["items"]), None)
 
     create_missing_assignments_in_module(module, old_module, course_id, old_course_id, gallery_discussion_template)
+    handled.append(module)
+
+  #remove named modules that were not handled
+  to_remove = list( filter( lambda module: (not module in handled) and "Module" in module["name"], modules))
+  module_name_list = "\n".join(list( map(lambda module: module["name"], to_remove)))
+  if tk.messagebox.askyesno(message=f"Do you want to remove the following modules and their contents?\n{module_name_list}"):
+    for module in to_remove:
+      remove_module(course_id, module, True)
+
+
+def remove_module(course_id, module, delete_contents):
+  if delete_contents:
+    for item in module["items"]:
+      url = item["url"]
+      print(f"Deleting {url}")
+      result = requests.delete(url, headers=headers)
+
+  url = f"{api_url}/courses/{course_id}/modules/{module['id']}"
+  result = requests.delete(url, headers=headers)
+
 
 def create_missing_assignments_in_module(module, old_module, course_id, old_course_id, gallery_discussion_template):
   add_quizzes(module, old_module, course_id, old_course_id)
@@ -171,7 +192,6 @@ def create_missing_assignments_in_module(module, old_module, course_id, old_cour
   add_discussions(module, old_module, course_id, old_course_id, gallery_discussion_template)
 
 def add_quizzes(module, old_module, course_id, old_course_id):
-  print("ADDDDDDDDDING QUIZZZZZZZZZZZZZZZES")
   old_quizzes = list ( filter( lambda item: item["type"] == "Quiz", old_module["items"]) )
   quizzes = list( filter( lambda item: item["type"] == "Quiz", module["items"]) )
 
@@ -274,9 +294,9 @@ def get_file_lookup_table(course_id, old_course_id):
 
 
 assignments_lut_cache = None
-def get_assignments_lookup_table(modules, old_modules, course_id, old_course_id):
+def get_assignments_lookup_table(modules, old_modules, course_id, old_course_id, force=False):
   global assignments_lut_cache
-  if assignments_lut_cache:
+  if assignments_lut_cache and not force:
     return assignments_lut_cache
 
   #we have to create missing assignments as part of getting assignments lookup table
@@ -289,7 +309,6 @@ def get_assignments_lookup_table(modules, old_modules, course_id, old_course_id)
   old_modules = get_modules(old_course_id)
   modules = get_modules(course_id)
 
-  print(old_modules)
   for old_module in old_modules:
     items = old_module["items"]
 
@@ -310,12 +329,12 @@ def get_assignments_lookup_table(modules, old_modules, course_id, old_course_id)
     old_gallery_discussions = remove_gallery_discussions(old_discussions)
     gallery_discussions = remove_gallery_discussions(discussions)
 
-
-    print(json.dumps(assignments))   
     populate_lookup_table(assignments_lut, assignments, old_assignments)
     populate_lookup_table(assignments_lut, discussions, old_discussions)
     populate_lookup_table(assignments_lut, gallery_discussions, old_gallery_discussions)
 
+
+  #We also want to associate discussions with their corresponding assignment ID
   discussions = get_paged_data(f"{api_url}/courses/{course_id}/discussion_topics")
   old_discussions = get_paged_data(f"{api_url}/courses/{old_course_id}/discussion_topics")
 
@@ -439,7 +458,6 @@ def align_assignments(course_id, old_course_id, assignments_lut):
     discussions = list( filter( lambda item: item["type"] == "Discussion", module["items"]) )
     gallery_discussions = remove_gallery_discussions(discussions)
 
-    print(old_gallery_discussions)
 
     discussion_number = 1
     gallery_discussion_number = 1
@@ -453,9 +471,9 @@ def align_assignments(course_id, old_course_id, assignments_lut):
         "old_course_id" : old_course_id,
     }
 
-    handle_items(gallery_discussions, old_gallery_discussions, handle_discussion, f"Week {number} " +  "Gallery Discussion {number}- {name}", ctx)
-    handle_items(discussions, old_discussions, handle_discussion, f"Week {number} " + "Discussion {number}- {name}", ctx)
-    handle_items(assignments, old_assignments, handle_assignment, f"Week {number} " + "Assignment {number}- {name}", ctx)
+    handle_items(course_id, old_course_id, module, gallery_discussions, old_gallery_discussions, handle_discussion, f"Week {number} " +  "Gallery Discussion {number}- {name}", ctx)
+    handle_items(course_id, old_course_id, module, discussions, old_discussions, handle_discussion, f"Week {number} " + "Discussion {number}- {name}", ctx)
+    handle_items(course_id, old_course_id, module, assignments, old_assignments, handle_assignment, f"Week {number} " + "Assignment {number}- {name}", ctx)
 
 #look through img and a tags. Replace src and href tags if they point to a file we know about. 
 #assignments coming
@@ -535,8 +553,6 @@ def update_links(soup, ctx):
 
 
 
-
-
   #handle images
   imgs = soup.find_all('img')
   for img in imgs:
@@ -553,22 +569,25 @@ def update_links(soup, ctx):
       print(old_url + " ---> " + img["src"])
 
 
-def handle_items(items, old_items, handle_func, format_title, ctx):
+def handle_items(course_id, old_course_id, module, items, old_items, handle_func, format_title, ctx):
   i = 0
+
+  handled = []
 
   for old_item in old_items:
     item = items[i]
-    print(f"Parsing {old_item['title']} into {item['title']}")
-
+    handled.append(item)
     course_id_regex = re.compile(f'{api_url}/courses/(\d+)/(assignments|discussion_topics)/(\d+)')
     match = course_id_regex.match(items[0]["url"])
     old_match = course_id_regex.match(old_item["url"])
 
+
+    print(f"Parsing {old_item['title']} into {item['title']}")
+
+
     assert match, f"regex broken for string {items[0]['url']}"
     assert old_match, f"regex broken for string {old_item['url']}"
-    course_id = match.group(1)
     item_id = match.group(3)
-    old_course_id = old_match.group(1)
     old_item_id = old_match.group(1)
 
     url = item["url"]
@@ -584,6 +603,18 @@ def handle_items(items, old_items, handle_func, format_title, ctx):
 
     handle_func(item, old_item, url, i, len(old_items), format_title, ctx)
     i = i + 1
+
+  for item in items:
+    if not item in handled:
+      remove_item_from_module(item, module, course_id)
+
+def remove_item_from_module(item, module, course_id):
+  print(json.dumps(item, indent=2))
+  url = f"{api_url}/courses/{course_id}/modules/{item['module_id']}/items/{item['id']}"
+  print(url)
+  response = requests.delete(url, headers=headers)
+  print("DELETING")
+  print(response.json())
 
 def handle_discussion(item, old_item, put_url, index, total, format_title, ctx):
 
