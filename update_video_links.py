@@ -1249,10 +1249,11 @@ def update_learning_materials(course_id, old_course_id, files_lut, assignments_l
     new_soup = BeautifulSoup (new_page["body"])
     
     #handle youtube links
-    old_iframe = old_soup.find("iframe")
-    new_iframe = new_soup.find("iframe")
-    youtube_iframe_source = old_iframe["src"]
-    new_iframe["src"] = youtube_iframe_source
+    old_iframes = list( old_soup.find_all("iframe") )
+    new_iframes = new_soup.find_all("iframe")
+
+    youtube_iframe_source = old_iframes[0]["src"]
+    new_iframes[0]["src"] = youtube_iframe_source
 
 
     old_header = old_soup.find("h4")
@@ -1260,47 +1261,120 @@ def update_learning_materials(course_id, old_course_id, files_lut, assignments_l
     
     #handle transcripts
     transcripts_and_slides = old_soup.find_all("div", {'class':"column"})[1].find_all("a")
+    transcripts = list( filter(lambda el: "transcript" in el.text.lower(), transcripts_and_slides))
+    slides = list( filter(lambda el: "slides" in el.text.lower(), transcripts_and_slides))
 
+
+    canon_transcripts = []
+    canon_slides = []
+    for item in transcripts:
+      canon_transcripts.append(item)
+    for item in slides:
+      canon_slides.append(item)
+      
     buttons = new_soup.find_all("p", { "class" : "cbt-button"})
-    slides_button = None
-    transcript_button = None
+    slides_buttons = []
+    transcript_buttons = []
 
     for button in buttons:
       if button.find("a", string=re.compile("Slides",re.IGNORECASE)):
-        slides_button = button.find("a", string=re.compile("Slides",re.IGNORECASE))
+        slides_buttons.append( button.find("a", string=re.compile("Slides",re.IGNORECASE)) )
       if button.find("a", text=re.compile("Transcript", re.IGNORECASE)):
-        transcript_button = button.find("a", string=re.compile("Transcript", re.IGNORECASE))
+        transcript_buttons.append( button.find("a", string=re.compile("Transcript", re.IGNORECASE)) )
 
     slides_count = 0
     transcripts_count = 0
     old_transcript_button = None
-    for element in transcripts_and_slides:
 
-      if element.find(string=re.compile("Transcript", re.IGNORECASE)):
-        if (transcripts_count > 0):
-          old_button = transcript_button
-          old_button["body"] = f"Transcript {transcripts_count}"
-          button_container = copy.copy(old_button.parent)
-          old_button.parent.parent.append(button_container)
-          transcript_button = button_container.find('a')
-          transcript_button["body"] = f"Transcript {transcripts_count + 1}"
+    if True: #this is here to clear out a bunch of buttons
+      button_count = len(transcript_buttons)
 
-        #replace link
-        transcript_button["href"] = element["href"]
-        transcripts_count = transcripts_count + 1
+      if button_count > 1:
+        for i in range(1, button_count):
+          button = transcript_buttons[i]
+          button.parent.extract()
 
-      if element.find(string=re.compile("Slides", re.IGNORECASE)):
-        if (slides_count > 0):
-          old_button = slides_button
-          old_button["body"] = f"Slides {slides_count}"
-          button_container = copy.copy(old_button.parent)
-          old_button.parent.parent.append(button_container)
-          slides_button = button_container.find('a')
-          slides_button["body"] = f"Slides {slides_count + 1}"
+      button_count = len(slides_buttons)
+      if len(slides_buttons) > 1:
+        button = slides_buttons[i]
+        for i in range(1, button_count):
+          button.parent.extract()
 
-        #replace link
-        slides_button["href"] = element["href"]
-        slides_count = slides_count + 1
+
+
+    #clean up secondary media boxes
+    secondary_media_boxes = get_secondary_media_boxes(new_soup)
+
+
+    #if there are more than one old iframe, we're gonna make secondary media boxen to match, if we have a secondary media box to go on
+    total_needed_boxes = len(old_iframes) - 1
+    if len( old_iframes ) > 1 and len ( secondary_media_boxes ) > 0:
+        boxes_to_add = total_needed_boxes - len (secondary_media_boxes)
+        last_box = secondary_media_boxes[-1]
+        if boxes_to_add > 0:
+          new_box = copy.copy(last_box)
+          last_box.insert_after(new_box)
+          last_box = new_box
+
+    secondary_media_boxes = get_secondary_media_boxes(new_soup)
+    for i in range(0, len(secondary_media_boxes)):
+      box = secondary_media_boxes[i]
+      if i <= total_needed_boxes - 1:
+        box.find("iframe")['src'] = old_iframes[i + 1]["src"]
+      else:
+        box.decompose()
+
+    #save off originals so we can append them to acordion later
+
+
+
+    if len(transcripts) > 0:
+      old_button = transcript_buttons[0]
+      old_button["body"] = f"Transcript"
+      old_button["href"] = transcripts[0]["href"]
+      transcripts.remove(transcripts[0])
+
+    if len(slides) > 0:
+      old_button = slides_buttons[0]
+      old_button["body"] = f"Slides"
+      old_button["href"] = slides[0]["href"]
+      slides.remove(slides[0]) 
+    else:
+      for button in slides_buttons:
+        button.decompose()
+
+    i = 0
+
+    if secondary_media_boxes:
+      for box in secondary_media_boxes:
+        if i < len(transcripts):
+          transcript = transcripts[i]
+          link = box.find('a', id=f"transcript_link_{i}")
+          print("---")
+          print(link)
+          print("---")
+          if not link:
+            link = new_soup.new_tag('a', string="transcript", id=f"transcript_link_{i}")
+            p = box.find('p')
+            p.insert(0, link)
+            print(box)
+
+          link["href"] = transcript["href"]
+          link.string = "transcript"
+
+        if i < len(slides):
+          slide = slides[i]
+          link = box.find('a', id=f"slides_link_{i}")
+          if not link:
+            link = new_soup.new_tag('a', string="slides", class_="slides_link", id=f"slides_link_{i}")
+            link["class"] = "slides_link"
+            p = box.find('p')
+            p.append(link)
+          link["href"] = slides["href"]
+
+
+      i = i + 1
+
 
 
 
@@ -1313,6 +1387,10 @@ def update_learning_materials(course_id, old_course_id, files_lut, assignments_l
       new_content = copy.copy(accordion)
       accordion.parent.append(new_content)
       content = new_content.find("div", class_="cbt-answer")
+      for transcript in canon_transcripts:
+        content.append(transcript)
+      for slide in canon_slides:
+        content.append(slide)
       for el in learning_materials:
         content.append(el)
 
@@ -1334,6 +1412,14 @@ def update_learning_materials(course_id, old_course_id, files_lut, assignments_l
       }
     )
     print(new_page["title"],response.status_code)
+
+def get_secondary_media_boxes(soup):
+  secondary_media_boxes = []
+  h3s = soup.find_all('h3')
+  for h3 in h3s:
+    if "secondary media element" in h3.text:
+      secondary_media_boxes.append(h3.parent)
+  return secondary_media_boxes
 
 def get_paged_data(url, headers=headers):
   response = requests.get(url, headers=headers)
