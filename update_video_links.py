@@ -157,7 +157,6 @@ def create_missing_assignments(modules, old_modules, course_id, old_course_id):
 
   for old_module in old_modules:
     items = old_module["items"]
-    print(old_module["name"])
     #skip non-week modules
     number = get_old_module_number(old_module)
     name = get_old_module_title(old_module)
@@ -167,7 +166,6 @@ def create_missing_assignments(modules, old_modules, course_id, old_course_id):
     module = find_new_module_by_number(number, modules)
 
     #save off the gallery discussion
-    print(number)
     if number == "1":
       gallery_search = filter( lambda item: "Gallery Discussion" in item["title"], module["items"])
       gallery_discussion_template = next( filter( lambda item: "Gallery Discussion" in item["title"], module["items"]), None)
@@ -204,9 +202,7 @@ def add_quizzes(module, old_module, course_id, old_course_id):
   quizzes = list( filter( lambda item: item["type"] == "Quiz", module["items"]) )
 
   difference = len(old_quizzes) - len(quizzes)
-  print(json.dumps(old_quizzes, indent=2))
-  print(json.dumps(quizzes, indent=2))
-  print(f"--- Quiz Difference: {difference} ---")
+
   if difference > 0:
   #we're looking for imported quizzes now
 
@@ -215,7 +211,6 @@ def add_quizzes(module, old_module, course_id, old_course_id):
     for old_quiz in old_quizzes:
       #if the quiz is there, we're good
       if next(filter(lambda item: item["title"] == old_quiz["title"], quizzes), None):
-        print(item["title"] + "----------" + old_quiz["title"])
         continue
       else:
         print("Adding Quiz To Module")
@@ -229,7 +224,6 @@ def add_quizzes(module, old_module, course_id, old_course_id):
           "module_item[indent]" : 1,
           "module_item[position]" : 999
           })
-        print(result, result.text)
 
 
 def add_assignments(module, old_module, course_id, old_course_id):
@@ -1215,25 +1209,32 @@ def get_week_1_preview(course_id):
     return learning_materials
 
 
+def get_latest_lm_backup(course_id, week_num):
+  url = f"{api_url}/courses/{course_id}/pages/"
+  print(url)
+  response = requests.get(url, headers=headers, data={
+    "sort" : "created_at",
+    "search_term" : f"Week {week_num} Learning Materials"
+    })
+  if not response.ok:
+    raise Exception(response.json())
+  print(response)
+
+  if len(response.json()) < 2:
+    return False
+
+  old_lm_url = response.json()[-1]["url"]
+  return old_lm_url
+
 def update_learning_materials(course_id, old_course_id, files_lut, assignments_lut ):
+  print("Updating Learning Materials")
   for i in range(1,9):
 
-    #get the latest page matching the learning materials search
-    url = f"{api_url}/courses/{course_id}/pages/"
-    response = requests.get(url, headers=headers, data={
-      "sort" : "created_at",
-      "search_term" : f"Week {i} Learning Materials"
-      })
-    if not response.ok:
-      raise Exception(response.json())
 
-
-    if len(response.json()) < 2:
-      continue
-    old_lm_url = response.json()[-1]["url"]
 
     old_url = f"{api_url}/courses/{old_course_id}/pages/week_{i}_learning_materials"
     new_url = f"{api_url}/courses/{course_id}/pages/week_{i}_learning_materials"
+    #old_url = get_latest_lm_backup(course_id, i)
     print(f"copying from {old_url} to {new_url}")
 
     old_page_response = requests.get(old_url, headers=headers)
@@ -1314,8 +1315,6 @@ def update_learning_materials(course_id, old_course_id, files_lut, assignments_l
       content = new_content.find("div", class_="cbt-answer")
       for el in learning_materials:
         content.append(el)
-        print(content)
-        print(el)
 
 
 
