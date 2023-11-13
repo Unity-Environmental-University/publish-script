@@ -1,4 +1,5 @@
 from pathlib import Path
+from PIL import Image
 import sys
 import re
 import requests
@@ -98,6 +99,8 @@ def main():
       update_learning_materials(course_id, old_course_id, files_lut, assignments_lut)
     if  "delete" in sys.argv:
       remove_assignments_and_discussions_not_in_modules(course_id)
+    if "hometiles" in sys.argv:
+      set_hometiles(course_id)
 
 
   else:
@@ -140,8 +143,126 @@ def main():
         remove_assignments_and_discussions_not_in_modules(course_id)
       except Exception as e:
         tk.messagebox.showerror(message=f"there was a problem deleting assigments and or discussions\n{e}")        
+
+    if tk.messagebox.askyesno(message="Do you want to automatically make hometiles based on overview banners?"):
+      try:
+        set_hometiles(course_id)
+      except Exception as e:
+        tk.messagebox.showerror(message=f"there was a creating hometiles\n{e}")        
   
     tk.messagebox.showinfo(message="Finished!")
+
+
+def set_hometiles(course_id):
+
+  url = f"{api_url}/courses/{course_id}/pages/home"
+  response = requests.get(url, headers=headers)
+
+  page = response.json()
+  soup = BeautifulSoup(page["body"], 'lxml')
+
+
+  banner = soup.find("div", class_="cbt-banner-image").find('img')
+  src = banner['src']
+  response = requests.get(src)
+  img_data = response.content
+  ext = "png" if 'png' in response.headers["Content-Type"] else 'jpg'
+
+  cwd = os.getcwd()
+  path = os.path.join(cwd, course_id)
+  if not os.path.exists(path):
+    os.mkdir(path)
+
+  filepath = save_hometile(img_data, filepath = os.path.join(path, f"hometile1.{ext}"))
+  upload_hometile(course_id, filepath)
+
+  i = 1
+  modules = get_modules(course_id)
+  for module in modules:
+    url = f"{api_url}/courses/{course_id}/pages/week_{i}_overview"
+    response = requests.get(url, headers=headers)
+    if not response.ok: #quit if we can't find the page
+      print(response)
+      return
+
+    page = response.json()
+    soup = BeautifulSoup(page["body"], 'lxml')
+
+    banner = soup.find("div", class_="cbt-banner-image").find('img')
+    src = banner['src']
+    response = requests.get(src)
+    img_data = response.content
+    ext = "png" if 'png' in response.headers["Content-Type"] else 'jpg'
+
+    cwd = os.getcwd()
+    path = os.path.join(cwd, course_id)
+
+    home_tile_path = save_hometile(img_data, filepath = os.path.join(path, f"hometile{i + 1}.{ext}"))
+    upload_hometile(course_id, home_tile_path)
+    i = i + 1
+
+def upload_hometile(course_id, local_path):
+  #get the correct folder in this 
+  
+
+  url = f"{api_url}/courses/{course_id}/folders/by_path/Images/hometile"
+  response = requests.get(url, headers=headers)
+  folders = response.json()
+  hometile_folder = folders[-1]
+  file_url = f"{api_url}/courses/{course_id}/files"
+  print(f"uploading {local_path} to {file_url}")
+  data = {
+    "name" : os.path.basename(local_path),
+    "no_redirect" : True,
+    "parent_folder_id" : hometile_folder["id"],
+    "on_duplicate" : "overwrite"
+  }
+
+  print(data)
+  response = requests.post(file_url, data=data, headers=headers)
+  print(response)
+  print(response.reason)
+  if response.ok:
+    response_data = response.json()
+    files = { "file" : open(local_path, 'rb')}
+    url = response_data["upload_url"]
+    response = requests.post(url, files=files, data=response_data['upload_params'])
+    print(response)
+    if not response.ok:
+      print(response.text)
+      return False
+
+    if response.is_redirect:
+      requests.Session().send(response.next)
+
+
+
+def save_hometile(img_data, filepath):
+  print(filepath)
+  HOMETILE_WIDTH = 512
+  with open(filepath, 'wb') as file:
+    file.write(img_data)
+
+  with Image.open(filepath) as img:
+    if HOMETILE_WIDTH >= img.size[0]:
+      print (HOMETILE_WIDTH, img.size)
+    else:
+      target_width = HOMETILE_WIDTH
+
+      # Calculate the new height to preserve the aspect ratio
+      width_percent = (target_width / float(img.size[0]))
+      new_height = int((float(img.size[1]) * float(width_percent)))
+
+      # Resize the image using the appropriate resampling filter
+      resized_img = img.resize((target_width, new_height), Image.Resampling.BILINEAR)
+
+      pre, ext = os.path.splitext(filepath)
+      # Save the resized image
+      home_tile_path = f"{pre}.png"
+      resized_img.save(home_tile_path,"PNG")
+
+      return home_tile_path
+
 
 def get_modules(course_id):
   url = f"{api_url}/courses/{course_id}/modules?include[]=items&include[]=content_details"
@@ -481,7 +602,7 @@ def align_assignments(course_id, old_course_id, assignments_lut):
 #assignments coming
 
 def get_new_file_url(src, ctx):
-  files_lut = ctx["files_lut"]
+  files_lut = get_file_lookup_table(ctx["course_id"], ctx["old_course_id"])
 
   file_match = re.search(r"files\/([0-9]+)", src)
   if file_match:
@@ -524,11 +645,14 @@ def get_new_page_url(src, ctx):
     return url
 
 def update_links(soup, ctx):
-  files_lut  = ctx["files_lut"]
-  assignments_lut = ctx["assignments_lut"]
   course_id = ctx["course_id"]
   old_course_id = ctx["old_course_id"]
 
+  modules = get_modules(course_id)
+  old_modules = get_modules(old_course_id)
+
+  files_lut = get_file_lookup_table(course_id, old_course_id)
+  assignments_lut = get_assignments_lookup_table(modules, old_modules, course_id, old_course_id)
   print("Updating Links")
   #handle a tags
   links = soup.find_all('a')
@@ -892,9 +1016,10 @@ def update_weekly_overviews(course_id, old_course_id):
 
       set_module_title(course_id, module["id"], f"Module {i} - {module_name}".title())
   
-      old_overview_page_info = next(filter(lambda item: "overview" in item["title"].lower(), items))
+      old_overview_page_info = next(filter(lambda item: "overview" in item["title"].lower() and item["type"] == "Page", items))
       old_lo_page_info = next(filter(lambda item: "learning objectives" in item["title"].lower(), items))
 
+      print(old_overview_page_info)
       old_overview_page = get_page_by_url (old_overview_page_info["url"])
       old_lo_page = get_page_by_url (old_lo_page_info["url"])
       overview_page = get_page_by_url (f"{api_url}/courses/{course_id}/pages/week-{i}-overview")
@@ -954,7 +1079,6 @@ def get_page_by_url(url):
   return page
 
 def get_file_url_by_name(course_id, file_search):
-  #get syllabus banner url
   url = f"{api_url}/courses/{course_id}/files"
   response = requests.get(url, headers=headers, params={"search_term" : file_search})
   files = response.json()
@@ -978,7 +1102,7 @@ def update_syllabus_and_overview(course_id, old_course_id):
   print(description_paras)
   learning_objectives_paras = get_section(old_page, "Outcomes:")
   textbook_paras = get_section(old_page, "Textbook:")
-  week_1_preview = get_week_1_preview(course_id)
+  week_1_preview = get_week_1_preview(course_id, old_course_id)
 
   term = "DE8W01.08.24" if is_course_grad else "DE/HL-24-Jan"
   dates = "January 8 - March 3" if is_course_grad  else "January 15 - February 18" 
@@ -1049,7 +1173,7 @@ def update_syllabus_and_overview(course_id, old_course_id):
 
   overview_html = overview_page["body"]
   og_ov_soup = BeautifulSoup(overview_html, "lxml").body
-  overview_banner_img = og_ov_soup.find("img", width=750)
+  overview_banner_img = og_ov_soup.find("div", class_="cbt-banner-image").find('img')
   overview_banner_url = overview_banner_img["src"]
 
   #get assignment groups
@@ -1164,9 +1288,9 @@ def convert_to_watch_url(embed_url: str) -> str:
     return urlunparse((scheme, netloc, path, params, f'v={video_id}', fragment))
 
 
-def get_week_1_preview(course_id):
+def get_week_1_preview(course_id, old_course_id):
 
-    old_lm_url = f"{api_url}/courses/{course_id}/pages/week_1_learning_materials-2"
+    old_lm_url = f"{api_url}/courses/{old_course_id}/pages/week_1_learning_materials"
     lm_response = requests.get(old_lm_url, headers=headers)
 
     print(lm_response)
@@ -1188,6 +1312,8 @@ def get_week_1_preview(course_id):
       if 'lides' in link.text:
         slides.append(link)
 
+
+
     temp_soup = BeautifulSoup(f"<li><a href={convert_to_watch_url(youtube_iframe_source)}>Week 1 Lecture</a><ul></ul></li>", "lxml")
     list_ = temp_soup.find("ul")
     for transcript in transcripts:
@@ -1205,7 +1331,16 @@ def get_week_1_preview(course_id):
       li.append(a)
       list_.append(li)
 
+
+
     learning_materials[0].insert( 0, temp_soup.html.body.li )
+
+    update_links(lm_soup, {
+      "course_id" : course_id,
+      "old_course_id" : old_course_id,
+      })
+
+
     return learning_materials
 
 
@@ -1271,7 +1406,7 @@ def update_learning_materials(course_id, old_course_id, files_lut, assignments_l
       canon_transcripts.append(item)
     for item in slides:
       canon_slides.append(item)
-      
+
     buttons = new_soup.find_all("p", { "class" : "cbt-button"})
     slides_buttons = []
     transcript_buttons = []
