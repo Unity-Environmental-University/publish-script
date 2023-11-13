@@ -52,7 +52,7 @@ def main():
   if len(sys.argv) > 1:
    course_id = sys.argv[1]
   else:
-   course_id = tk.simpledialog.askinteger("What Course?", "Enter the course_id of the new course (cut the number out of the url and paste here)")
+   course_id = str(tk.simpledialog.askinteger("What Course?", "Enter the course_id of the new course (cut the number out of the url and paste here)"))
 
 
   url = f"{api_url}/courses/{course_id}"
@@ -148,7 +148,7 @@ def main():
       try:
         set_hometiles(course_id)
       except Exception as e:
-        tk.messagebox.showerror(message=f"there was a creating hometiles\n{e}")        
+        tk.messagebox.showerror(message=f"there was a problem creating hometiles\n{e}")        
   
     tk.messagebox.showinfo(message="Finished!")
 
@@ -169,7 +169,7 @@ def set_hometiles(course_id):
   ext = "png" if 'png' in response.headers["Content-Type"] else 'jpg'
 
   cwd = os.getcwd()
-  path = os.path.join(cwd, course_id)
+  path = os.path.join(cwd, str(course_id))
   if not os.path.exists(path):
     os.mkdir(path)
 
@@ -195,7 +195,7 @@ def set_hometiles(course_id):
     ext = "png" if 'png' in response.headers["Content-Type"] else 'jpg'
 
     cwd = os.getcwd()
-    path = os.path.join(cwd, course_id)
+    path = os.path.join(cwd, str(course_id))
 
     home_tile_path = save_hometile(img_data, filepath = os.path.join(path, f"hometile{i + 1}.{ext}"))
     upload_hometile(course_id, home_tile_path)
