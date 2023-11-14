@@ -1038,8 +1038,15 @@ def update_weekly_overviews(course_id, old_course_id):
       learning_objectives = learning_objectives.prettify()
 
       description_box = old_overview_soup.find("div", class_="column")
+      description_elements = None
+      if description_box:
+        description_elements = list(description_box.children)
+      else:
+        description_elements = old_overview_soup.find_all('p')
+
+
       description = "\n".join( 
-        map(lambda tag: str(tag), list(description_box.children))
+        map(lambda tag: str(tag), description_elements)
       )
 
       new_page_body = new_overview_page_html(overview_page["body"], module_name, description, learning_objectives)
@@ -1246,11 +1253,11 @@ def find_syllabus_title(soup):
   return title_p.text
 
 def get_section(soup, header_string):
-  header = soup.find("h4", text=re.compile(header_string))
+  header = soup.find("h4", text=re.compile(header_string, re.IGNORECASE))
  
 
   if not header:
-    header = soup.find("strong", text=re.compile(header_string))
+    header = soup.find("strong", text=re.compile(header_string, re.IGNORECASE))
     print (header)
     if not header:
       return BeautifulSoup(f"<p>---Section {header_string} not found.---</p>", "lxml").find_all("p")
@@ -1259,7 +1266,6 @@ def get_section(soup, header_string):
     header = parent
     if len(header.text.rstrip()) > 0:
       print (header.text)
-      return [header]
 
   paragraphs = []
 
@@ -1268,6 +1274,8 @@ def get_section(soup, header_string):
   while el and el.name != "h4":
     paragraphs.append(el)
     el = el.find_next_sibling()
+
+  print(paragraphs)
   return paragraphs
 
 
@@ -1395,8 +1403,14 @@ def update_learning_materials(course_id, old_course_id, files_lut, assignments_l
 
 
     old_header = old_soup.find("h4")
-    learning_materials = list(old_header.next_siblings)
+    learning_materials = None
+    if old_header:
+      learning_materials = list(old_header.next_siblings)
+      
+    else:
+      learning_materials = get_section(old_soup, "Please read (and watch )?the following materials:")
     
+    print(learning_materials)
     #handle transcripts
     transcripts_and_slides = old_soup.find_all("div", {'class':"column"})[1].find_all("a")
     transcripts = list( filter(lambda el: "transcript" in el.text.lower(), transcripts_and_slides))
@@ -1519,12 +1533,25 @@ def update_learning_materials(course_id, old_course_id, files_lut, assignments_l
     #handle learning materials
 
     #make a new accordion and just all the learning materials into it IF this accordion is a template
-    accordion = new_soup.find("div", class_="cbt-accordion-container")
-    if accordion.find(string="[Title for first category of LMs]"):
-      print("adding Learning Materials")
-      new_content = copy.copy(accordion)
-      accordion.parent.append(new_content)
-      content = new_content.find("div", class_="cbt-answer")
+    accordion = new_soup.find("div", class_='auto-add')
+    if not accordion:
+      accordion = new_soup.find("div", class_="cbt-accordion-container")
+
+      if accordion.find(text=re.compile("Title for first category of LMs", re.IGNORECASE)):
+        print("adding Learning Materials")
+        new_content = copy.copy(accordion)
+        new_content['class'].append('auto-add')
+        accordion.parent.append(new_content)
+        content = new_content.find("div", class_="cbt-answer")
+        for transcript in canon_transcripts:
+          content.append(transcript)
+        for slide in canon_slides:
+          content.append(slide)
+        for el in learning_materials:
+          content.append(el)
+    else:
+      content = accordion.find("div", class_="cbt-answer")
+      content.clear()
       for transcript in canon_transcripts:
         content.append(transcript)
       for slide in canon_slides:
