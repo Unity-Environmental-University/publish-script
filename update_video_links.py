@@ -169,7 +169,10 @@ def set_hometiles(course_id):
   ext = "png" if 'png' in response.headers["Content-Type"] else 'jpg'
 
   cwd = os.getcwd()
-  path = os.path.join(cwd, str(course_id))
+  path = os.path.join(cwd, "images")
+  if not os.path.exists(path):
+    os.mkdir(path)
+  path = os.path.join(path, f"{course_id}")
   if not os.path.exists(path):
     os.mkdir(path)
 
@@ -195,7 +198,7 @@ def set_hometiles(course_id):
     ext = "png" if 'png' in response.headers["Content-Type"] else 'jpg'
 
     cwd = os.getcwd()
-    path = os.path.join(cwd, str(course_id))
+    path = os.path.join(cwd, "images", str(course_id))
 
     home_tile_path = save_hometile(img_data, filepath = os.path.join(path, f"hometile{i + 1}.{ext}"))
     upload_hometile(course_id, home_tile_path)
