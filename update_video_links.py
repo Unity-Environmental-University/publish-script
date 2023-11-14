@@ -794,8 +794,6 @@ def handle_discussion(item, old_item, put_url, index, total, format_title, ctx):
     })
 
 
-
-
 def handle_assignment(item, old_item, put_url, index, total, format_title, ctx):
 
   files_lut  = ctx["files_lut"]
@@ -1109,6 +1107,7 @@ def update_syllabus_and_overview(course_id, old_course_id):
 
   title = find_syllabus_title(old_page)
   description_paras = get_section(old_page, "Description:")
+  print('DESCRIPTION')
   print(description_paras)
   learning_objectives_paras = get_section(old_page, "Outcomes:")
   textbook_paras = get_section(old_page, "Textbook:")
@@ -1262,16 +1261,13 @@ def get_section(soup, header_string):
     if not header:
       return BeautifulSoup(f"<p>---Section {header_string} not found.---</p>", "lxml").find_all("p")
     parent = header.parent
-    header.decompose()
     header = parent
-    if len(header.text.rstrip()) > 0:
-      print (header.text)
 
   paragraphs = []
 
   el =  header.find_next_sibling()
   print(el.name)
-  while el and el.name != "h4":
+  while el and el.name != "h4" and not len(list(el.find_all('strong', string=re.compile(r':')))) > 0 and not len(el.text) < 5:
     paragraphs.append(el)
     el = el.find_next_sibling()
 
@@ -1310,7 +1306,7 @@ def get_week_1_preview(course_id, old_course_id):
     lm_soup = BeautifulSoup(lm_page["body"], "lxml")
 
     h4 = lm_soup.find("h4")
-    learning_materials =  get_section(lm_soup, "Please read and watch the following materials:")
+    learning_materials =  get_section(lm_soup, "Please read (and watch )?the following materials:")
 
     iframe = lm_soup.find("iframe")
     youtube_iframe_source = iframe["src"]
