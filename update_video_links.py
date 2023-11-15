@@ -855,7 +855,7 @@ def handle_assignment(item, old_item, put_url, index, total, format_title, ctx):
   #update links on the whole thing
   update_links(soup, ctx)
 
-  new_text = soup.prettify()
+  new_text = re.sub('</?\s*span\s*>','', soup.prettify())
 
   response = requests.put(put_url, headers=headers, data= {
     "assignment[name]" : new_name,
@@ -1094,6 +1094,7 @@ def new_overview_page_html(overview_page_body, title, description, learning_obje
   body = re.sub('\[title of week\]', f"{title}", body)
   body = re.sub('\[Insert.*text\]', f"{description}", body)
   body = re.sub('\[insert weekly objectives, bulleted list\]', f"{learning_objectives}", body)
+  body = re.sub('</?\s*span\s*>','', body)  
   return body
 
 def get_page_by_url(url):
@@ -1594,7 +1595,7 @@ def update_learning_materials(course_id, old_course_id, files_lut, assignments_l
     response = requests.put(f'{api_url}/courses/{course_id}/pages/{new_page["page_id"]}', 
       headers = headers,
       data = {
-        "wiki_page[body]" : new_soup.prettify()
+        "wiki_page[body]" : re.sub('</?\s*span\s*>','', new_soup.prettify())
       }
     )
     print(new_page["title"],response.status_code)
