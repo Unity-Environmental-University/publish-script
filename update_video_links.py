@@ -31,7 +31,7 @@ except Exception as e:
 try:
   api_token = constants["apiToken"]
   api_url = constants["apiUrl"]
-
+  html_url = re.sub('\/api\/v1', '', api_url)
   drive_url = None
   if "driveUrl" in constants:
     drive_url = constants["driveUrl"]
@@ -89,7 +89,6 @@ def main():
       update_weekly_overviews(course_id, old_course_id)
     if "assignments" in sys.argv:
       assignments_lut = get_assignments_lookup_table(modules, old_modules, course_id, old_course_id)
-      files_lut = get_file_lookup_table(course_id, old_course_id)
       align_assignments(course_id, old_course_id, assignments_lut)
     if "rubrics" in sys.argv:
       align_rubrics(course_id, old_course_id, assignments_lut)
@@ -119,7 +118,6 @@ def main():
     if tk.messagebox.askyesno(message="Do you want to update assignments?"):
       try:
         assignments_lut = get_assignments_lookup_table(modules, old_modules, course_id, old_course_id)
-        files_lut = get_file_lookup_table(course_id, old_course_id)        
         align_assignments(course_id, old_course_id, assignments_lut)
       except Exception as e:
         tk.messagebox.showerror(message=f"there was a problem updating assignments\n{e}")
@@ -584,7 +582,6 @@ def align_assignments(course_id, old_course_id, assignments_lut):
     discussions = list( filter( lambda item: item["type"] == "Discussion", module["items"]) )
     gallery_discussions = remove_gallery_discussions(discussions)
 
-
     discussion_number = 1
     gallery_discussion_number = 1
     assignment_number = 1
@@ -606,36 +603,51 @@ def align_assignments(course_id, old_course_id, assignments_lut):
 
 def get_new_file_url(src, ctx):
   files_lut = get_file_lookup_table(ctx["course_id"], ctx["old_course_id"])
-
+  course_id = ctx["course_id"]
+  old_course_id = ctx["old_course_id"]
   file_match = re.search(r"files\/([0-9]+)", src)
   if file_match:
     groups = file_match.groups()
     old_id = groups[0]
     if old_id in files_lut:
       new_file = files_lut[old_id]
+      #url = re.sub(str(old_course_id), str(course_id), src)
+      #url = re.sub(str(old_id), str(new_file['id']), src)
       url = new_file['url']
-      url = re.sub('/download(.*)', '', url)        
+      url = re.sub('verifier(.*)&?', '', url)  
+      if "wrap" in src:
+        url = url + "wrap=1"
+      #url = f"{html_url}/courses/{course_id}/files/{new_file['id']}"
+      data_url = re.sub(html_url, api_url, new_file['url'])
+      return url, data_url
 
-      return(url) 
+  return None, None
 
-    return None
 
 def get_new_assignment_url(src, ctx):
   assignments_lut = ctx["assignments_lut"]
 
+  course_id = ctx["course_id"]
   file_match = re.search(r"(assignments|discussion_topics)\/([0-9]+)", src)
   if file_match:
+    type_url_part = file_match.groups()[0]
+    print(type_url_part)
     groups = file_match.groups()
     old_id = groups[1]
     if str(old_id) in assignments_lut:
       new_assignment = assignments_lut[str(old_id)]
-  
-      url = new_assignment['url']
-      url = re.sub('/download(.*)', '', url)        
+      print(new_assignment)
+      content_id = None
+      if 'content_id' in new_assignment:
+        content_id = new_assignment['content_id']
+      else:
+        content_id = new_assignment['id']
+      url = f"{html_url}/courses/{course_id}/{type_url_part}/{content_id}"
+      data_url = url
 
-      return(url) 
+      return url, data_url
 
-  return None
+  return None, None
 
 def get_new_page_url(src, ctx):
   #naively update link by keeping same path and updating course if
@@ -644,8 +656,10 @@ def get_new_page_url(src, ctx):
   if page_match:
     groups = page_match.groups()
     path = groups[0]
-    url = re.sub(f'/courses/.*', f'/courses/{ctx["course_id"]}/pages/{path}', src)        
-    return url
+    url = re.sub(f'/courses/.*', f'/courses/{ctx["course_id"]}/pages/{path}', src)
+    data_url = re.sub('/api/v1', '', url)
+    return url, data_url
+  return None, None
 
 def update_links(soup, ctx):
   course_id = ctx["course_id"]
@@ -672,15 +686,14 @@ def update_links(soup, ctx):
     print(link['href'])
 
     #see if we can turn it into a new page, file, or assignment url
-    for func in [get_new_page_url, get_new_file_url, get_new_assignment_url]:
-      new_url = func(link["href"], ctx)
+    for func in [get_new_file_url, get_new_assignment_url, get_new_page_url]:
+      new_url, data_url = func(link["href"], ctx)
       if new_url:
         old_url = link['href']
         link["href"] = new_url
-        link["data_api_endpoint"] = new_url
+        link["data_api_endpoint"] = data_url
+        print(f'{old_url}\nmapped to\n{link["href"]}')
         break
-
-
 
   #handle images
   imgs = soup.find_all('img')
@@ -689,12 +702,12 @@ def update_links(soup, ctx):
       continue
     if not 'instructure' in img['src']:
       continue
-    new_url = get_new_file_url(img["src"], ctx)
+    new_url, data_url = get_new_file_url(img["src"], ctx)
     
     if new_url:
       old_url = img['src']
       img["src"] = new_url
-      img["data_api_endpoint"] = new_url
+      img["data_api_endpoint"] = data_url
       print(old_url + " ---> " + img["src"])
 
 
@@ -1127,7 +1140,7 @@ def update_syllabus_and_overview(course_id, old_course_id):
         course_outcomes = "\n".join(map(lambda p: p.prettify(), learning_objectives_paras)),
         course_description = "\n".join(map(lambda p: p.prettify(), description_paras)),
         course_title = title,
-        week_1_learning_materials = "\n".join(map(lambda p: p.prettify(), week_1_preview)),
+        week_1_learning_materials = week_1_preview,
         textbook = "\n".join(map(lambda p: p.prettify(), textbook_paras)),
       )
   except Exception as e:
@@ -1306,7 +1319,11 @@ def get_week_1_preview(course_id, old_course_id):
     lm_soup = BeautifulSoup(lm_page["body"], "lxml")
 
     h4 = lm_soup.find("h4")
-    learning_materials =  get_section(lm_soup, "Please read (and watch )?the following materials:")
+    learning_materials = None
+    if h4:
+      learning_materials = list(h4.next_siblings)
+    else:
+      learning_materials = list(get_section(lm_soup, "Please read (and watch )?the following materials:"))
 
     iframe = lm_soup.find("iframe")
     youtube_iframe_source = iframe["src"]
@@ -1321,8 +1338,9 @@ def get_week_1_preview(course_id, old_course_id):
 
 
 
-    temp_soup = BeautifulSoup(f"<li><a href={convert_to_watch_url(youtube_iframe_source)}>Week 1 Lecture</a><ul></ul></li>", "lxml")
-    list_ = temp_soup.find("ul")
+    temp_soup = BeautifulSoup(f"<ul><li><a href={convert_to_watch_url(youtube_iframe_source)}>Week 1 Lecture</a><ul class='transcripts'></ul></li></ul>", "lxml")
+    list_ = temp_soup.find("ul", class_="transcripts")
+    print(transcripts)
     for transcript in transcripts:
       li = temp_soup.new_tag("li")
       a = temp_soup.new_tag("a")
@@ -1338,17 +1356,16 @@ def get_week_1_preview(course_id, old_course_id):
       li.append(a)
       list_.append(li)
 
+    for item in learning_materials:
+      temp_soup.body.append(item)
 
-
-    learning_materials[0].insert( 0, temp_soup.html.body.li )
-
-    update_links(lm_soup, {
+    update_links(temp_soup, {
       "course_id" : course_id,
       "old_course_id" : old_course_id,
       })
 
 
-    return learning_materials
+    return temp_soup.body
 
 
 def get_latest_lm_backup(course_id, week_num):
@@ -1385,6 +1402,8 @@ def update_learning_materials(course_id, old_course_id, files_lut, assignments_l
     old_page = old_page_response.json()
 
     new_page_response = requests.get(new_url, headers=headers)
+    if old_page_response.status_code != 200:
+      continue
     new_page = new_page_response.json()
 
     old_soup = BeautifulSoup(old_page["body"])
@@ -1529,15 +1548,18 @@ def update_learning_materials(course_id, old_course_id, files_lut, assignments_l
     #handle learning materials
 
     #make a new accordion and just all the learning materials into it IF this accordion is a template
-    accordion = new_soup.find("div", class_='auto-add')
+    accordion_list = list(new_soup.find_all("div", class_='auto-add'))
+    accordion = None
+    if accordion_list and len(accordion_list) > 0:
+      accordion = accordion_list[-1]
     if not accordion:
       accordion = new_soup.find("div", class_="cbt-accordion-container")
 
       if accordion.find(text=re.compile("Title for first category of LMs", re.IGNORECASE)):
         print("adding Learning Materials")
         new_content = copy.copy(accordion)
-        new_content['class'].append('auto-add')
         accordion.parent.append(new_content)
+        new_content['class'].append('auto-add')
         content = new_content.find("div", class_="cbt-answer")
         for transcript in canon_transcripts:
           content.append(transcript)
