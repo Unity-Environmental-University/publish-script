@@ -91,6 +91,7 @@ def main():
       assignments_lut = get_assignments_lookup_table(modules, old_modules, course_id, old_course_id)
       align_assignments(course_id, old_course_id, assignments_lut)
     if "rubrics" in sys.argv:
+      assignments_lut = get_assignments_lookup_table(modules, old_modules, course_id, old_course_id)
       align_rubrics(course_id, old_course_id, assignments_lut)
     if  "lm" in sys.argv:
       assignments_lut = get_assignments_lookup_table(modules, old_modules, course_id, old_course_id)
@@ -132,6 +133,7 @@ def main():
 
     if tk.messagebox.askyesno(message="Do you want to update rubrics?"):
       try:
+        assignments_lut = get_assignments_lookup_table(modules, old_modules, course_id, old_course_id)
         align_rubrics(course_id, old_course_id, assignments_lut)
       except Exception as e:
         tk.messagebox.showerror(message=f"there was a problem updating rubrics\n{e}")
@@ -1362,6 +1364,7 @@ def get_week_1_preview(course_id, old_course_id):
     update_links(temp_soup, {
       "course_id" : course_id,
       "old_course_id" : old_course_id,
+      "assignments_lut" : get_assignments_lookup_table(get_modules(course_id), get_modules(old_course_id), course_id, old_course_id)
       })
 
 
@@ -1397,12 +1400,12 @@ def update_learning_materials(course_id, old_course_id, files_lut, assignments_l
     print(f"copying from {old_url} to {new_url}")
 
     old_page_response = requests.get(old_url, headers=headers)
-    if old_page_response.status_code != 200:
+    if not old_page_response.ok:
       continue
     old_page = old_page_response.json()
 
     new_page_response = requests.get(new_url, headers=headers)
-    if old_page_response.status_code != 200:
+    if not new_page_response.ok:
       continue
     new_page = new_page_response.json()
 
