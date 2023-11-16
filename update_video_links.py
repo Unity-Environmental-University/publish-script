@@ -96,7 +96,7 @@ def main():
     if  "lm" in sys.argv:
       assignments_lut = get_assignments_lookup_table(modules, old_modules, course_id, old_course_id)
       files_lut = get_file_lookup_table(course_id, old_course_id)
-      update_learning_materials(course_id, old_course_id, files_lut, assignments_lut)
+      update_learning_materials(course_id, old_course_id, files_lut, assignments_lut, False)
     if  "delete" in sys.argv:
       remove_assignments_and_discussions_not_in_modules(course_id)
     if "hometiles" in sys.argv:
@@ -375,8 +375,8 @@ def add_discussions(module, old_module, course_id, old_course_id, gallery_discus
   gallery_discussions = remove_gallery_discussions(discussions)
 
 
-  #if we don't have a gallery discussion template, just duplicate the first discussion
-  if not gallery_discussion_template:
+  #if we don't have a gallery discussion template, just duplicate the first discussion if there is one
+  if not gallery_discussion_template and len(discussions) > 0:
     gallery_discussion_template = discussions[0]
 
   #add discussions if there is disparity
@@ -805,7 +805,7 @@ def handle_discussion(item, old_item, put_url, index, total, format_title, ctx):
 
   response = requests.put(put_url, headers=headers, data= {
     "title" : new_name,
-    "message" : soup.prettify()
+    "message" : postprocess_soup(soup)
     })
 
 
@@ -855,7 +855,7 @@ def handle_assignment(item, old_item, put_url, index, total, format_title, ctx):
   #update links on the whole thing
   update_links(soup, ctx)
 
-  new_text = re.sub('</?\s*span\s*>','', soup.prettify())
+  new_text = postprocess_soup(soup)
 
   response = requests.put(put_url, headers=headers, data= {
     "assignment[name]" : new_name,
@@ -1040,15 +1040,15 @@ def update_weekly_overviews(course_id, old_course_id):
       old_lo_page = get_page_by_url (old_lo_page_info["url"])
       overview_page = get_page_by_url (f"{api_url}/courses/{course_id}/pages/week-{i}-overview")
 
-      old_overview_soup = BeautifulSoup(old_overview_page["body"], 'lxml')
-      old_lo_soup = BeautifulSoup(old_lo_page["body"], 'lxml')
+      old_overview_soup = BeautifulSoup( strip_spans(old_overview_page["body"]), 'lxml')
+      old_lo_soup = BeautifulSoup( strip_spans(old_lo_page["body"]), 'lxml')
 
       #grab the list of learning objectives from the page
       learning_objectives = old_lo_soup.find('ul')
       if not learning_objectives:
         learning_objectives = old_lo_soup.find("ol")
 
-      learning_objectives = learning_objectives.prettify()
+      learning_objectives = str(learning_objectives)
 
       description_box = old_overview_soup.find("div", class_="column")
       description_elements = None
@@ -1089,12 +1089,11 @@ def new_overview_page_html(overview_page_body, title, description, learning_obje
   contents[0].string = "[Insert text]"
   contents[1].string = "[insert weekly objectives, bulleted list]"
 
-  body = soup.prettify()
+  body = postprocess_soup(soup)
 
   body = re.sub('\[title of week\]', f"{title}", body)
   body = re.sub('\[Insert.*text\]', f"{description}", body)
   body = re.sub('\[insert weekly objectives, bulleted list\]', f"{learning_objectives}", body)
-  body = re.sub('</?\s*span\s*>','', body)  
   return body
 
 def get_page_by_url(url):
@@ -1140,11 +1139,11 @@ def update_syllabus_and_overview(course_id, old_course_id):
         course_id = course_id,
         term_code = term,
         term_dates = dates,
-        course_outcomes = "\n".join(map(lambda p: p.prettify(), learning_objectives_paras)),
-        course_description = "\n".join(map(lambda p: p.prettify(), description_paras)),
+        course_outcomes = "\n".join(map(lambda p: str(p), learning_objectives_paras)),
+        course_description = "\n".join(map(lambda p: str(p), description_paras)),
         course_title = title,
         week_1_learning_materials = week_1_preview,
-        textbook = "\n".join(map(lambda p: p.prettify(), textbook_paras)),
+        textbook = "\n".join(map(lambda p: str(p), textbook_paras)),
       )
   except Exception as e:
     print(type(e))
@@ -1175,7 +1174,7 @@ def update_syllabus_and_overview(course_id, old_course_id):
   response = requests.put(f'{api_url}/courses/{course_id}', 
     headers = headers,
     data = {
-      "course[syllabus_body]" : submit_soup.prettify()
+      "course[syllabus_body]" : str(submit_soup)
     }
   )
 
@@ -1197,7 +1196,7 @@ def update_syllabus_and_overview(course_id, old_course_id):
   overview_page = response.json()
 
   overview_html = overview_page["body"]
-  og_ov_soup = BeautifulSoup(overview_html, "lxml").body
+  og_ov_soup = BeautifulSoup(strip_spans(overview_html), "lxml").body
   overview_banner_img = og_ov_soup.find("div", class_="cbt-banner-image").find('img')
   overview_banner_url = overview_banner_img["src"]
 
@@ -1231,10 +1230,10 @@ def update_syllabus_and_overview(course_id, old_course_id):
       text = template.format(
         banner_url = overview_banner_url,
         course_id = course_id,
-        course_outcomes = "\n".join(map(lambda p: p.prettify(), learning_objectives_paras)),
-        course_description = "\n".join(map(lambda p: p.prettify(), description_paras)),
+        course_outcomes = "\n".join(map(lambda p: str(p), learning_objectives_paras)),
+        course_description = "\n".join(map(lambda p: str(p), description_paras)),
         table_body = table_body,
-        textbook = "\n".join(map(lambda p: p.prettify(), textbook_paras)),
+        textbook = "\n".join(map(lambda p: str(p), textbook_paras)),
       )
   except Exception as e:
     print(type(e))
@@ -1250,7 +1249,7 @@ def update_syllabus_and_overview(course_id, old_course_id):
   response = requests.put(f'{api_url}/courses/{course_id}/pages/course-overview', 
     headers = headers,
     data = {
-      "wiki_page[body]" : submit_soup.prettify()
+      "wiki_page[body]" : str(submit_soup)
     }
   )  
 
@@ -1259,7 +1258,7 @@ def get_syllabus(course_id):
   url = f"{api_url}/courses/{course_id}?include[]=syllabus_body"
   response = requests.get(url, headers=headers)
   content = response.json()
-  return BeautifulSoup(content["syllabus_body"], "lxml")
+  return BeautifulSoup(strip_spans(content["syllabus_body"]), "lxml")
 
 def find_syllabus_title(soup):
   header = soup.find("strong", string=re.compile("course number and title", re.IGNORECASE))
@@ -1319,7 +1318,7 @@ def get_week_1_preview(course_id, old_course_id):
     print(lm_response)
 
     lm_page = lm_response.json()
-    lm_soup = BeautifulSoup(lm_page["body"], "lxml")
+    lm_soup = BeautifulSoup(strip_spans(lm_page["body"]), "lxml")
 
     h4 = lm_soup.find("h4")
     learning_materials = None
@@ -1389,16 +1388,20 @@ def get_latest_lm_backup(course_id, week_num):
   old_lm_url = response.json()[-1]["url"]
   return old_lm_url
 
-def update_learning_materials(course_id, old_course_id, files_lut, assignments_lut ):
+def update_learning_materials(course_id : str, old_course_id : str, files_lut : dict, assignments_lut : dict, reset_page : bool = False):
   print("Updating Learning Materials")
   for i in range(1,9):
-
-
-
     old_url = f"{api_url}/courses/{old_course_id}/pages/week_{i}_learning_materials"
     new_url = f"{api_url}/courses/{course_id}/pages/week_{i}_learning_materials"
     #old_url = get_latest_lm_backup(course_id, i)
+
     print(f"copying from {old_url} to {new_url}")
+
+
+    if reset_page:
+      print("Resetting transcript page")
+      result = requests.post(f"{new_url}/revisions/1", headers=headers)
+      print(result)
 
     old_page_response = requests.get(old_url, headers=headers)
     if not old_page_response.ok:
@@ -1410,7 +1413,7 @@ def update_learning_materials(course_id, old_course_id, files_lut, assignments_l
       continue
     new_page = new_page_response.json()
 
-    old_soup = BeautifulSoup(old_page["body"])
+    old_soup = BeautifulSoup(strip_spans(old_page["body"]))
     new_soup = BeautifulSoup (new_page["body"])
     
     #handle youtube links
@@ -1434,7 +1437,6 @@ def update_learning_materials(course_id, old_course_id, files_lut, assignments_l
     transcripts_and_slides = old_soup.find_all("div", {'class':"column"})[1].find_all("a")
     transcripts = list( filter(lambda el: "transcript" in el.text.lower(), transcripts_and_slides))
     slides = list( filter(lambda el: "slides" in el.text.lower(), transcripts_and_slides))
-
 
     canon_transcripts = []
     canon_slides = []
@@ -1463,13 +1465,13 @@ def update_learning_materials(course_id, old_course_id, files_lut, assignments_l
       if button_count > 1:
         for i in range(1, button_count):
           button = transcript_buttons[i]
-          button.parent.extract()
+          button.parent.parent.decompose()
 
       button_count = len(slides_buttons)
       if len(slides_buttons) > 1:
         button = slides_buttons[i]
         for i in range(1, button_count):
-          button.parent.extract()
+          button.parent.parent.decompose()
 
 
 
@@ -1595,10 +1597,33 @@ def update_learning_materials(course_id, old_course_id, files_lut, assignments_l
     response = requests.put(f'{api_url}/courses/{course_id}/pages/{new_page["page_id"]}', 
       headers = headers,
       data = {
-        "wiki_page[body]" : re.sub('</?\s*span\s*>','', new_soup.prettify())
+        "wiki_page[body]" : postprocess_soup(new_soup)
       }
     )
-    print(new_page["title"],response.status_code)
+    print(new_page["title"], response.status_code)
+
+def strip_spans(text):
+  soup = BeautifulSoup(text, 'lxml')
+  for span in soup.find_all("span"):
+    span.replaceWithChildren()
+  return str(soup)
+
+def postprocess_soup(soup, remove_styling_span=False):
+  for span in soup.find_all("span"):
+    if remove_styling_span or (not span.has_attr('style') and not span.has_attr('class')):
+      print(f"Removing {span}")
+      if span.parent:
+        span.replaceWithChildren()
+
+  text = str(soup)
+
+  text = re.sub(r'(<a[^>]*>)\s+', r'\1', text)
+  text = re.sub(r'\s+</a>', r'</a>', text)
+  text = re.sub(r'(<span[^>]*>)\s+', r'\1', text)
+  text = re.sub(r'\s+(</span>)', r'</span>', text)
+
+
+  return text
 
 def get_secondary_media_boxes(soup):
   secondary_media_boxes = []
