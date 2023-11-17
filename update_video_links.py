@@ -848,6 +848,8 @@ def handle_assignment(item, old_item, course_id, old_course_id, put_url, index, 
   files_lut  = get_files_lookup_table(course_id, old_course_id)
   assignments_lut = get_assignments_lookup_table(course_id, old_course_id)
 
+  source_assignment = get_assignment(old_course_id, old_item['id'])
+  destination_assignment = get_assignment(course_id, item['id'])
   old_name = old_item["name"]
   name = item["name"]
 
@@ -875,7 +877,6 @@ def handle_assignment(item, old_item, course_id, old_course_id, put_url, index, 
 
   insert_el.clear()
   if contents:
-    print("contents", contents, "contents")
     insert_el.append(contents)
 
   #update links on the whole thing
@@ -883,10 +884,35 @@ def handle_assignment(item, old_item, course_id, old_course_id, put_url, index, 
 
   new_text = postprocess_soup(soup)
 
-  response = requests.put(put_url, headers=headers, data= {
+  payload = {
+    "assignment[submission_types][]" : source_assignment['submission_types'],
     "assignment[name]" : new_name,
-    "assignment[description]" : new_text
-    })
+    "assignment[description]" : new_text,
+    "assignment[published]" : True,
+  }
+  print('----------------------')
+
+  print(source_assignment['submission_types'])
+  response = requests.put(put_url, headers=headers, data= payload)
+  if not response.ok:
+    print(response.json())
+    print(json.dumps(payload, indent=2))
+  print(response)
+
+
+def add_to_payload_if_exists_in_source(key, wrapper, source, payload):
+  print(key)
+  if key in source:
+    print(source[key])
+    payload[wrapper.format(key=key)] = source[key]
+
+def get_assignment(course_id, assignment_id):
+  url = f"{api_url}/courses/{course_id}/assignments/{assignment_id}"
+  response = requests.get(url, headers=headers)
+  if response.ok:
+    return response.json()
+  else:
+    return False
 
 def find_source_assignment_content(soup):
   contents = soup.find('div', class_="column")
@@ -1664,7 +1690,7 @@ def strip_spans(text):
 def postprocess_soup(soup, remove_styling_span=False):
   for span in soup.find_all("span"):
     if remove_styling_span or (not span.has_attr('style') and not span.has_attr('class')):
-      print(f"Removing {span}")
+
       if span.parent:
         span.replaceWithChildren()
 
