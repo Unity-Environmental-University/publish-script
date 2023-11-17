@@ -170,7 +170,7 @@ def set_hometiles(course_id, old_course_id=None):
     process_and_upload_main_hometile(course_id, image_path, soup)
 
     # Process and upload hometiles for weekly overviews
-    process_and_upload_overview_tiles(course_id, old_course_id)
+    process_and_upload_overview_tiles(course_id, old_course_id, image_path)
 
 
 def setup_image_directories(course_id, base_folder="course_data"):
@@ -179,32 +179,29 @@ def setup_image_directories(course_id, base_folder="course_data"):
     ensure_directory_exists(image_path)
     return image_path
 
-
 def process_and_upload_main_hometile(course_id, image_path, soup):
     # Process and upload the main hometile
     banner = soup.find("div", class_="cbt-banner-image").find('img')
-    img_data, ext = retrieve_and_save_image(banner['src'], course_id, 1)
-    home_tile_path = save_hometile(img_data, image_path)
+    img_data, ext = retrieve_image(banner['src'], course_id, 1)
+    home_tile_path = save_hometile(img_data, image_path, f"hometile1.{ext}")
     upload_hometile(course_id, home_tile_path)
 
-
-def process_and_upload_overview_tiles(course_id, old_course_id):
+def process_and_upload_overview_tiles(course_id, image_old_course_id, image_path):
     # Process and upload hometiles
     modules = get_modules(course_id)
     for i, module in enumerate(modules, start=1):
-        overview_url = f"{api_url}/courses/{course_id}/pages/week_{i}_overview"
-        response = requests.get(overview_url, headers=headers)
+      overview_url = f"{api_url}/courses/{course_id}/pages/week_{i}_overview"
+      response = requests.get(overview_url, headers=headers)
+      
+      if response.ok:
+        page = response.json()
+        soup = BeautifulSoup(page["body"], 'lxml')
         
-        if response.ok:
-            page = response.json()
-            soup = BeautifulSoup(page["body"], 'lxml')
-            
-            banner = soup.find("div", class_="cbt-banner-image").find('img')
-            img_data, ext = retrieve_image(banner['src'], course_id, i + 1)
-            
-            path = os.path.join(os.getcwd(), "images", str(course_id))
-            home_tile_path = save_hometile(img_data, path, f"hometile{i + 1}.{ext}")
-            upload_hometile(course_id, home_tile_path)
+        banner = soup.find("div", class_="cbt-banner-image").find('img')
+        img_data, ext = retrieve_image(banner['src'], course_id, i + 1)
+        
+        home_tile_path = save_hometile(img_data, image_path, f"hometile{i + 1}.{ext}")
+        upload_hometile(course_id, home_tile_path)
 
 
 def retrieve_image(src, course_id, tile_number):
@@ -255,8 +252,8 @@ def upload_hometile(course_id, local_path):
       requests.Session().send(response.next)
 
 #saves hometile to disc
-def save_hometile(img_data, filepath):
-  print(filepath)
+def save_hometile(img_data, data_folder, filename):
+  filepath = os.path.join(data_folder, filename)
   with open(filepath, 'wb') as file:
     file.write(img_data)
 
