@@ -661,8 +661,7 @@ def align_assignments(course_id, old_course_id):
     handle_items(course_id, old_course_id, module, discussions, old_discussions, handle_discussion, f"Week {number} " + "Discussion {number}- {name}")
     handle_items(course_id, old_course_id, module, assignments, old_assignments, handle_assignment, f"Week {number} " + "Assignment {number}- {name}")
 
-#look through img and a tags. Replace src and href tags if they point to a file we know about. 
-#assignments coming
+
 
 def get_new_file_url(src, course_id, old_course_id):
   files_lut = get_files_lookup_table(course_id, old_course_id)
@@ -672,18 +671,14 @@ def get_new_file_url(src, course_id, old_course_id):
     old_id = groups[0]
     if old_id in files_lut:
       new_file = files_lut[old_id]
-      #url = re.sub(str(old_course_id), str(course_id), src)
-      #url = re.sub(str(old_id), str(new_file['id']), src)
       url = new_file['url']
       url = re.sub('verifier(.*)&?', '', url)  
       if "wrap" in src:
         url = url + "wrap=1"
-      #url = f"{html_url}/courses/{course_id}/files/{new_file['id']}"
       data_url = re.sub(html_url, api_url, new_file['url'])
       return url, data_url
 
   return None, None
-
 
 def get_new_assignment_url(src, course_id, old_course_id):
   assignments_lut = get_assignments_lookup_table(course_id, old_course_id)
@@ -779,7 +774,6 @@ def handle_items(course_id, old_course_id, module, items, old_items, handle_func
 
 
     print(f"Parsing {old_item['title']} into {item['title']}")
-
 
     assert match, f"regex broken for string {items[0]['url']}"
     assert old_match, f"regex broken for string {old_item['url']}"
@@ -1173,9 +1167,9 @@ def update_syllabus_and_overview(course_id, old_course_id):
   is_course_grad = not old_page.find(string="Poor, but Passing")
 
   title = find_syllabus_title(old_page)
-  description_section = get_section(old_page, re.compile(r".*Description:?", re.IGNORECASE))
-  learning_objectives_section = get_section(old_page, re.compile(r'Outcomes:?', re.IGNORECASE))
-  textbook_section = get_section(old_page, "Textbook:")
+  description_section = get_section(old_page, re.compile(r'.*description', re.IGNORECASE))
+  learning_objectives_section = get_section(old_page, re.compile(r'outcomes', re.IGNORECASE))
+  textbook_section = get_section(old_page, re.compile(r'.*textbook[:]?', re.IGNORECASE))
   week_1_preview = get_week_1_preview(course_id, old_course_id)
 
   term = GRAD_TERM_NAME if is_course_grad else UG_TERM_NAME
@@ -1318,19 +1312,33 @@ def find_syllabus_title(soup):
   header.decompose()
   return title_p.text
 
-def get_section(soup, header_string):
-  header = get_section_header(soup, header_string)
+def get_section(soup, header_pattern):
+
+  strategies = [
+    gs_strat_1
+  ]
+
+  for strategy in strategies:
+    result = strategy(soup, header_pattern)
+    if result:
+      return result
+
+  print("section not found")
+  return False
+
+def gs_strat_1(soup, header_pattern):
+  header = get_section_header(soup, header_pattern)
+  print("header", header)
   if not header:
     return False
-
   parent = header.parent
-  header = parent
-
+  print("parent", parent.name)
   paragraphs = []
 
   el =  header.find_next_sibling()
-  print(el.name)
+
   while el and el.name != "h4" and not len(list(el.find_all('strong', string=re.compile(r':')))) > 0 and not len(el.text) < 5:
+    print(el.name)
     paragraphs.append(el)
     el = el.find_next_sibling()
 
@@ -1347,20 +1355,22 @@ def get_section_header(soup, header_pattern):
     header = strategy(soup, header_pattern)
     #if strategy has succeeded, we can leave
     if header:
-      break
+      return header
 
 def gsh_func_h4(soup, header_pattern):
-  headers = soup.find_all("h4", string=header_pattern)
-  if len(headers) > 0:
-    return headers[0]
+  headers = soup.find_all("h4")
+  for header in headers:
+    print(header, header_pattern)
+    if re.search(header_pattern, header.text):
+      print("Found ", header)
+      return header
 
 def gsh_func_strong(soup, header_pattern):
-  print(header_pattern)
-  headers = soup.find_all("strong", string=header_pattern)
-  if len(headers) > 0:
-    header = headers[0]
-    print(header.content, header.parent.content)
-    return header.parent
+  headers = soup.find_all("strong")
+  for header in headers:
+    if re.search(header_pattern, header.text):
+      print("Found ", header)
+      return header.parent
 
 
 
