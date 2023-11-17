@@ -810,7 +810,7 @@ def handle_discussion(item, old_item, course_id, old_course_id, put_url, index, 
     display_number = f"{index + 1} "
 
   #split the header into components for use later
-  new_name, title, subhead = get_new_name_title_and_subhead(old_name, display_number)
+  new_name, title, subhead = get_new_name_title_and_subhead(old_name, format_title, display_number)
   print(f"migrating {old_name} to {new_name}")
 
   old_body = old_item["message"]
@@ -819,7 +819,7 @@ def handle_discussion(item, old_item, course_id, old_course_id, put_url, index, 
   old_soup = BeautifulSoup(old_body, 'lxml')
   soup = BeautifulSoup(body, 'lxml')
 
-  contents = find_source_assignment_content(soup)
+  contents = find_source_assignment_content(old_soup)
 
   #put everything in the migration insertion section
   insert_el = soup.find('div', id="migrate_insert")
@@ -834,7 +834,7 @@ def handle_discussion(item, old_item, course_id, old_course_id, put_url, index, 
     insert_el.clear()
     insert_el.append(contents)
 
-  update_links(soup, course)
+  update_links(soup, course_id, old_course_id)
 
   response = requests.put(put_url, headers=headers, data= {
     "title" : new_name,
@@ -855,7 +855,7 @@ def handle_assignment(item, old_item, course_id, old_course_id, put_url, index, 
   if total > 1:
     display_number = f"{index + 1} "
 
-  new_name, title, subhead = get_new_name_title_and_subhead(old_name, display_number)
+  new_name, title, subhead = get_new_name_title_and_subhead(old_name, format_title, display_number)
   print(f"migrating {old_name} to {new_name}")
 
   old_body = old_item["description"]
@@ -866,7 +866,7 @@ def handle_assignment(item, old_item, course_id, old_course_id, put_url, index, 
 
   replace_header(soup, title, subhead)
   #insert the contents of the old page into the bottom of the new page
-  contents = find_source_assignment_content(soup)
+  contents = find_source_assignment_content(old_soup)
 
   insert_el = soup.find('div', id="migrate_insert")
   if not insert_el:
@@ -875,7 +875,8 @@ def handle_assignment(item, old_item, course_id, old_course_id, put_url, index, 
 
   insert_el.clear()
   if contents:
-      insert_el.append(contents)
+    print("contents", contents, "contents")
+    insert_el.append(contents)
 
   #update links on the whole thing
   update_links(soup, course_id, old_course_id)
@@ -893,10 +894,10 @@ def find_source_assignment_content(soup):
     contents = soup.body
   return contents
 
-def get_new_name_title_and_subhead(old_title : str, display_number : int):
+def get_new_name_title_and_subhead(old_name : str, format_title : str, display_number : int):
   title = re.sub(r'^.*[:-]\W+', '', old_name)
-  new_name = format_title.format(number=display_number, name=title)
-  subhead = re.sub(r'[:-].*', '', new_name)
+  subhead = re.sub(r'[:-].*', '', old_name)
+  new_name = f'{subhead} - {title}'
 
   return new_name, title, subhead
 
