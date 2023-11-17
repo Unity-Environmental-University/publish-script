@@ -122,7 +122,7 @@ def main():
       'name' : 'hometiles',
       'message' : 'Do you want to automatically make hometiles based on overview banners?',
       'error' : 'There was a problem creating hometiles\n{e}',
-      'func' : remove_assignments_and_discussions_not_in_modules,
+      'func' : set_hometiles,
     },
 
   ]
@@ -167,10 +167,10 @@ def set_hometiles(course_id, old_course_id=None):
     image_path = setup_image_directories(course_id)
 
     # Process and upload the main hometile
-    process_and_upload_hometile(course_id, image_path, soup, 1)
+    process_and_upload_main_hometile(course_id, image_path, soup)
 
     # Process and upload hometiles for weekly overviews
-    process_and_upload_weekly_overviews(course_id, old_course_id)
+    process_and_upload_overview_tiles(course_id, old_course_id)
 
 
 def setup_image_directories(course_id, base_folder="course_data"):
@@ -180,16 +180,16 @@ def setup_image_directories(course_id, base_folder="course_data"):
     return image_path
 
 
-def process_and_upload_hometile(course_id, soup, tile_number):
+def process_and_upload_main_hometile(course_id, image_path, soup):
     # Process and upload the main hometile
     banner = soup.find("div", class_="cbt-banner-image").find('img')
-    img_data, ext = retrieve_and_save_image(banner['src'], course_id, tile_number)
-    home_tile_path = save_hometile(img_data, image_path, tile_number, ext)
+    img_data, ext = retrieve_and_save_image(banner['src'], course_id, 1)
+    home_tile_path = save_hometile(img_data, image_path)
     upload_hometile(course_id, home_tile_path)
 
 
-def process_and_upload_weekly_overviews(course_id, old_course_id):
-    # Process and upload hometiles for weekly overviews
+def process_and_upload_overview_tiles(course_id, old_course_id):
+    # Process and upload hometiles
     modules = get_modules(course_id)
     for i, module in enumerate(modules, start=1):
         overview_url = f"{api_url}/courses/{course_id}/pages/week_{i}_overview"
@@ -200,14 +200,14 @@ def process_and_upload_weekly_overviews(course_id, old_course_id):
             soup = BeautifulSoup(page["body"], 'lxml')
             
             banner = soup.find("div", class_="cbt-banner-image").find('img')
-            img_data, ext = retrieve_and_save_image(banner['src'], course_id, i + 1)
+            img_data, ext = retrieve_image(banner['src'], course_id, i + 1)
             
             path = os.path.join(os.getcwd(), "images", str(course_id))
             home_tile_path = save_hometile(img_data, path, f"hometile{i + 1}.{ext}")
             upload_hometile(course_id, home_tile_path)
 
 
-def retrieve_and_save_image(src, course_id, tile_number):
+def retrieve_image(src, course_id, tile_number):
     # Retrieve and save image data
     response = requests.get(src)
     img_data = response.content
@@ -220,13 +220,6 @@ def ensure_directory_exists(directory_path):
     if not os.path.exists(directory_path):
         os.makedirs(directory_path)
 
-
-def save_hometile(img_data, path, filename):
-    # Save the hometile image to the specified path
-    filepath = os.path.join(path, filename)
-    with open(filepath, 'wb') as img_file:
-        img_file.write(img_data)
-    return filepath
 
 def upload_hometile(course_id, local_path):
   #get the correcy folder id
@@ -1315,7 +1308,7 @@ def find_syllabus_title(soup):
 def get_section(soup, header_pattern):
 
   strategies = [
-    gs_strat_1
+    gs_strat_until_headerlike
   ]
 
   for strategy in strategies:
@@ -1326,7 +1319,7 @@ def get_section(soup, header_pattern):
   print("section not found")
   return False
 
-def gs_strat_1(soup, header_pattern):
+def gs_strat_until_headerlike(soup, header_pattern):
   header = get_section_header(soup, header_pattern)
   print("header", header)
   if not header:
