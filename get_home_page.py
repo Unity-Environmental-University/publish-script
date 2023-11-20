@@ -302,7 +302,7 @@ def get_course_profile_from_pages(course, pages):
   course_id = course["id"]
   profile = get_instructor_profile_from_pages(instructor, pages)
 
-  if len(profile["bio"]) == 0:
+  if not profile or len(profile["bio"]) == 0:
     profile = get_instructor_profile_submission(instructor)
   return profile
 
@@ -418,6 +418,7 @@ def get_instructor_profile_from_pages(user, pages):
 
   if not page:
     tk.messagebox.showinfo(message=f"No profile found matching {user['name']}")
+    return False
 
   html = page["body"]
   soup = BeautifulSoup(html, 'html.parser')
