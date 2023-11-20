@@ -980,14 +980,15 @@ def remove_assignments_and_discussions_not_in_modules(course_id, source_course_i
       assignments_to_delete.append(assignment)
 
   assignments_string = '\n'.join( list( map( lambda item: item["name"], assignments_to_delete)))
-  if tk.messagebox.askyesno(message=f"Do you want to delete the following assignments?\n{assignments_string}"):
+  if len(assignments_to_delete) > 0 and tk.messagebox.askyesno(message=f"Do you want to delete the following assignments?\n{assignments_string}"):
     for assignment in assignments_to_delete:
       result = requests.delete(f"{api_url}/courses/{course_id}/assignments/{assignment['id']}", headers=headers) 
       print(result)
 
 
   discussions_string = '\n'.join( list( map( lambda item: item["title"], discussions_to_delete)))
-  if tk.messagebox.askyesno(message=f"Do you want to delete the following discussions?\n{discussions_string}"):
+  print(discussions_to_delete)
+  if len(discussions_to_delete) > 0 and tk.messagebox.askyesno(message=f"Do you want to delete the following discussions?\n{discussions_string}"):
     for discussion in discussions_to_delete:
       result = requests.delete(f"{api_url}/courses/{course_id}/discussion_topics/{discussion['id']}", headers=headers) 
       print(result)
@@ -1488,6 +1489,7 @@ def get_latest_lm_backup(course_id, week_num):
 def update_learning_materials(course_id : str, source_course_id : str, reset_page : bool = False):
   assignments_lut = get_assignments_lookup_table(course_id, source_course_id)
   files_lut = get_files_lookup_table(course_id, source_course_id)
+
   print("Updating Learning Materials")
   for i in range(1,9):
     source_url = f"{api_url}/courses/{source_course_id}/pages/week_{i}_learning_materials"
@@ -1584,6 +1586,8 @@ def get_secondary_media_boxes(soup):
   for h3 in h3s:
     if "secondary media element" in h3.text:
       secondary_media_boxes.append(h3.parent)
+
+  print(secondary_media_boxes)
   return secondary_media_boxes
 
 def clear_all_but_1_lm_button(buttons):
@@ -1598,6 +1602,7 @@ def clear_all_but_1_lm_button(buttons):
 def handle_lm_secondary_media_boxes(soup : object, source_iframes: list, transcripts : list, slides : list, transcript_buttons : list, slides_buttons : list):
   total_needed_boxes = len(source_iframes) - 1
   secondary_media_boxes = get_secondary_media_boxes(soup)
+  print(secondary_media_boxes)
   #set video urls across media boxes, removing them if they have no equivalents
   for i in range(0, len(secondary_media_boxes)):
     box = secondary_media_boxes[i]
@@ -1605,8 +1610,12 @@ def handle_lm_secondary_media_boxes(soup : object, source_iframes: list, transcr
       box.find("iframe")['src'] = source_iframes[i + 1]["src"]
     else:
       box.decompose()
+
+
+  secondary_media_boxes = get_secondary_media_boxes(soup)
   print("T", transcripts)
   print("S", slides)
+
 
   remaining_transcripts = handle_first_lm_button(transcripts, transcript_buttons, 'Transcript')  
   remaining_slides = handle_first_lm_button(slides, slides_buttons, 'Slides')  
@@ -1617,13 +1626,14 @@ def handle_lm_secondary_media_boxes(soup : object, source_iframes: list, transcr
   #if there aren't any slides just kill the button
   if not slides:
     for button in slides_buttons:
-      button.decompose()
+      button.parent.decompose()
 
   i = 0
   if secondary_media_boxes:
+    print(secondary_media_boxes)
     for box in secondary_media_boxes:
-      handle_secondary_media_element_link(box, i, remaining_transcripts, "transcript")
-      handle_secondary_media_element_link(box, i, remaining_slides, "slide")
+      handle_secondary_media_element_link(box, i, soup, remaining_transcripts, "transcript")
+      handle_secondary_media_element_link(box, i, soup, remaining_slides, "slide")
       i = i + 1
 
 def handle_first_lm_button(items : list, buttons : list, button_text : str):
@@ -1637,12 +1647,12 @@ def handle_first_lm_button(items : list, buttons : list, button_text : str):
   else:
     return items.copy()
 
-def handle_secondary_media_element_link(box : object, number : int, items : list, type_ : str):
+def handle_secondary_media_element_link(box : object, number : int, soup: object, items : list, type_ : str):
   if number < len(items):
-    item = items[i]
+    item = items[number]
     link = box.find('a', id=f"{type_}_link_{number}")
     if not link:
-      link = new_soup.new_tag('a', string=type_.capitalize(), id=f"{type_}_link_{i}")
+      link = soup.new_tag('a', string=type_.capitalize(), id=f"{type_}_link_{number}")
       p = box.find('p')
       p.insert(0, link)
 
