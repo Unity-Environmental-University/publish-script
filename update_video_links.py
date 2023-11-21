@@ -13,6 +13,7 @@ import tkinter as tk
 from tkinter import simpledialog
 from tkinter import ttk
 from bs4 import BeautifulSoup
+import argparse
 
 ADD_LEARNING_MATERIALS = False
 UPDATE_SYLLABUS = True
@@ -22,6 +23,7 @@ UG_TERM_NAME = "HL-24-Jan"
 GRADE_TERM_DATES = "January 8 - March 3"
 UG_TERM_DATES = "January 15 - February 18" 
 HOMETILE_WIDTH = 512
+
 
 
 # Open the file and read the contents
@@ -104,7 +106,7 @@ def main():
       'argument' : 'lm',
       'message' : 'Do you want to try to update learning materials?',
       'error' : 'There was a problem updating learning materials\n{e}',
-      'func' : update_learning_materials,
+      'func' : update_learning_materials_cl,
     },
     { 
       'name' : 'rubrics',
@@ -1485,13 +1487,28 @@ def get_latest_lm_backup(course_id, week_num):
 
   source_lm_url = response.json()[-1]["url"]
   return source_lm_url
+def update_learning_materials_cl(course_id : str, source_course_id: str):
+  force = False
+  start_index = 1
+  end_index = 8
+  if 'lm_reset' in sys.argv:
+    force = True
 
-def update_learning_materials(course_id : str, source_course_id : str, reset_page : bool = False):
+  if "lm" in sys.argv and sys.argv.index('lm') + 1 < len ( sys.argv ):
+    next_arg = sys.argv[ sys.argv.index('lm') + 1 ]
+    if str( next_arg ).isdigit():
+      start_index = int( next_arg )
+      end_index = int( next_arg )
+
+  update_learning_materials(course_id, source_course_id, start_index, end_index, force)
+
+
+def update_learning_materials(course_id : str, source_course_id : str, start_index : int = 1, end_index : int = 8, reset_page : bool = False):
   assignments_lut = get_assignments_lookup_table(course_id, source_course_id)
   files_lut = get_files_lookup_table(course_id, source_course_id)
 
   print("Updating Learning Materials")
-  for i in range(1,9):
+  for i in range(start_index, end_index + 1):
     source_url = f"{api_url}/courses/{source_course_id}/pages/week_{i}_learning_materials"
     new_url = f"{api_url}/courses/{course_id}/pages/week_{i}_learning_materials"
     #source_url = get_latest_lm_backup(course_id, i)
