@@ -48,8 +48,13 @@ except Exception as e:
 
 
 # Authorize the request.
-headers = {"Authorization": f"Bearer {api_token}" }
-
+headers = {
+  "Authorization": f"Bearer {api_token}",
+  "User-Agent" : 'UnityThemeMigratorBot/0.0 (http://unity.edu; hlarsson@unity.edu)'
+}
+img_headers = {
+  "User-Agent" : 'UnityThemeMigratorBot/0.0 (http://unity.edu; hlarsson@unity.edu)'
+}
 def main():
   course_id = 0
   source_course_id = 0
@@ -208,7 +213,7 @@ def process_and_upload_overview_tiles(course_id, image_source_course_id, image_p
 
 def retrieve_image(src, course_id, tile_number):
     # Retrieve and save image data
-    response = requests.get(src)
+    response = requests.get(src, headers=img_headers)
     img_data = response.content
     ext = "png" if 'png' in response.headers["Content-Type"] else 'jpg'
     return img_data, ext
