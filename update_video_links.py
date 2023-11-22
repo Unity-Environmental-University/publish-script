@@ -162,6 +162,38 @@ def confirm_dialog(message):
   out = tk.messagebox.askyesno(message=message)
   return out
 
+def update_assignment_categories(course_id, source_course_id):
+  url = f"{api_url}/courses/{source_course_id}/assignment_groups"
+  response = requests.get(url, headers=headers)
+  source_groups = response.json()
+  
+  url = f"{api_url}/courses/{course_id}/assignment_groups"
+  response = requests.get(url, headers=headers)
+  destination_groups = response.json()
+
+  for group in source_groups:
+    dest_group = next( filter( lambda x: x['name'] == group['name'], destination_groups), None)
+    if dest_group:
+      url = f"{api_url}/courses/{course_id}/assignment_groups/{dest_group['id']}"
+      response = requests.put(url, headers=headers, data={
+        'group_weight' : group['group_weight'],
+        'position' : group['position'],
+        })
+      print (response)
+      assert response.ok, "There was a problem updating assignment groups"
+    else:
+      url = f"{api_url}/courses/{course_id}/assignment_groups/"
+      response = requests.post(url, headers=headers, data={
+        'name' : group['name'],
+        'group_weight' : group['group_weight'],
+        'position' : group['position'],
+        })
+      print (response)
+      assert response.ok, "There was a problem updating assignment groups"
+
+
+
+
 
 def set_hometiles(course_id, source_course_id=None):
     # Retrieve the home page content
@@ -286,9 +318,8 @@ def save_hometile(img_data, data_folder, filename):
 
 
 def get_modules(course_id):
-  url = f"{api_url}/courses/{course_id}/modules?include[]=items&include[]=content_details"
-  response = requests.get(url, headers=headers)
-  return response.json()
+  url = f"{api_url}/courses/{course_id}/modules?include[]=items&include[]=content_details&per_page=100"
+  return get_paged_data(url)
   
 def create_missing_assignments(modules, source_modules, course_id, source_course_id):
   print("Creating missing assignments")
@@ -297,6 +328,7 @@ def create_missing_assignments(modules, source_modules, course_id, source_course
 
   handled = []
   count = 0
+  print(source_modules)
   for source_module in source_modules:
     items = source_module["items"]
     #skip non-week modules
@@ -451,7 +483,7 @@ def get_files_lookup_table(course_id, source_course_id, force=False):
     #match files by name and size
     print(source_file)
     file = next( filter( lambda a: source_file["filename"] == a["filename"], files), None)
-    assert(file, f"File {source_file['filename']} not found in new course. You may need to import files.")
+    assert file, f"File {source_file['filename']} not found in new course. You may need to import files."
     files_lut[str(source_file["id"])] = file
 
   files_lut_cache = files_lut
@@ -587,7 +619,7 @@ def align_rubrics(course_id, source_course_id):
         print(source_item_id)
         if association["association_type"] == "Assignment":
           rubric = rubrics_lut[ source_rubric["id"] ]
-          assert(rubric, f"Rubric {source_rubric['description']} not found in new course. You may need to import rubrics.")
+          assert rubric, f"Rubric {source_rubric['description']} not found in new course. You may need to import rubrics."
 
           print("assigning...")
           assignment = assignments_lut[str(source_item_id)]
@@ -632,6 +664,7 @@ def align_assignments(course_id, source_course_id):
   source_id_to_id_lut = dict()
 
   files_lut = get_files_lookup_table(course_id, source_course_id)
+  update_assignment_categories(course_id, source_course_id)
 
 
   for source_module in source_modules:
@@ -1144,6 +1177,7 @@ def update_weekly_overviews(course_id, source_course_id):
 
       learning_objectives = str(learning_objectives)
 
+      update_links(source_overview_soup, course_id, source_course_id)
       description_box = source_overview_soup.find("div", class_="column")
       description_elements = None
       if description_box:
@@ -1156,7 +1190,7 @@ def update_weekly_overviews(course_id, source_course_id):
         map(lambda tag: str(tag), description_elements)
       )
 
-      new_page_body = new_overview_page_html(overview_page["body"], module_name, description, learning_objectives)
+      new_page_body = new_overview_page_html(course_id, source_course_id, overview_page["body"], module_name, description, learning_objectives)
 
       response = requests.put(f'{api_url}/courses/{course_id}/pages/{overview_page["url"]}', 
         headers = headers,
@@ -1175,13 +1209,14 @@ def set_module_title(course_id, module_id, title ):
     }
   )  
 
-def new_overview_page_html(overview_page_body, title, description, learning_objectives):
+def new_overview_page_html(course_id, source_course_id, overview_page_body, title, description, learning_objectives):
   body = overview_page_body 
   soup = BeautifulSoup(body, "lxml")
   contents = soup.find_all("div", class_ = "content")
   contents[0].string = "[Insert text]"
   contents[1].string = "[insert weekly objectives, bulleted list]"
 
+  update_links(soup, course_id, source_course_id)
   body = postprocess_soup(soup)
 
   body = re.sub('\[title of week\]', f"{title}", body)
@@ -1209,6 +1244,7 @@ def update_syllabus_and_overview(course_id, source_course_id):
   syllabus_banner_url = get_file_url_by_name(course_id, "Module 1 banner (7)")
 
   is_course_grad = not source_page.find(string="Poor, but Passing")
+
 
   title = find_syllabus_title(source_page)
   description_section = get_section(source_page, re.compile(r'.*description', re.IGNORECASE))
@@ -1246,7 +1282,6 @@ def update_syllabus_and_overview(course_id, source_course_id):
 
   #update the new syllabus
   submit_soup = BeautifulSoup(text, "lxml")
-
 
   if is_course_grad:
     for el in list ( submit_soup.find_all("p", class_ = "undergrad") ):
