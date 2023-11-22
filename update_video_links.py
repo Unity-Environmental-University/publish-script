@@ -1133,15 +1133,9 @@ def find_new_module_by_number(number, modules):
  return next( filter ( lambda module: f"Module {number}" in module["name"], modules) )
 
 def update_weekly_overviews(course_id, source_course_id):
-  url = f"{api_url}/courses/{source_course_id}/modules?include[]=items&include[]=content_details"
-  response = requests.get(url, headers=headers)
-  print(response.status_code)
-  source_modules = response.json()
 
-  url = f"{api_url}/courses/{course_id}/modules?include[]=items&include[]=content_details"
-  response = requests.get(url, headers=headers)
-  print(response.status_code)
-  modules = response.json()
+  source_modules = get_modules(source_course_id)
+  modules = get_modules(course_id)
 
   for source_module in source_modules:
     print(source_module["name"])
