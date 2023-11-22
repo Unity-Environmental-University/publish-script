@@ -1456,7 +1456,7 @@ def get_week_1_preview(course_id, source_course_id):
       learning_materials = list(get_section(lm_soup, re.compile(r"Please read (and watch )?the following materials:", re.IGNORECASE)))
 
     iframe = lm_soup.find("iframe")
-    youtube_iframe_source = iframe["src"]
+    youtube_iframe_source = iframe["src"] if iframe else "#"
     links = lm_soup.find_all("a")
     transcripts = []
     slides = []
@@ -1465,7 +1465,6 @@ def get_week_1_preview(course_id, source_course_id):
         transcripts.append(link)
       if 'lides' in link.text:
         slides.append(link)
-
 
 
     temp_soup = BeautifulSoup(f"<ul><li><a href={convert_to_watch_url(youtube_iframe_source)}>Week 1 Lecture</a><ul class='transcripts'></ul></li></ul>", "lxml")
@@ -1562,9 +1561,12 @@ def update_learning_materials(course_id : str, source_course_id : str, start_ind
     #handle first frame youtube links
     source_iframes = list( source_soup.find_all("iframe") )
     new_iframes = new_soup.find_all("iframe")
-
-    youtube_iframe_source = source_iframes[0]["src"]
-    new_iframes[0]["src"] = youtube_iframe_source
+    print(source_iframes)
+    if len ( source_iframes ) > 0:
+      youtube_iframe_source = source_iframes[0]["src"]
+      new_iframes[0]["src"] = youtube_iframe_source
+    else:
+      new_soup.find("iframe").findParent('div', { 'class' : 'content' }).find('h2').string = "No Videos Found"
 
     source_header = source_soup.find("h4")
     learning_materials = None
@@ -1573,13 +1575,17 @@ def update_learning_materials(course_id : str, source_course_id : str, start_ind
     else:
       learning_materials = get_section(source_soup, re.compile("Please read (and watch )?the following materials:", re.IGNORECASE))
     
-    divs = source_soup.find_all('div')
     cols = source_soup.find_all("div", {'class':"column"})
 
 
-    print(source_soup )
-    print( len(cols) )
-    transcripts_and_slides = cols[-1].find_all("a")
+    transcripts_and_slides = []
+    if len(cols) > 1:
+      transcripts_and_slides = cols[1].find_all("a")
+    else:
+      transcripts_and_slides = source_soup.find_all('a')
+
+    print(transcripts_and_slides)
+
     transcripts = list( filter(lambda el: "transcript" in el.text.lower(), transcripts_and_slides))
     slides = list( filter(lambda el: "slides" in el.text.lower(), transcripts_and_slides))
 
