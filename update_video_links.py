@@ -449,7 +449,9 @@ def get_files_lookup_table(course_id, source_course_id, force=False):
   files_lut = dict()
   for source_file in source_files:
     #match files by name and size
-    file = list( filter( lambda a: source_file["filename"] == a["filename"], files) )[0]
+    print(source_file)
+    file = next( filter( lambda a: source_file["filename"] == a["filename"], files), None)
+    assert(file, f"File {source_file['filename']} not found in new course. You may need to import files.")
     files_lut[str(source_file["id"])] = file
 
   files_lut_cache = files_lut
@@ -585,6 +587,8 @@ def align_rubrics(course_id, source_course_id):
         print(source_item_id)
         if association["association_type"] == "Assignment":
           rubric = rubrics_lut[ source_rubric["id"] ]
+          assert(rubric, f"Rubric {source_rubric['description']} not found in new course. You may need to import rubrics.")
+
           print("assigning...")
           assignment = assignments_lut[str(source_item_id)]
           assignment_id = ""
@@ -841,12 +845,27 @@ def handle_discussion(item, source_item, course_id, source_course_id, put_url, i
     insert_el.clear()
     insert_el.append(contents)
 
+
   update_links(soup, course_id, source_course_id)
 
   response = requests.put(put_url, headers=headers, data= {
     "title" : new_name,
     "message" : postprocess_soup(soup)
     })
+
+
+def replace_rubric_link(soup, course_id, source_course_id, item):
+  print(item)
+  rubric_button = soup.find('p', class_="cbt-rubric-btn")
+  if not rubric_button:
+    print("Rubric button not found", item['title'])
+    return False
+
+  link = rubric_button.find('a')
+  if not link:
+    print("Link in rubric button not found", item['title'])
+    assignments_lut = get_assignments_lookup_table(course_id, source_course_id)
+    assignment = next( filter( lambda x: 'assignment_id' in x and x['id'] == item['content_id'], assignments_lut), None )
 
 
 #takes in the new item and old item, and formats the info from the old page into the new item
@@ -1115,8 +1134,8 @@ def update_weekly_overviews(course_id, source_course_id):
       source_lo_page = get_page_by_url (source_lo_page_info["url"])
       overview_page = get_page_by_url (f"{api_url}/courses/{course_id}/pages/week-{i}-overview")
 
-      source_overview_soup = BeautifulSoup( strip_spans(source_overview_page["body"]), 'lxml')
-      source_lo_soup = BeautifulSoup( strip_spans(source_lo_page["body"]), 'lxml')
+      source_overview_soup = BeautifulSoup( preprocess_html(source_overview_page["body"]), 'lxml')
+      source_lo_soup = BeautifulSoup( preprocess_html(source_lo_page["body"]), 'lxml')
 
       #grab the list of learning objectives from the page
       learning_objectives = source_lo_soup.find('ul')
@@ -1265,7 +1284,7 @@ def update_syllabus_and_overview(course_id, source_course_id):
   overview_page = response.json()
 
   overview_html = overview_page["body"]
-  og_ov_soup = BeautifulSoup(strip_spans(overview_html), "lxml").body
+  og_ov_soup = BeautifulSoup(preprocess_html(overview_html), "lxml").body
   overview_banner_img = og_ov_soup.find("div", class_="cbt-banner-image").find('img')
   overview_banner_url = overview_banner_img["src"]
 
@@ -1329,7 +1348,7 @@ def get_syllabus(course_id):
   url = f"{api_url}/courses/{course_id}?include[]=syllabus_body"
   response = requests.get(url, headers=headers)
   content = response.json()
-  return BeautifulSoup(strip_spans(content["syllabus_body"]), "lxml")
+  return BeautifulSoup(preprocess_html(content["syllabus_body"]), "lxml")
 
 def find_syllabus_title(soup):
   header = soup.find("strong", string=re.compile("course number and title", re.IGNORECASE))
@@ -1372,6 +1391,7 @@ def gs_strat_until_headerlike(soup, header_pattern):
 def get_section_header(soup, header_pattern):
   print(f"Getting Section Header {header_pattern}")
 
+  # gsh_funcs are various ways of finding headers, so we can apply them in order
   header_strategies = [
     gsh_func_h4,
     gsh_func_strong,
@@ -1396,7 +1416,6 @@ def gsh_func_strong(soup, header_pattern):
     if re.search(header_pattern, header.text):
       print("Found ", header)
       return header.parent
-
 
 
 def replace_content(soup, header_string, list_of_new_contents):
@@ -1427,7 +1446,7 @@ def get_week_1_preview(course_id, source_course_id):
     print(lm_response)
 
     lm_page = lm_response.json()
-    lm_soup = BeautifulSoup(strip_spans(lm_page["body"]), "lxml")
+    lm_soup = BeautifulSoup(preprocess_html(lm_page["body"]), "lxml")
 
     h4 = lm_soup.find("h4")
     learning_materials = None
@@ -1527,16 +1546,18 @@ def update_learning_materials(course_id : str, source_course_id : str, start_ind
 
     source_page_response = requests.get(source_url, headers=headers)
     if not source_page_response.ok:
+      print(f"source page not found {i}")
       continue
     source_page = source_page_response.json()
 
     new_page_response = requests.get(new_url, headers=headers)
     if not new_page_response.ok:
+      print(f"new page not found {i}")
       continue
     new_page = new_page_response.json()
 
-    source_soup = BeautifulSoup(strip_spans(source_page["body"]))
-    new_soup = BeautifulSoup (new_page["body"])
+    source_soup = BeautifulSoup(preprocess_html(source_page["body"]), "lxml")
+    new_soup = BeautifulSoup (new_page["body"], "lxml")
     
     #handle first frame youtube links
     source_iframes = list( source_soup.find_all("iframe") )
@@ -1552,7 +1573,13 @@ def update_learning_materials(course_id : str, source_course_id : str, start_ind
     else:
       learning_materials = get_section(source_soup, re.compile("Please read (and watch )?the following materials:", re.IGNORECASE))
     
-    transcripts_and_slides = source_soup.find_all("div", {'class':"column"})[1].find_all("a")
+    divs = source_soup.find_all('div')
+    cols = source_soup.find_all("div", {'class':"column"})
+
+
+    print(source_soup )
+    print( len(cols) )
+    transcripts_and_slides = cols[-1].find_all("a")
     transcripts = list( filter(lambda el: "transcript" in el.text.lower(), transcripts_and_slides))
     slides = list( filter(lambda el: "slides" in el.text.lower(), transcripts_and_slides))
 
@@ -1717,7 +1744,16 @@ def strip_spans(text):
   soup = BeautifulSoup(text, 'lxml')
   for span in soup.find_all("span"):
     span.replaceWithChildren()
-  return str(soup)
+  return get_body_html  ( soup )
+
+def preprocess_html(text):
+  soup = BeautifulSoup(text, 'lxml')
+  return get_body_html(soup)
+
+
+def get_body_html(soup):
+  children = soup.body.findChildren (recursive   = False)
+  return '\n'.join( (list( map (lambda child: str(child), children  ))) )
 
 def postprocess_soup(soup, remove_styling_span=False):
   for span in soup.find_all("span"):
@@ -1726,7 +1762,7 @@ def postprocess_soup(soup, remove_styling_span=False):
       if span.parent:
         span.replaceWithChildren()
 
-  text = str(soup)
+  text = get_body_html(soup)
 
   text = re.sub(r'(<a[^>]*>)\s+', r'\1', text)
   text = re.sub(r'\s+</a>', r'</a>', text)
