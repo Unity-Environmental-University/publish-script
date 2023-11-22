@@ -25,7 +25,6 @@ UG_TERM_DATES = "January 15 - February 18"
 HOMETILE_WIDTH = 512
 
 
-
 # Open the file and read the contents
 try:
   with open(CONSTANTS_FILE, 'r') as f:
@@ -750,8 +749,6 @@ def get_new_page_url(src, course_id, source_course_id):
   return None, None
 
 def update_links(soup, course_id, source_course_id):
-
-
   files_lut = get_files_lookup_table(course_id, source_course_id)
   assignments_lut = get_assignments_lookup_table(course_id, source_course_id)
   print("Updating Links")
@@ -1238,6 +1235,7 @@ def get_file_url_by_name(course_id, file_search):
   return false
 
 def update_syllabus_and_overview(course_id, source_course_id):
+
   source_page = get_syllabus(source_course_id)
   new_page = get_syllabus(course_id)
 
@@ -1301,10 +1299,21 @@ def update_syllabus_and_overview(course_id, source_course_id):
     }
   )
 
+  #update the home page with the title we grabbed
+  course_title = None
+  course_code = None
+  match = re.search(r'.*(\w{4}\s*\d{3})\s*[:-]?\s*(.*)', title)
+  if match:  
+    groups = match.groups()
+    course_title = groups[1]
+    course_code = re.sub(r'\s+','', groups[0])
+
+  update_home_page(course_id, source_course_id, course_code, course_title)
+
 
   print(response.status_code)
 
-
+  #update overview
   url = f"{api_url}/courses/{course_id}/modules?include[]=items&include[]=content_details"
   response = requests.get(url, headers=headers)
   print(response.status_code)
@@ -1371,6 +1380,53 @@ def update_syllabus_and_overview(course_id, source_course_id):
       "wiki_page[body]" : str(submit_soup)
     }
   )  
+
+def update_home_page(course_id, source_course_id, course_code, course_title):
+  #set to template defaults in case we don't find them so we don't break the templating
+  if not course_code:
+    course_code = '[Code and #]'
+
+  if not course_title:
+    course_title = '[Course title]'
+
+  print(f'updating {course_code} : {course_title}')
+
+  source_url = f"{api_url}/courses/{source_course_id}/pages/course-introduction"
+  response = requests.get(source_url, headers=headers)
+  if not response.ok:
+    raise Exception("There was a problem getting course introduction from source course")
+
+  source_text = response.json()["body"]
+  source_soup = BeautifulSoup(source_text)
+
+  #we're just going to guess that the contents of the first table cell are the learning materials
+  cell = source_soup.find('td')
+  description = "[Insert course introduction - so long as it is distinct from description and speaks directly to the student]"
+  if cell:
+    divs = cell.find_all('p')
+    if divs:
+      description = '\n'.join( list( map(lambda x: str(x), divs) ) )
+
+  dest_url = f"{api_url}/courses/{course_id}/pages/home"
+  response = requests.get(dest_url, headers = headers)
+  if not response.ok:
+    raise Exception("There was a problem finding destination home page")
+
+  print(course_code)
+  dest_page = response.json()
+  dest_text = dest_page['body']
+  dest_text = re.sub(r'\[Insert course introduction.*student\]', description, dest_text)
+  dest_text = re.sub(r'\[Code and #\]', course_code, dest_text)
+  dest_text = re.sub(r'\[Course title\]', course_title, dest_text)
+
+
+  print(dest_text)
+
+  response = requests.put(f"{api_url}/courses/{course_id}/pages/{dest_page['page_id']}", headers=headers, data={
+    "wiki_page[body]" : dest_text
+  })
+  print(response.json())
+
 
 def stringify_section(section):
   if section:
