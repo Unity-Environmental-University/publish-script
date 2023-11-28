@@ -1,3 +1,4 @@
+import traceback
 from pathlib import Path
 from PIL import Image
 import sys
@@ -142,17 +143,52 @@ def main():
 
   #if we don't have any arguments past the id, go into interactive mode
   else:
-    for update in updates:
-      if confirm_dialog(message=update['message']):
-        try:
-          update['func'](course_id, source_course_id)
-        except Exception as e:
-          tk.messagebox.showerror(message=update['error'].format( e=str(e)))
+    opening_dialog(course_id, source_course_id, updates)
+
+    # for update in updates:
+    #   if confirm_dialog(message=update['message']):
+    #     try:
+    #       update['func'](course_id, source_course_id)
+    #     except Exception as e:
+    #       tk.messagebox.showerror(message=update['error'].format( e=str(e)))
 
 
-    root = tk.Tk()
-    root.withdraw()
-    tk.messagebox.showinfo(message="Finished!")
+    #root = tk.Tk()
+    #root.withdraw()
+
+
+def opening_dialog(course_id, source_course_id, updates):
+  root = tk.Tk()
+  checkboxes = []
+  for update in updates:
+    boolVar = tk.BooleanVar()
+    button =  tk.Checkbutton(root, text=update['message'], onvalue = True, offvalue=False, variable= boolVar)
+    checkboxes.append(button)
+    update['run'] = boolVar
+    button.pack()
+
+  button = tk.Button(master=root, text="Run", command=lambda: run_opening_dialog(root, course_id, source_course_id, updates))
+  button.pack()
+
+  root.mainloop()
+
+def run_opening_dialog(root, course_id, source_course_id, updates):
+  label = tk.Label(root, text="Select which steps to perform")
+  label.pack()
+  for update in updates:
+    try:
+      if update['run'].get():
+        label.config(text=f"Running {update['name']}")
+        root.update()
+        assert False
+        print(update)
+        update['func'](course_id, source_course_id)
+    except Exception as e:
+      tk.messagebox.showerror(message=update['error'].format( e=str(e)) + "\n" + traceback.format_exc())
+
+
+  root.destroy()
+  tk.messagebox.showinfo(message="Finished!")
 
 
 def confirm_dialog(message):
@@ -1862,7 +1898,6 @@ def postprocess_soup(soup, remove_styling_span=False):
 
   text = re.sub(r'(\w)(<a[^>]*>\w)', r'\1 \2', text)
   text = re.sub(r'(\w</a>)(\w)', r'\1 \2', text)
-
 
   return text
 
