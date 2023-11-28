@@ -1860,6 +1860,9 @@ def postprocess_soup(soup, remove_styling_span=False):
   text = re.sub(r'(<span[^>]*>)\s+', r'\1', text)
   text = re.sub(r'\s+(</span>)', r'</span>', text)
 
+  text = re.sub(r'(\w)(<a[^>]*>\w)', r'\1 \2', text)
+  text = re.sub(r'(\w</a>)(\w)', r'\1 \2', text)
+
 
   return text
 
