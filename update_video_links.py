@@ -1,3 +1,4 @@
+import glob
 import traceback
 from pathlib import Path
 from PIL import Image
@@ -180,7 +181,6 @@ def run_opening_dialog(root, course_id, source_course_id, updates):
       if update['run'].get():
         label.config(text=f"Running {update['name']}")
         root.update()
-        assert False
         print(update)
         update['func'](course_id, source_course_id)
     except Exception as e:
@@ -890,6 +890,19 @@ def handle_discussion(item, source_item, course_id, source_course_id, put_url, i
   new_name, title, subhead = get_new_name_title_and_subhead(source_name, format_title, display_number)
   print(f"migrating {source_name} to {new_name}")
 
+
+  #save off a backup of this data
+  base_folder = "course_data"
+  folder_path = os.path.join(os.getcwd(), base_folder, str(course_id), "discussions", item['id'])
+  ensure_directory_exists(folder_path)
+  list_of_files = glob.glob(f'{folder_path}/*.json')
+  filename = f"{item['id']}_{len(list_of_files)}.json"
+
+  with open(os.path.join(folder_path, filename) , 'w') as f:
+    f.write(json.dumps(item))
+
+
+
   source_body = source_item["message"]
   body = item["message"]
 
@@ -954,6 +967,17 @@ def handle_assignment(item, source_item, course_id, source_course_id, put_url, i
 
   source_body = source_item["description"]
   source_soup = BeautifulSoup(source_body, 'lxml')
+
+  #save off a backup of this data
+  base_folder = "course_data"
+  folder_path = os.path.join(os.getcwd(), base_folder, str(course_id), "assignments", item['id'])
+  ensure_directory_exists(folder_path)
+  list_of_files = glob.glob(f'{folder_path}/*.json')
+  filename = f"{item['id']}_{len(list_of_files)}.json"
+
+  with open(os.path.join(folder_path, filename) , 'w') as f:
+    f.write(json.dumps(item))
+
 
   body = item["description"]
   soup = BeautifulSoup(body, 'lxml')
