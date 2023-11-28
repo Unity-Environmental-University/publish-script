@@ -180,7 +180,6 @@ def run_opening_dialog(root, course_id, source_course_id, updates):
       if update['run'].get():
         label.config(text=f"Running {update['name']}")
         root.update()
-        assert False
         print(update)
         update['func'](course_id, source_course_id)
     except Exception as e:
