@@ -164,8 +164,8 @@ def opening_dialog(course_id, source_course_id, updates):
 
   button = tk.Button(master=root, text="Run", command=lambda: run_opening_dialog(root, course_id, source_course_id, updates))
   button.pack()
-  button = tk.Button(master=root, text="ADVANCED OPTIONS", command=lambda: advanced_options_ui(root, course_id, source_course_id))
-  button.pack()
+  #button = tk.Button(master=root, text="ADVANCED OPTIONS", command=lambda: advanced_options_ui(root, course_id, source_course_id))
+  #button.pack()
 
   root.mainloop()
 
@@ -194,9 +194,10 @@ def advanced_options_ui(root, course_id, source_course_id):
     {
       'name' : "Revert Assignment Changes",
       'func' : revert_assignments,
+      'show' : False,
     }
   ]
-  win = tk.Tk()
+  win = tk.TopLevel(root)
 
 
   for option in advanced_options:
@@ -212,17 +213,62 @@ def execute_option(win, course_id, source_course_id, option):
 def revert_assignments(course_id, source_course_id):
   assignments = get_paged_data(f"{api_url}/courses/{course_id}/assignments")
   discussions = get_paged_data(f"{api_url}/courses/{course_id}/discussion_topics")
+  
+  win = tk.Tk()
+
+
+  options = []
 
   for assignment in assignments:
-    revert_assignment(course_id, assignment['id'])
+    assignment_id = assignment['id']
+    if get_backup(course_id, assignment_id, "assignments"):
+      bool_var = tk.BooleanVar()
+      cb = tk.Checkbutton(master=win, text=assignment['name'], onvalue = True, offvalue=False)
+      cb.var = bool_var
+      cb.pack(anchor="w")
+      options.append( { 
+        'control' : cb,
+        'checked' : bool_var,
+        'func' : revert_assignment,
+        'item_id' : assignment_id
+
+      })
 
   for discussion in discussions:
-    revert_discussion(course_id, discussion['id'])
+    discussion_id = discussion['id']
+    if get_backup(course_id, discussion_id, "discussions"):
+      bool_var = tk.BooleanVar()
+      cb = tk.Checkbutton(master=win, text=discussion['title'], onvalue = True, offvalue=False)
+      cb.pack(anchor="w")
+      cb.var = bool_var
+      options.append( { 
+        'control' : cb,
+        'checked' : bool_var,
+        'func' : revert_discussion,
+        'item_id' : discussion_id
+      })
+
+  button = tk.Button(master=win, text="Revert", command=lambda: click_revert_assignments(course_id, win, options))
+  button.pack()
+
+
+def click_revert_assignments(course_id, win, options):
+  print("Reverting")
+  for option in options:
+    print(option, option['control'].var.get())
+    #if the boolean of the checkbox is checked, run the callback
+    if option['control'].var.get():
+      print(option['func'])
+      option['func'](course_id, option['item_id'])
+
+  win.destroy()
 
 
 def revert_assignment(course_id, assignment_id):
+  print('reverting', assignment_id)
   backup = get_backup(course_id, assignment_id, "assignments")
   if not backup:
+    print("no backup found for " + str(assignment_id))
     return False
   url = f"{api_url}/courses/{course_id}/assignments/{assignment_id}"
   response = requests.put(url, headers=headers, data={
@@ -235,6 +281,7 @@ def revert_assignment(course_id, assignment_id):
 def revert_discussion(course_id, discussion_id):
   backup = get_backup(course_id, discussion_id, "discussions")
   if not backup:
+    print("no backup found for " + str(discussion_id))
     return False
   url = f"{api_url}/courses/{course_id}/discussion_topics/{discussion_id}"
   response = requests.put(url, headers=headers, data={
