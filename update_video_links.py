@@ -164,6 +164,8 @@ def opening_dialog(course_id, source_course_id, updates):
 
   button = tk.Button(master=root, text="Run", command=lambda: run_opening_dialog(root, course_id, source_course_id, updates))
   button.pack()
+  #button = tk.Button(master=root, text="ADVANCED OPTIONS", command=lambda: advanced_options_ui(root, course_id, source_course_id))
+  #button.pack()
 
   root.mainloop()
 
@@ -185,6 +187,70 @@ def run_opening_dialog(root, course_id, source_course_id, updates):
   root.destroy()
   tk.messagebox.showinfo(message="Finished!")
 
+
+
+def advanced_options_ui(root, course_id, source_course_id):
+  advanced_options = [
+    {
+      'name' : "Revert Assignment Changes",
+      'func' : revert_assignments,
+    }
+  ]
+  win = tk.Tk()
+
+
+  for option in advanced_options:
+    button = tk.Button(master=win, text=option['name'], command=lambda: execute_option(win, course_id, source_course_id, option))
+    button.pack()
+
+  win.mainloop()
+
+def execute_option(win, course_id, source_course_id, option):
+  option['func'](course_id, source_course_id)
+
+def revert_assignments(course_id, source_course_id):
+  assignments = get_paged_data(f"{api_url}/courses/{course_id}/assignments")
+  discussions = get_paged_data(f"{api_url}/courses/{course_id}/discussion_topics")
+
+  for assignment in assignments:
+    revert_assignment(course_id, assignment['id'])
+
+  for discussion in discussions:
+    revert_discussion(course_id, discussion['id'])
+
+
+def revert_assignment(course_id, assignment_id):
+  backup = get_backup(course_id, assignment_id, "assignments")
+  if not backup:
+    return False
+  url = f"{api_url}/courses/{course_id}/assignments/{assignment_id}"
+  response = requests.put(url, headers=headers, data={
+    "assignment" : backup
+    })
+
+def revert_discussion(course_id, discussion_id):
+  backup = get_backup(course_id, discussion_id, "assignments")
+  if not backup:
+    return False
+  url = f"{api_url}/courses/{course_id}/discussion_topics/{discussion_id}"
+  response = requests.put(url, headers=headers, data={
+    "discussion" : backup
+    })
+
+def get_backup(course_id, item_id, backups_folder):
+  base_folder = "course_data"
+  folder_path = os.path.join(os.getcwd(), base_folder, str(course_id), backups_folder, str(item_id))
+  ensure_directory_exists(folder_path)
+  list_of_files = glob.glob(f'{folder_path}/*.json')
+  if len(list_of_files) == 0:
+    return False
+  filename = f"{item_id}_{len(list_of_files) - 1}.json"
+
+  with open(os.path.join(folder_path, filename) , 'r') as f:
+    print(f)
+    return json.load(f)
+
+  
 
 def confirm_dialog(message):
   root = tk.Tk()
@@ -890,8 +956,7 @@ def handle_discussion(item, source_item, course_id, source_course_id, put_url, i
   filename = f"{item['id']}_{len(list_of_files)}.json"
 
   with open(os.path.join(folder_path, filename) , 'w') as f:
-    f.write(json.dumps(item, indent=2))
-
+    json.dump(item, f, indent=2)
 
 
   source_body = source_item["message"]
@@ -967,7 +1032,7 @@ def handle_assignment(item, source_item, course_id, source_course_id, put_url, i
   filename = f"{item['id']}_{len(list_of_files)}.json"
 
   with open(os.path.join(folder_path, filename) , 'w') as f:
-    f.write(json.dumps(item, indent=2))
+    json.dump(item, f, indent=2)
 
 
   body = item["description"]
