@@ -27,7 +27,7 @@ UG_TERM_DATES = "January 15 - February 18"
 HOMETILE_WIDTH = 512
 GRAD_SCHEME_NAME = "DE Graduate Programs"
 
-
+ACCOUNT_ID = 169877
 # Open the file and read the contents
 try:
   with open(CONSTANTS_FILE, 'r') as f:
@@ -43,7 +43,7 @@ try:
   if "driveUrl" in constants:
     drive_url = constants["driveUrl"]
 
-  account_id = 169877
+  account_id = ACCOUNT_ID
 except Exception as e:
   print(e)
   tk.messagebox.showerror(message=f"It looks like your constants file is missing some values. Ask hallie for a current copy of the constants.json file.\n{e}")
@@ -84,9 +84,13 @@ def main():
 
     for course in courses:
       print(course["course_code"])
+    if len(courses) > 1:
+      courses.sort(key=lambda course: course['id'], reverse=True)
+
     if len(courses) > 0:
       source_course_id = courses[0]["id"]
       print("Old course found", source_course_id, courses[0]["course_code"])
+
 
   updates = [
     { 
@@ -147,17 +151,6 @@ def main():
   else:
     opening_dialog(course_id, source_course_id, updates)
 
-    # for update in updates:
-    #   if confirm_dialog(message=update['message']):
-    #     try:
-    #       update['func'](course_id, source_course_id)
-    #     except Exception as e:
-    #       tk.messagebox.showerror(message=update['error'].format( e=str(e)))
-
-
-    #root = tk.Tk()
-    #root.withdraw()
-
 
 def opening_dialog(course_id, source_course_id, updates):
   root = tk.Tk()
@@ -186,6 +179,7 @@ def run_opening_dialog(root, course_id, source_course_id, updates):
         update['func'](course_id, source_course_id)
     except Exception as e:
       tk.messagebox.showerror(message=update['error'].format( e=str(e)) + "\n" + traceback.format_exc())
+      print(traceback.format_exc())
 
 
   root.destroy()
@@ -1322,9 +1316,18 @@ def update_syllabus_and_overview(course_id, source_course_id):
 
 
 def set_course_grad(course_id):
+
+
   print("Setting grad course grading standards")
-  grading_standards = get_paged_data(f"{api_url}/course/{course_id}/grading_standards")
-  grad_standard = next( filter( lambda scheme: GRAD_SCHEME_NAME.lower() in scheme['title'].lower()))
+
+  url = f"{api_url}/accounts/{ACCOUNT_ID}"
+  account = requests.get(url, headers=headers).json()
+
+
+  url = f"{api_url}/accounts/{account['root_account_id']}/grading_standards"
+  grading_standards = get_paged_data(url)
+  print(grading_standards)
+  grad_standard = next( filter( lambda scheme: GRAD_SCHEME_NAME.lower() in scheme['title'].lower(), grading_standards), None)
   assert grad_standard, f"Cannot find {GRAD_SCHEME_NAME}"
   response = requests.put(f"{api_url}/course/{course_id}", headers=headers, data={
     "course[grading_standard_id]" : grad_standard['id']
@@ -1943,19 +1946,25 @@ def postprocess_soup(soup, remove_styling_span=False):
 
 def get_paged_data(url, headers=headers):
   response = requests.get(url, headers=headers)
-  out = response.json()
+  try:
+    out = response.json()
+  except:
+    print(url)
+    print(response)
   next_page_link = "!"
   while len(next_page_link) != 0:
-      pagination_links = response.headers["Link"].split(",")
-      for link in pagination_links:
-        if 'next' in link:
-          next_page_link = link.split(";")[0].split("<")[1].split(">")[0]
-          print(next_page_link)
-          response = requests.get(next_page_link, headers=headers)
-          out = out + response.json()
-          break
-        else:
-          next_page_link = ""  
+    if not "Link" in response.headers:
+      break
+    pagination_links = response.headers["Link"].split(",")
+    for link in pagination_links:
+      if 'next' in link:
+        next_page_link = link.split(";")[0].split("<")[1].split(">")[0]
+        print(next_page_link)
+        response = requests.get(next_page_link, headers=headers)
+        out = out + response.json()
+        break
+      else:
+        next_page_link = ""  
 
   return out
 
