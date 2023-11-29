@@ -419,7 +419,8 @@ def add_quizzes(module, source_module, course_id, source_course_id):
       else:
         count = count + 1
         print("Adding Quiz To Module")
-        new_quiz = next( filter(lambda item: item["title"] == source_quiz["title"], all_quizzes_in_course), None)
+        print( list(map( lambda quiz: f"{quiz['title']} // {source_quiz['title']}  // {quiz['title'] in source_quiz['title']}", all_quizzes_in_course)))
+        new_quiz = next( filter(lambda item: item["title"].lower() in source_quiz["title"].lower(), all_quizzes_in_course), None)
         assert new_quiz, f"Quiz not found:{source_quiz['title']}"
         url = f"{api_url}/courses/{course_id}/modules/{module['id']}/items"
         result = requests.post(url, headers=headers, data={
@@ -883,13 +884,13 @@ def handle_discussion(item, source_item, course_id, source_course_id, put_url, i
 
   #save off a backup of this data
   base_folder = "course_data"
-  folder_path = os.path.join(os.getcwd(), base_folder, str(course_id), "discussions", item['id'])
+  folder_path = os.path.join(os.getcwd(), base_folder, str(course_id), "discussions", str(item['id']))
   ensure_directory_exists(folder_path)
   list_of_files = glob.glob(f'{folder_path}/*.json')
   filename = f"{item['id']}_{len(list_of_files)}.json"
 
   with open(os.path.join(folder_path, filename) , 'w') as f:
-    f.write(json.dumps(item))
+    f.write(json.dumps(item, indent=2))
 
 
 
@@ -960,13 +961,13 @@ def handle_assignment(item, source_item, course_id, source_course_id, put_url, i
 
   #save off a backup of this data
   base_folder = "course_data"
-  folder_path = os.path.join(os.getcwd(), base_folder, str(course_id), "assignments", item['id'])
+  folder_path = os.path.join(os.getcwd(), base_folder, str(course_id), "assignments", str(item['id']))
   ensure_directory_exists(folder_path)
   list_of_files = glob.glob(f'{folder_path}/*.json')
   filename = f"{item['id']}_{len(list_of_files)}.json"
 
   with open(os.path.join(folder_path, filename) , 'w') as f:
-    f.write(json.dumps(item))
+    f.write(json.dumps(item, indent=2))
 
 
   body = item["description"]
@@ -1299,7 +1300,7 @@ def update_syllabus_and_overview(course_id, source_course_id):
   term = GRAD_TERM_NAME if is_course_grad else UG_TERM_NAME
   dates = GRADE_TERM_DATES if is_course_grad  else UG_TERM_DATES
 
-  update_syllabus(course_id, source_course_id)
+  update_syllabus(course_id, syllabus_banner_url, term, dates, learning_objectives_section, description_section, title, week_1_preview, textbook_section, is_course_grad)
 
   #update the home page with the title we grabbed
   course_title = None
@@ -1311,7 +1312,6 @@ def update_syllabus_and_overview(course_id, source_course_id):
     course_code = re.sub(r'\s+','', groups[0])
 
 
-  update_syllabus(course_id, syllabus_banner_url, term, dates, learning_objectives_section, description_section, title, week_1_learning_materials, textbook_section, is_course_grad)
   update_home_page(course_id, source_course_id, course_code, course_title)
   update_course_overview(course_id, source_course_id, learning_objectives_section, description_section, textbook_section)
 
@@ -1338,7 +1338,7 @@ def set_course_grad(course_id):
 
 
 
-def update_syllabus(course_id, syllabus_banner_url, term, dates, learning_objectives_section, description_section, title, week_1_learning_materials, textbook_section, is_course_grad):
+def update_syllabus(course_id, syllabus_banner_url, term, dates, learning_objectives_section, description_section, title, week_1_preview, textbook_section, is_course_grad):
   #format syllabus template from disk
   try:
     with open("syllabus_template.html", 'r') as f:
