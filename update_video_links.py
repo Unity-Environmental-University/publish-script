@@ -1105,7 +1105,8 @@ def remove_gallery_discussions(discussions, remove_introduction = True):
   to_remove = []
   for discussion in discussions:
     #just throw away introductions
-    if remove_introduction and "Introduction" in discussion["title"]:
+    if remove_introduction and  discussion["title"] == "Introductions":
+      print("REMOVING INTRODUCTIONS")
       to_remove.append(discussion)
 
     print("removing gallery discussions")
