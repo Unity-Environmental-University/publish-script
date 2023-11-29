@@ -164,8 +164,8 @@ def opening_dialog(course_id, source_course_id, updates):
 
   button = tk.Button(master=root, text="Run", command=lambda: run_opening_dialog(root, course_id, source_course_id, updates))
   button.pack()
-  #button = tk.Button(master=root, text="ADVANCED OPTIONS", command=lambda: advanced_options_ui(root, course_id, source_course_id))
-  #button.pack()
+  button = tk.Button(master=root, text="ADVANCED OPTIONS", command=lambda: advanced_options_ui(root, course_id, source_course_id))
+  button.pack()
 
   root.mainloop()
 
@@ -207,6 +207,7 @@ def advanced_options_ui(root, course_id, source_course_id):
 
 def execute_option(win, course_id, source_course_id, option):
   option['func'](course_id, source_course_id)
+  win.destroy()
 
 def revert_assignments(course_id, source_course_id):
   assignments = get_paged_data(f"{api_url}/courses/{course_id}/assignments")
@@ -225,17 +226,22 @@ def revert_assignment(course_id, assignment_id):
     return False
   url = f"{api_url}/courses/{course_id}/assignments/{assignment_id}"
   response = requests.put(url, headers=headers, data={
-    "assignment" : backup
+    'assignment[name]' : backup['name'],
+    'assignment[description]' : backup['description']
+
     })
+  print(response)
 
 def revert_discussion(course_id, discussion_id):
-  backup = get_backup(course_id, discussion_id, "assignments")
+  backup = get_backup(course_id, discussion_id, "discussions")
   if not backup:
     return False
   url = f"{api_url}/courses/{course_id}/discussion_topics/{discussion_id}"
   response = requests.put(url, headers=headers, data={
-    "discussion" : backup
+    'title' : backup['title'],
+    'message' : backup['message']
     })
+  print(response)
 
 def get_backup(course_id, item_id, backups_folder):
   base_folder = "course_data"
