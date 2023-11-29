@@ -25,6 +25,7 @@ UG_TERM_NAME = "HL-24-Jan"
 GRADE_TERM_DATES = "January 8 - March 3"
 UG_TERM_DATES = "January 15 - February 18" 
 HOMETILE_WIDTH = 512
+GRAD_SCHEME_NAME = "DE Graduate Programs"
 
 
 # Open the file and read the contents
@@ -226,10 +227,6 @@ def update_assignment_categories(course_id, source_course_id):
       print (response)
       assert response.ok, "There was a problem updating assignment groups"
 
-
-
-
-
 def set_hometiles(course_id, source_course_id=None):
     # Retrieve the home page content
     home_page_url = f"{api_url}/courses/{course_id}/pages/home"
@@ -276,7 +273,6 @@ def process_and_upload_overview_tiles(course_id, image_source_course_id, image_p
         
         home_tile_path = save_hometile(img_data, image_path, f"hometile{i + 1}.{ext}")
         upload_hometile(course_id, home_tile_path)
-
 
 def retrieve_image(src, course_id, tile_number):
     # Retrieve and save image data
@@ -1296,7 +1292,8 @@ def update_syllabus_and_overview(course_id, source_course_id):
   syllabus_banner_url = get_file_url_by_name(course_id, "Module 1 banner (7)")
 
   is_course_grad = not source_page.find(string="Poor, but Passing")
-
+  if is_course_grad:
+    set_course_grad(course_id)
 
   title = find_syllabus_title(source_page)
   description_section = get_section(source_page, re.compile(r'.*description', re.IGNORECASE))
@@ -1307,6 +1304,38 @@ def update_syllabus_and_overview(course_id, source_course_id):
   term = GRAD_TERM_NAME if is_course_grad else UG_TERM_NAME
   dates = GRADE_TERM_DATES if is_course_grad  else UG_TERM_DATES
 
+  update_syllabus(course_id, source_course_id)
+
+  #update the home page with the title we grabbed
+  course_title = None
+  course_code = None
+  match = re.search(r'.*(\w{4}\s*\d{3})\s*[:-]?\s*(.*)', title)
+  if match:  
+    groups = match.groups()
+    course_title = groups[1]
+    course_code = re.sub(r'\s+','', groups[0])
+
+
+  update_syllabus(course_id, syllabus_banner_url, term, dates, learning_objectives_section, description_section, title, week_1_learning_materials, textbook_section, is_course_grad)
+  update_home_page(course_id, source_course_id, course_code, course_title)
+  update_course_overview(course_id, source_course_id, learning_objectives_section, description_section, textbook_section)
+
+
+def set_course_grad(course_id):
+  print("Setting grad course grading standards")
+  grading_standards = get_paged_data(f"{api_url}/course/{course_id}/grading_standards")
+  grad_standard = next( filter( lambda scheme: GRAD_SCHEME_NAME.lower() in scheme['title'].lower()))
+  assert grad_standard, f"Cannot find {GRAD_SCHEME_NAME}"
+  response = requests.put(f"{api_url}/course/{course_id}", headers=headers, data={
+    "course[grading_standard_id]" : grad_standard['id']
+
+    })
+  print(response)
+
+
+
+def update_syllabus(course_id, syllabus_banner_url, term, dates, learning_objectives_section, description_section, title, week_1_learning_materials, textbook_section, is_course_grad):
+  #format syllabus template from disk
   try:
     with open("syllabus_template.html", 'r') as f:
       template = f.read()
@@ -1352,26 +1381,13 @@ def update_syllabus_and_overview(course_id, source_course_id):
       "course[syllabus_body]" : str(submit_soup)
     }
   )
-
-  #update the home page with the title we grabbed
-  course_title = None
-  course_code = None
-  match = re.search(r'.*(\w{4}\s*\d{3})\s*[:-]?\s*(.*)', title)
-  if match:  
-    groups = match.groups()
-    course_title = groups[1]
-    course_code = re.sub(r'\s+','', groups[0])
-
-  update_home_page(course_id, source_course_id, course_code, course_title)
-
-
   print(response.status_code)
+
+
+def update_course_overview(course_id, source_course_id, learning_objectives_section, description_section, textbook_section):
 
   #update overview
-  url = f"{api_url}/courses/{course_id}/modules?include[]=items&include[]=content_details"
-  response = requests.get(url, headers=headers)
-  print(response.status_code)
-  modules = response.json()
+  modules = get_modules(course_id)
 
   overview_module = next(filter(lambda module: module["position"] == 1, modules))
   page_id  = overview_module['items'][0]['page_url']
