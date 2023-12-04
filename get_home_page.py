@@ -22,7 +22,7 @@ def log(output):
   print(output)
 
 
-CONSTANTS_FILE = 'constants_test.json'
+CONSTANTS_FILE = 'constants.json'
 
 max_profile_image_size = 400
 # Open the file and read the contents
