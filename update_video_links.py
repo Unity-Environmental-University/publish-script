@@ -1634,8 +1634,16 @@ def get_syllabus(course_id):
   return BeautifulSoup(preprocess_html(content["syllabus_body"]), "lxml")
 
 def find_syllabus_title(soup):
+  print(soup.prettify())
   header = soup.find("strong", string=re.compile("course number and title", re.IGNORECASE))
   title_p = header.find_parent("p")
+  if not title_p:
+    title_p = header.find_parent("h4")
+  if not title_p:
+    title_p = header.find_parent("h3")
+  if not title_p:
+    title_p = header.find_parent("h2")
+    assert header, "Syllabus title not found"
   header.decompose()
   return title_p.text
 
