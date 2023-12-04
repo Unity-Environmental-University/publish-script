@@ -22,7 +22,7 @@ def log(output):
   print(output)
 
 
-CONSTANTS_FILE = 'constants.json'
+CONSTANTS_FILE = 'constants_test.json'
 
 max_profile_image_size = 400
 # Open the file and read the contents
@@ -75,6 +75,9 @@ def main():
   bp_course = get_course(bp_id)
   courses = get_blueprint_courses(bp_id)
   log(courses)
+
+  if tk.messagebox.askyesno(message=f"Do you want to remove lm annotations from {bp_course['name']}?"):
+    remove_lm_annotations_from_course(bp_course["id"])
 
   if tk.messagebox.askyesno(message="Do you want to lock module items?"):
     lock_module_items(bp_id)
@@ -212,13 +215,77 @@ def lock_module_items(course_id):
         log(response.text)
         log(json.dumps(item, indent=2))
 
+
+def remove_lm_annotations_from_course(course_id):
+  modules = get_modules(course_id)
+  for module in modules:
+    #find an item in the module called "Week ? Learning Materials"
+    lm_page = next( (filter(lambda item: item['type'] == 'Page' and re.search(r'Week \d+ Learning Materials', item['title']), module['items'] )), None)
+    if lm_page:
+      full_page = requests.get(lm_page['url'], headers=headers).json()
+
+      body = remove_lm_annnotations(full_page['body'])
+      #print(json.dumps(full_page, indent=2))
+      print(lm_page['url'])
+      data = {
+        'wiki_page[body]' : body
+       }
+      print(data)
+      response = requests.put(lm_page['url'], headers=headers, 
+      data=data)
+
+      print(response.text)
+
+def remove_lm_annnotations(text):
+
+  #one liners to replace
+  replacements = [
+    {
+      'find' : r'<p>\[Text for optional primary media element to be written by SME\]</p>',
+      'replace' : '',
+    },
+
+    {
+      'find' : r'\[[iI]nsert annotation for media\]',
+      'replace' : '',
+    },
+  ]
+  
+  for replace in replacements:
+    find = re.compile(replace['find'], flags=re.MULTILINE)
+    print(replace['find'])
+    text=re.sub('\\n', '\n', text)
+    text = re.sub(r'(\s)\s+', '\1', text)
+    match = re.findall(find, text.format())
+    if match:
+      print("FOUND", match)
+      text = re.sub(find, replace['replace'], text)
+
+  #remove these sections
+  soup = BeautifulSoup(text, 'lxml')
+  bq = soup.find('blockquote')
+  if bq and "SME" in bq.text:
+    parent = single_filter(lambda item: item.has_attr('class') and 'cbt-content' in item['class'], bq.parents)
+    print(parent)
+    parent.decompose()
+
+  divs = soup.find_all('div')
+  div = single_filter(lambda item: item.has_attr('class') and 'cbt-content' in item['class'] and '[LM Narrative' in item.text, divs)
+  if div:
+    div.decompose()
+
+  out = str(soup.find('body') )
+  out = re.sub(r'</?body>', '', out)
+  return out
+
+
+def single_filter(func, set, default = None):
+  return next(filter( func, set), None)
+
 def get_modules(course_id):
   url = f"{api_url}/courses/{course_id}/modules?include[]=items&include[]=content_details"
   log(url)
-  response = requests.get(url, headers=headers)
-  log(response)
-  log(response.json())
-  return response.json()
+  return get_paged_data(url)
 
 def replace_faculty_profiles(courses, pages, ui_root, progress_bar):
   profiles = []
