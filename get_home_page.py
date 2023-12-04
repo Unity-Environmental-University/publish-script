@@ -261,17 +261,40 @@ def get_course(course_id):
 
 
 def format_profile_page(profile, course, homepage):
-  with open("template.html", 'r') as f:
-    template = f.read()
-  text = template.format(
-    course_title = homepage["title"] if "title" in homepage else f' Welcome to {course["name"]}',
-    instructor_name = profile["display_name"] if "display_name" in profile else profile["user"]["name"],
-    img_src = profile["img_src"],
-    bio=profile["bio"])
+  text = ""
+  #if it's cbt theme, run the new formatter
+  if "cbt-banner-header" in homepage['body']:
+    text = format_profile_page_newdev(profile, course, homepage)
+  else:
+    with open("template.html", 'r') as f:
+      template = f.read()
+    text = template.format(
+      course_title = homepage["title"] if "title" in homepage else f' Welcome to {course["name"]}',
+      instructor_name = profile["display_name"] if "display_name" in profile else profile["user"]["name"],
+      img_src = profile["img_src"],
+      bio=profile["bio"])
 
+  text = clean_up_bio(text)
   with open(f'profiles/{profile["user"]["id"]}_{course["id"]}.htm', 'wb') as f:
     f.write(text.encode("utf-8", "replace"))
+
   return text
+
+def clean_up_bio(html):
+  html = re.sub(r'<p>\w*(&nbsp;)?\w*</p>','', html)
+  return html
+
+def format_profile_page_newdev(profile, course, homepage):
+  body = homepage['body']
+  instructor_name = profile["display_name"] if "display_name" in profile else profile["user"]["name"]
+  bio_body = profile["bio"]
+  data_url = re.sub('.com/', '.com/ap1/v1/', profile['img_src']) #change to api instead of site url
+  body = re.sub(r'<p>\w*<span>\w*Instructor bio coming soon!\w*</span>\w*</p>', bio_body, body)
+  #replace image
+  find_profile_image = re.compile(r'src="[^"]*"([^>]*)alt="male-profile-image-placeholder.png" data-api-endpoint="[^"]*"')
+  homepage = re.sub(find_profile_image, f'src="{profile["img_src"]}"\1data-api-endpoint="{data_url}"', body)
+
+  return homepage
 
 def get_course_profile(course, pages):
   return get_course_profile_from_pages(course, pages)
@@ -360,8 +383,8 @@ def overwrite_home_page(profile, course):
 
   # Parse the homepage HTML content.
   
-  homepage = { "course_title" : None }
   homepage_html = response.json()['body']
+  homepage = { "course_title" : None, "body" : homepage_html }
   soup = BeautifulSoup(homepage_html, 'html.parser')
   h2Tags = soup.find_all('h2')
   if len(h2Tags) > 0:
