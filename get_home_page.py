@@ -122,8 +122,6 @@ def main():
 
   tk.messagebox.showinfo("report", dialog_text)
 
-
- 
   if tk.messagebox.askyesno(message="Do you want to try to generate an email?"):
     email_subject = f'{bp_course["course_code"][3:]} Section(s) Ready Notification'
     email_body = template.format(
