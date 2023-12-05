@@ -52,15 +52,11 @@ log_string = ""
 
 def main():
 
-
-
-
   number = 0
   if len(sys.argv) > 1:
     number = sys.argv[1]
   else:
     number = tk.simpledialog.askinteger("What Course?", "Enter the course_id of the blueprint (cut the number out of the url and paste here)")
-
 
   bp_id = number
 
@@ -72,8 +68,17 @@ def main():
   progress_bar = ttk.Progressbar(root, orient="horizontal", length=200, mode="determinate")
   progress_bar.pack()
 
+
+
+
   bp_course = get_course(bp_id)
+  source_course_id = get_source_course_id(bp_id)
   courses = get_blueprint_courses(bp_id)
+
+  update_syllabus(bp_id)
+  if source_course_id:
+    update_syllabus(source_course_id)
+
   log(courses)
 
   if tk.messagebox.askyesno(message=f"Do you want to remove lm annotations from {bp_course['name']}?"):
@@ -90,7 +95,6 @@ def main():
       exit()
 
   force = True if "force_import" in sys.argv else False if "bypass_import" in sys.argv else tk.messagebox.askyesno(message="Do you want to import current profile data?")
-
 
   pages = get_faculty_pages(force=force)
 
@@ -158,10 +162,6 @@ def main():
         file.write(text)
       tk.messagebox.showerror(message="Error Generating Email. Text was written to 'email.txt' ")
 
-
-
-
-
 def lock_module_items(course_id):
   modules = get_modules(course_id)
   for module in modules:
@@ -214,6 +214,17 @@ def lock_module_items(course_id):
         log(json.dumps(item, indent=2))
 
 
+def get_source_course_id(course_id):
+  migrations = requests.get(f'{api_url}/courses/{course_id}/content_migrations', headers=headers).json()
+
+  #if there are no migrations return false
+  if len(migrations) < 1:
+    return False 
+
+  migrations.sort(reverse=True, key=lambda migration: migration['id'] ) #sort by id descending so the first element is the latest created
+  return migrations[0]['settings']['source_course_id']
+
+
 def remove_lm_annotations_from_course(course_id):
   modules = get_modules(course_id)
   for module in modules:
@@ -233,6 +244,29 @@ def remove_lm_annotations_from_course(course_id):
       data=data)
 
       print(response.text)
+
+syllabus_replacements = [{
+  'find' : r'<p>The instructor will conduct [^.]*\(48 hours during weekends\)\.',
+  'replace' : '<p>The instructor will conduct all correspondence with students related to the class in Canvas, and you should expect to receive a response to emails within 24 hours.'
+}]
+
+def update_syllabus_text(text):
+  for replacement in syllabus_replacements:
+    text = re.sub(replacement['find'], replacement['replace'], text)
+  return text
+
+def update_syllabus(course_id):
+  url = f"{api_url}/courses/{course_id}?include[]=syllabus_body"
+  response = requests.get(url, headers=headers)
+  content = response.json()
+  syllabus = update_syllabus_text(content["syllabus_body"])
+  response = requests.put(f'{api_url}/courses/{course_id}', 
+    headers = headers,
+    data = {
+      "course[syllabus_body]" : syllabus
+    }
+    )
+
 
 def remove_lm_annnotations(text):
 
