@@ -79,8 +79,16 @@ def main():
   if not source_course_id or source_course_id == 0:
     code = course["course_code"].split("_")[1][0:7]
     print("Code", code)
-    response = requests.get(f"{api_url}/accounts/{account_id}/courses", headers=headers, params = {"search_term" : f"DEV_{code}"} )
+    #look for dep version first
+    response = requests.get(f"{api_url}/accounts/{account_id}/courses", headers=headers, params = {"search_term" : f"DEP_{code}"} )
     courses = response.json()
+    print(courses)
+    #if that's not there, look for DEV assuming DEP has not been made
+    if len(courses) == 0:
+      response = requests.get(f"{api_url}/accounts/{account_id}/courses", headers=headers, params = {"search_term" : f"DEV_{code}"} )
+      courses = response.json()
+      print(courses)
+
 
     for course in courses:
       print(course["course_code"])
@@ -1665,6 +1673,7 @@ def gs_strat_until_headerlike(soup, header_pattern):
   header = get_section_header(soup, header_pattern)
   print("header", header)
   if not header:
+    print("header not found", header_pattern)
     return False
   parent = header.parent
   print("parent", parent.name)
@@ -1697,14 +1706,16 @@ def gsh_func_h4(soup, header_pattern):
   headers = soup.find_all("h4")
   for header in headers:
     print(header, header_pattern)
-    if re.search(header_pattern, header.text):
+    if re.search(header_pattern, str(header)):
       print("Found ", header)
       return header
 
 def gsh_func_strong(soup, header_pattern):
+  print(soup)
   headers = soup.find_all("strong")
   for header in headers:
-    if re.search(header_pattern, header.text):
+    print(str(header))
+    if re.search(header_pattern, str(header)):
       print("Found ", header)
       return header.parent
 
@@ -1744,7 +1755,8 @@ def get_week_1_preview(course_id, source_course_id):
     if h4:
       learning_materials = list(h4.next_siblings)
     else:
-      learning_materials = list(get_section(lm_soup, re.compile(r"Please read (and watch )?the following materials:", re.IGNORECASE)))
+      section = get_section(lm_soup, re.compile("Please read (and watch )?the following materials:", re.IGNORECASE))
+      learning_materials = list(section)
 
     iframe = lm_soup.find("iframe")
     youtube_iframe_source = iframe["src"] if iframe else "#"
@@ -1862,7 +1874,7 @@ def update_learning_materials(course_id : str, source_course_id : str, start_ind
     source_header = source_soup.find("h4")
     learning_materials = None
     if source_header:
-      learning_materials = list(source_header.next_siblings)      
+      learning_materials = list(source_header.next_siblings)
     else:
       learning_materials = get_section(source_soup, re.compile("Please read (and watch )?the following materials:", re.IGNORECASE))
     
