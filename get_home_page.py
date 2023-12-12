@@ -281,6 +281,18 @@ def remove_lm_annnotations(text):
       'find' : r'\[[iI]nsert annotation for media\]',
       'replace' : '',
     },
+    {
+      'find' : r'<h3>\[Title for <span style="text-decoration: underline;">optional </span>secondary media element\]</h3>',
+      'replace' : '',
+    },
+    {
+      'find' : r'<h3><strong>\[Title for \w+ category of LMs\]</strong></h3>',
+      'replace' : 'Materials',
+    },
+
+
+            
+
   ]
   
   for replace in replacements:
