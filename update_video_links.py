@@ -27,7 +27,7 @@ UG_TERM_DATES = "January 15 - February 18"
 HOMETILE_WIDTH = 512
 GRAD_SCHEME_NAME = "DE Graduate Programs"
 
-ACCOUNT_ID = 169877
+
 # Open the file and read the contents
 try:
   with open(CONSTANTS_FILE, 'r') as f:
@@ -43,7 +43,8 @@ try:
   if "driveUrl" in constants:
     drive_url = constants["driveUrl"]
 
-  account_id = ACCOUNT_ID
+  #account_id = ACCOUNT_ID
+
 except Exception as e:
   print(e)
   tk.messagebox.showerror(message=f"It looks like your constants file is missing some values. Ask hallie for a current copy of the constants.json file.\n{e}")
@@ -57,6 +58,21 @@ headers = {
 img_headers = {
   "User-Agent" : 'UnityThemeMigratorBot/0.0 (http://unity.edu; hlarsson@unity.edu)'
 }
+
+
+url = f'{api_url}/accounts'
+accounts = requests.get(url, headers=headers).json()
+account_ids = dict()
+for account in accounts:
+  account_ids[account['name']] = account['id']
+
+ACCOUNT_ID = account_ids['Distance Education']
+ROOT_ACCOUNT_ID = account_ids['Unity College']
+
+
+print(ACCOUNT_ID, ROOT_ACCOUNT_ID)
+
+account_id = ACCOUNT_ID
 def main():
   course_id = 0
   source_course_id = 0
@@ -79,11 +95,16 @@ def main():
   if not source_course_id or source_course_id == 0:
     code = course["course_code"].split("_")[1][0:7]
     print("Code", code)
-    #look for dep version first
-    response = requests.get(f"{api_url}/accounts/{account_id}/courses", headers=headers, params = {"search_term" : f"DEP_{code}"} )
+    #look for dep or deprecated first
+
+    response = requests.get(f"{api_url}/accounts/{account_id}/courses", headers=headers, params = {"search_term" : f"DEPRECATED_{code}"} )
     courses = response.json()
     print(courses)
-    #if that's not there, look for DEV assuming DEP has not been made
+    if len(courses) == 0:
+      response = requests.get(f"{api_url}/accounts/{account_id}/courses", headers=headers, params = {"search_term" : f"DEP_{code}"} )
+      courses = response.json()
+      print(courses)
+      #if that's not there, look for DEV assuming DEP has not been made
     if len(courses) == 0:
       response = requests.get(f"{api_url}/accounts/{account_id}/courses", headers=headers, params = {"search_term" : f"DEV_{code}"} )
       courses = response.json()
@@ -163,6 +184,16 @@ def main():
 def opening_dialog(course_id, source_course_id, updates):
   root = tk.Tk()
   checkboxes = []
+
+  # terms = requests.get(f'{api_url}/accounts/{ROOT_ACCOUNT_ID}/terms', headers=headers).json()['enrollment_terms']
+  # print(terms)
+  # terms.sort(key=lambda term: term['id'], reverse=True)
+  # term_name_var = tk.StringVar()
+  # term_name_var.set(terms[0]['name'])
+  # term_name_input = tk.Entry(root, text="Term Code", textvariable= term_name_var)
+  # #term_name_input.pack()
+
+
   for update in updates:
     boolVar = tk.BooleanVar()
     button =  tk.Checkbutton(root, text=update['message'], onvalue = True, offvalue=False, variable= boolVar)
@@ -445,28 +476,26 @@ def upload_hometile(course_id, local_path):
 #saves hometile to disc
 def save_hometile(img_data, data_folder, filename):
   filepath = os.path.join(data_folder, filename)
+
   with open(filepath, 'wb') as file:
     file.write(img_data)
 
   with Image.open(filepath) as img:
-    if HOMETILE_WIDTH >= img.size[0]:
-      print (HOMETILE_WIDTH, img.size)
-    else:
-      target_width = HOMETILE_WIDTH
+    target_width = HOMETILE_WIDTH
 
-      # Calculate the new height to preserve the aspect ratio
-      width_percent = (target_width / float(img.size[0]))
-      new_height = int((float(img.size[1]) * float(width_percent)))
+    # Calculate the new height to preserve the aspect ratio
+    width_percent = (target_width / float(img.size[0]))
+    new_height = int((float(img.size[1]) * float(width_percent)))
 
-      # Resize the image using the appropriate resampling filter
-      resized_img = img.resize((target_width, new_height), Image.Resampling.BILINEAR)
+    # Resize the image using the appropriate resampling filter
+    resized_img = img.resize((target_width, new_height), Image.Resampling.BILINEAR)
 
-      pre, ext = os.path.splitext(filepath)
-      # Save the resized image
-      home_tile_path = f"{pre}.png"
-      resized_img.save(home_tile_path,"PNG")
+    pre, ext = os.path.splitext(filepath)
+    # Save the resized image
+    home_tile_path = f"{pre}.png"
+    resized_img.save(home_tile_path,"PNG")
 
-      return home_tile_path
+    return home_tile_path
 
 
 def get_modules(course_id):
@@ -1413,13 +1442,15 @@ def update_syllabus_and_overview(course_id, source_course_id):
 
   syllabus_banner_url = get_file_url_by_name(course_id, "Module 1 banner (7)")
 
-  is_course_grad = not source_page.find(string="Poor, but Passing")
+  is_course_grad = not source_page.find(string=re.compile("Poor, but Passing"))
   if is_course_grad:
     set_course_grad(course_id)
 
   title = find_syllabus_title(source_page)
   description_section = get_section(source_page, re.compile(r'.*description', re.IGNORECASE))
   learning_objectives_section = get_section(source_page, re.compile(r'outcomes', re.IGNORECASE))
+  if not learning_objectives_section:
+    learning_objectives_section = get_section(source_page, re.compile(r'objectives', re.IGNORECASE))
   textbook_section = get_section(source_page, re.compile(r'.*textbook[:]?', re.IGNORECASE))
   week_1_preview = get_week_1_preview(course_id, source_course_id)
 
@@ -2106,6 +2137,30 @@ def get_paged_data(url, headers=headers):
         next_page_link = ""  
 
   return out
+
+def update_assignment_dates():
+  assignments = get_paged_data(f"{api_url}/courses/{course_id}/assignments?include=due_at")
+  update_date_data = []
+  for assignment in assignments:
+    print(assignment["due_at"])
+    due_at = datetime.datetime.fromisoformat(assignment["due_at"])
+    due_at = due_at + datetime.timedelta(days=offset)
+    response = requests.put(f"{api_url}/courses/{course_id}/assignments/{assignment['id']}",
+      headers = headers,
+      json = {
+          
+          "assignment" : {
+            "id" : assignment["id"],
+            "due_at" : due_at.isoformat()
+        }
+      }
+    )
+    if response.status_code == 200:
+      print(f"Changed date of {assignment['name']} to {due_at}")
+    else:
+      print(f"Error changing date of {assignment['name']}")
+      print(response.status_code)
+      print(response.text)
 
 
 main()
