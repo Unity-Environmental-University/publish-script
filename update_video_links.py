@@ -1055,6 +1055,7 @@ def handle_discussion(item, source_item, course_id, source_course_id, put_url, i
   source_soup = BeautifulSoup(source_body, 'lxml')
   soup = BeautifulSoup(body, 'lxml')
 
+
   contents = find_source_assignment_content(source_soup)
 
   #put everything in the migration insertion section
@@ -1070,7 +1071,7 @@ def handle_discussion(item, source_item, course_id, source_course_id, put_url, i
     insert_el.clear()
     insert_el.append(contents)
 
-
+  replace_rubric_link(soup, course_id, source_course_id, item)
   update_links(soup, course_id, source_course_id)
 
   response = requests.put(put_url, headers=headers, data= {
