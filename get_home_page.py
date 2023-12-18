@@ -22,7 +22,7 @@ def log(output):
   print(output)
 
 
-CONSTANTS_FILE = 'constants.json'
+CONSTANTS_FILE = 'constants_test.json'
 
 max_profile_image_size = 400
 # Open the file and read the contents
@@ -64,105 +64,160 @@ def main():
   message_label = tk.Label(root, text="Processing...")
   message_label.pack()
 
+
   # Create a progress bar
   progress_bar = ttk.Progressbar(root, orient="horizontal", length=200, mode="determinate")
   progress_bar.pack()
 
-
-
-
   bp_course = get_course(bp_id)
+
+
   source_course_id = get_source_course_id(bp_id)
   courses = get_blueprint_courses(bp_id)
 
   update_syllabus(bp_id)
+
   if source_course_id:
     update_syllabus(source_course_id)
 
-  log(courses)
+  if tk.messagebox.askyesno(message=):
 
-  if tk.messagebox.askyesno(message=f"Do you want to remove lm annotations from {bp_course['name']}?"):
-    remove_lm_annotations_from_course(bp_course["id"])
 
-  if tk.messagebox.askyesno(message="Do you want to lock module items?"):
-    lock_module_items(bp_id)
 
-  #if the course has no associations, JUST queue up to update the input course
-  if not courses:
-    if tk.messagebox.askyesno(message=f"Course {bp_course['name']} does not have associated courses. Do you want to just get the bio for this course?"):
-      courses = [bp_course]
-    else:
-      exit()
+  force = None
+  updates = [
+    { 
+      'name' : 'update_syllabus', 
+      'argument' : 'syllabus',
+      'message': 'Do you want to update syllabus language in this and any source? Do this before sync!',
+      'func' : lambda: update_syllabus(bp_id); update_syllabus(get_source_course_id(bp_id))
+    },
+    { 
+      'name' : 'remove_lm_annnotations', 
+      'argument' : 'lm',
+      'message': f"Do you want to remove lm annotations from {bp_course['name']}?",
+      'func' : lambda: remove_lm_annotations_from_course(bp_course)
 
-  force = True if "force_import" in sys.argv else False if "bypass_import" in sys.argv else tk.messagebox.askyesno(message="Do you want to import current profile data?")
+    },
+    { 
+      'name' : 'lock', 
+      'argument' : 'lock',
+      'message': 'Do you want to lock bluprint module items?',
+      'func' : lambda: lock_module_items(bp_course)
+    },
+    { 
+      'name': 'profiles',
+      'argument': 'profiles',
+      'message' : 'Do you want to update profiles?'
+      'error': 'There was a problem updating profile pages\n{e}',
+      'func': lambda: replace_faculty_profiles(courses, root, force),
+    },
+  ]
 
-  pages = get_faculty_pages(force=force)
 
-  profiles = replace_faculty_profiles(courses, pages, root, progress_bar)
+  True if "force_import" in sys.argv else False if "bypass_import" in sys.argv else tk.messagebox.askyesno(message="Do you want to import current profile data?")
+  #Check if the arguments are on the command line and run those options that are
+  if len(sys.argv) > 2:
+    for update in updates:
+      if update['name'] in sys.argv or 'argument' in update and update['argument'] in sys.argv:
+        update['func'](course)
 
-  bio_count = 0
-  error_text = ""
-  emails = []
-  for profile in profiles:
-    if not profile:
-      error_text = error_text + "A course does not have a user associated"
-      continue
-    if len(profile["bio"]) < 5:
-      error_text = error_text + f'{profile["user"]["name"]} does NOT have a bio we can find\n'
-    else:
-      bio_count = bio_count + 1
-      if "email" in profile["user"]:
-        emails.append(profile["user"]["email"])
-      else:
-        error_text = error_text + ("\nNo Email Found for " + profile["user"]["name"])
-  dialog_text = f"Finished, {bio_count} records updated successfully\n{error_text}"
 
+  #if we don't have any arguments past the id, go into interactive mode
+  else:
+    opening_dialog(course=course, updates=updates)
+
+
+def opening_dialog(course=course, updates=updates):
+  root = tk.Tk()
+  checkboxes = []
+
+  # terms = requests.get(f'{api_url}/accounts/{ROOT_ACCOUNT_ID}/terms', headers=headers).json()['enrollment_terms']
+  # print(terms)
+  # terms.sort(key=lambda term: term['id'], reverse=True)
+  # term_name_var = tk.StringVar()
+  # term_name_var.set(terms[0]['name'])
+  # term_name_input = tk.Entry(root, text="Term Code", textvariable= term_name_var)
+  # #term_name_input.pack()
+
+
+  for update in updates:
+    boolVar = tk.BooleanVar()
+    button =  tk.Checkbutton(root, text=update['message'], onvalue = True, offvalue=False, variable= boolVar)
+    checkboxes.append(button)
+    update['run'] = boolVar
+    button.pack()
+
+  button = tk.Button(master=root, text="Run", command=lambda: run_opening_dialog(root, course_id, source_course_id, updates))
+  button.pack()
+  #button = tk.Button(master=root, text="ADVANCED OPTIONS", command=lambda: advanced_options_ui(root, course_id, source_course_id))
+  #button.pack()
+
+  root.mainloop()
+
+def run_opening_dialog(root, course_id, source_course_id, updates):
+  label = tk.Label(root, text="Select which steps to perform")
+  label.pack()
+  for update in updates:
+    try:
+      if update['run'].get():
+        label.config(text=f"Running {update['name']}")
+        root.update()
+        print(update)
+        update['func'](course_id, source_course_id)
+    except Exception as e:
+      tk.messagebox.showerror(message=update['error'].format( e=str(e)) + "\n" + traceback.format_exc())
+      print(traceback.format_exc())
+
+
+  root.destroy()
+  tk.messagebox.showinfo(message="Finished!")
+
+def generate_email(course=None, constants=None, code=None, emails=emails)
   with open("email_template.html", 'r') as f:
     template = f.read()
 
+  base_course = course
+  code = course["course_code"][3:]
 
-  base_course = courses[0]
-  code = bp_course["course_code"][3:]
+  email_subject = f'{bp_course["course_code"][3:]} Section(s) Ready Notification'
+  email_body = template.format(
+    term = constants["term"],
+    creator = constants["creator"],
+    code = code,
+    course = base_course,
+  )  
+  text = f'''
+  
+  {','.join(emails)}
 
-  tk.messagebox.showinfo("report", dialog_text)
+  {email_subject}
 
-  if tk.messagebox.askyesno(message="Do you want to try to generate an email?"):
-    email_subject = f'{bp_course["course_code"][3:]} Section(s) Ready Notification'
-    email_body = template.format(
-      term = constants["term"],
-      creator = constants["creator"],
-      code = code,
-      course = base_course,
-    )  
-    text = f'''
-    
-    {','.join(emails)}
+  {email_body}
+  '''
 
-    {email_subject}
-
-    {email_body}
-    '''
-
-    text = re.sub('<\/?\w+>', '', text)
-    log(text)
+  text = re.sub('<\/?\w+>', '', text)
+  log(text)
 
 
-    try:
-      outlook = win32.Dispatch('outlook.application')
-      mail = outlook.CreateItem(0)
-      for recipient in emails:
-         mail.Recipients.Add(recipient).Type = 3  
-      #Email.Bcc = ",".join(emails)
-      mail.Subject = email_subject
-      mail.HtmlBody = email_body
-      mail.Display()
-    except Exception as e:
-      #webbrowser.open(f'mailto:hallie@gmail.org?bcc={",".join(emails)}&subject={email_subject}&body={email_body}', new=1)
-      with open("email.txt","w") as file:
-        file.write(text)
-      tk.messagebox.showerror(message="Error Generating Email. Text was written to 'email.txt' ")
+  try:
+    outlook = win32.Dispatch('outlook.application')
+    mail = outlook.CreateItem(0)
+    for recipient in emails:
+       mail.Recipients.Add(recipient).Type = 3  
+    #Email.Bcc = ",".join(emails)
+    mail.Subject = email_subject
+    mail.HtmlBody = email_body
+    mail.Display()
+  except Exception as e:
+    #webbrowser.open(f'mailto:hallie@gmail.org?bcc={",".join(emails)}&subject={email_subject}&body={email_body}', new=1)
+    with open("email.txt","w") as file:
+      file.write(text)
+    tk.messagebox.showerror(message="Error Generating Email. Text was written to 'email.txt' ")
 
-def lock_module_items(course_id):
+
+def lock_module_items(course):
+  course_id = course['id']
   modules = get_modules(course_id)
   for module in modules:
     for item in module['items']:
@@ -225,7 +280,8 @@ def get_source_course_id(course_id):
   return migrations[0]['settings']['source_course_id']
 
 
-def remove_lm_annotations_from_course(course_id):
+def remove_lm_annotations_from_course(course):
+  course_id = course['id']
   modules = get_modules(course_id)
   for module in modules:
     #find an item in the module called "Week ? Learning Materials"
@@ -331,7 +387,15 @@ def get_modules(course_id):
   log(url)
   return get_paged_data(url)
 
-def replace_faculty_profiles(courses, pages, ui_root, progress_bar):
+def replace_faculty_profiles(courses, ui_root, progress_barm force):
+  #if the course has no associations, JUST queue up to update the input course
+  if not courses:
+    if tk.messagebox.askyesno(message=f"Course {bp_course['name']} does not have associated courses. Do you want to just get the bio for this course?"):
+      courses = [bp_course]
+    else:
+      exit()
+
+  pages = get_faculty_pages(force=force)
   profiles = []
   i = 1
   for course in courses:
@@ -346,6 +410,31 @@ def replace_faculty_profiles(courses, pages, ui_root, progress_bar):
     ui_root.update()
     progress_bar["value"] = (i / len(courses)) * 100
     i = i + 1
+
+
+  bio_count = 0
+  error_text = ""
+  emails = []
+  for profile in profiles:
+    if not profile:
+      error_text = error_text + "A course does not have a user associated"
+      continue
+    if len(profile["bio"]) < 5:
+      error_text = error_text + f'{profile["user"]["name"]} does NOT have a bio we can find\n'
+    else:
+      bio_count = bio_count + 1
+      if "email" in profile["user"]:
+        emails.append(profile["user"]["email"])
+      else:
+        error_textf = error_text + ("\nNo Email Found for " + profile["user"]["name"])
+  dialog_text = f"Finished, {bio_count} records updated successfully\n{error_text}"
+
+
+  base_course = courses[0]
+
+  tk.messagebox.showinfo("force_import", dialog_text)
+  generate_email(bp_course=bp_course, base_course=base_course, constants=constants, emails=emails)
+
 
   return profiles
 
