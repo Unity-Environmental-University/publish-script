@@ -75,14 +75,6 @@ def main():
   source_course_id = get_source_course_id(bp_id)
   courses = get_blueprint_courses(bp_id)
 
-  update_syllabus(bp_id)
-
-  if source_course_id:
-    update_syllabus(source_course_id)
-
-  if tk.messagebox.askyesno(message=):
-
-
 
   force = None
   updates = [
@@ -90,7 +82,7 @@ def main():
       'name' : 'update_syllabus', 
       'argument' : 'syllabus',
       'message': 'Do you want to update syllabus language in this and any source? Do this before sync!',
-      'func' : lambda: update_syllabus(bp_id); update_syllabus(get_source_course_id(bp_id))
+      'func' : lambda: [update_syllabus(bp_id), update_syllabus(get_source_course_id(bp_id))]
     },
     { 
       'name' : 'remove_lm_annnotations', 
@@ -108,14 +100,13 @@ def main():
     { 
       'name': 'profiles',
       'argument': 'profiles',
-      'message' : 'Do you want to update profiles?'
+      'message' : 'Do you want to update profiles?',
       'error': 'There was a problem updating profile pages\n{e}',
       'func': lambda: replace_faculty_profiles(courses, root, force),
     },
   ]
 
 
-  True if "force_import" in sys.argv else False if "bypass_import" in sys.argv else tk.messagebox.askyesno(message="Do you want to import current profile data?")
   #Check if the arguments are on the command line and run those options that are
   if len(sys.argv) > 2:
     for update in updates:
@@ -125,10 +116,10 @@ def main():
 
   #if we don't have any arguments past the id, go into interactive mode
   else:
-    opening_dialog(course=course, updates=updates)
+    opening_dialog(course=bp_course, updates=updates)
 
 
-def opening_dialog(course=course, updates=updates):
+def opening_dialog(*, course, updates):
   root = tk.Tk()
   checkboxes = []
 
@@ -148,14 +139,12 @@ def opening_dialog(course=course, updates=updates):
     update['run'] = boolVar
     button.pack()
 
-  button = tk.Button(master=root, text="Run", command=lambda: run_opening_dialog(root, course_id, source_course_id, updates))
+  button = tk.Button(master=root, text="Run", command=lambda: run_opening_dialog(root, updates))
   button.pack()
-  #button = tk.Button(master=root, text="ADVANCED OPTIONS", command=lambda: advanced_options_ui(root, course_id, source_course_id))
-  #button.pack()
 
   root.mainloop()
 
-def run_opening_dialog(root, course_id, source_course_id, updates):
+def run_opening_dialog(root, updates):
   label = tk.Label(root, text="Select which steps to perform")
   label.pack()
   for update in updates:
@@ -164,7 +153,7 @@ def run_opening_dialog(root, course_id, source_course_id, updates):
         label.config(text=f"Running {update['name']}")
         root.update()
         print(update)
-        update['func'](course_id, source_course_id)
+        update['func']
     except Exception as e:
       tk.messagebox.showerror(message=update['error'].format( e=str(e)) + "\n" + traceback.format_exc())
       print(traceback.format_exc())
@@ -173,7 +162,7 @@ def run_opening_dialog(root, course_id, source_course_id, updates):
   root.destroy()
   tk.messagebox.showinfo(message="Finished!")
 
-def generate_email(course=None, constants=None, code=None, emails=emails)
+def generate_email(*, course, constants, code, emails):
   with open("email_template.html", 'r') as f:
     template = f.read()
 
@@ -387,7 +376,7 @@ def get_modules(course_id):
   log(url)
   return get_paged_data(url)
 
-def replace_faculty_profiles(courses, ui_root, progress_barm force):
+def replace_faculty_profiles(courses, ui_root, progress_bar):
   #if the course has no associations, JUST queue up to update the input course
   if not courses:
     if tk.messagebox.askyesno(message=f"Course {bp_course['name']} does not have associated courses. Do you want to just get the bio for this course?"):
@@ -395,7 +384,7 @@ def replace_faculty_profiles(courses, ui_root, progress_barm force):
     else:
       exit()
 
-  pages = get_faculty_pages(force=force)
+  pages = get_faculty_pages()
   profiles = []
   i = 1
   for course in courses:
