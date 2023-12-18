@@ -900,6 +900,7 @@ def get_new_assignment_url(src, course_id, source_course_id):
   assignments_lut = get_assignments_lookup_table(course_id, source_course_id)
 
   file_match = re.search(r"(assignments|discussion_topics)\/([0-9]+)", src)
+
   if file_match:
     type_url_part = file_match.groups()[0]
     print(type_url_part)
@@ -908,8 +909,14 @@ def get_new_assignment_url(src, course_id, source_course_id):
     if str(source_id) in assignments_lut:
       new_assignment = assignments_lut[str(source_id)]
       content_id = None
-      if 'content_id' in new_assignment:
+      #handle discussions linked as assigments
+      if type_url_part == "assignments" and 'assignment_id' in new_assignment:
+        content_id = new_assignment['assignment_id']
+      #handle content ids from 
+      elif 'content_id' in new_assignment:
         content_id = new_assignment['content_id']
+
+      #handle everything else
       else:
         content_id = new_assignment['id']
       url = f"{html_url}/courses/{course_id}/{type_url_part}/{content_id}"
@@ -1191,12 +1198,14 @@ def get_new_name_title_and_subhead(source_name : str, format_title : str, displa
   return new_name, title, subhead
 
 def replace_header(soup, title, subhead):
+
   head = soup.h1
-  head.string.replace_with(title)
-
   subhead_el = soup.find('h1').find_previous_sibling('p')
-  subhead_el.string.replace_with(subhead)
-
+  if subhead_el:
+    head.string.replace_with(title)
+    subhead_el.string.replace_with(subhead)
+  else:
+    head.string.replace_with(title + " - " + subhead)
 
 def populate_lookup_table(lut, items, source_items):
   i = 0
