@@ -1,3 +1,4 @@
+import traceback
 import re
 from bs4 import BeautifulSoup
 import docx
@@ -9,6 +10,7 @@ import os
 import PyPDF2
 import json
 import webbrowser
+import datetime
 
 import win32com.client as win32   
 
@@ -61,8 +63,6 @@ def main():
   bp_id = number
 
   root = tk.Tk()
-  message_label = tk.Label(root, text="Processing...")
-  message_label.pack()
 
 
   # Create a progress bar
@@ -78,6 +78,12 @@ def main():
 
   force = None
   updates = [
+    { 
+      'name' : 'download_profiles', 
+      'argument' : 'download',
+      'message': 'Do you want to redownload the latest faculty profiles?',
+      'func' : lambda: get_faculty_pages(force=True)
+    },
     { 
       'name' : 'update_syllabus', 
       'argument' : 'syllabus',
@@ -102,7 +108,7 @@ def main():
       'argument': 'profiles',
       'message' : 'Do you want to update profiles?',
       'error': 'There was a problem updating profile pages\n{e}',
-      'func': lambda: replace_faculty_profiles(courses, root, force),
+      'func': lambda: replace_faculty_profiles(bp_course, courses, root, progress_bar),
     },
   ]
 
@@ -116,65 +122,69 @@ def main():
 
   #if we don't have any arguments past the id, go into interactive mode
   else:
-    opening_dialog(course=bp_course, updates=updates)
+    opening_dialog(course=bp_course, updates=updates, window=root)
 
 
-def opening_dialog(*, course, updates):
-  root = tk.Tk()
+def opening_dialog(*, window, course, updates):
   checkboxes = []
-
-  # terms = requests.get(f'{api_url}/accounts/{ROOT_ACCOUNT_ID}/terms', headers=headers).json()['enrollment_terms']
-  # print(terms)
-  # terms.sort(key=lambda term: term['id'], reverse=True)
-  # term_name_var = tk.StringVar()
-  # term_name_var.set(terms[0]['name'])
-  # term_name_input = tk.Entry(root, text="Term Code", textvariable= term_name_var)
-  # #term_name_input.pack()
-
-
   for update in updates:
     boolVar = tk.BooleanVar()
-    button =  tk.Checkbutton(root, text=update['message'], onvalue = True, offvalue=False, variable= boolVar)
+    button =  tk.Checkbutton(window, text=update['message'], onvalue = True, offvalue=False, variable= boolVar)
     checkboxes.append(button)
     update['run'] = boolVar
     button.pack()
 
-  button = tk.Button(master=root, text="Run", command=lambda: run_opening_dialog(root, updates))
+  button = tk.Button(master=window, text="Run", command=lambda: run_opening_dialog(window, updates))
   button.pack()
 
-  root.mainloop()
+  window.mainloop()
 
-def run_opening_dialog(root, updates):
-  label = tk.Label(root, text="Select which steps to perform")
+def run_opening_dialog(window, updates):
+  label = tk.Label(window, text="Select which steps to perform")
   label.pack()
   for update in updates:
     try:
+      print(update)
+      print(update['name'], update['run'].get())
       if update['run'].get():
         label.config(text=f"Running {update['name']}")
-        root.update()
+        window.update()
         print(update)
-        update['func']
+        update['func']()
     except Exception as e:
       tk.messagebox.showerror(message=update['error'].format( e=str(e)) + "\n" + traceback.format_exc())
       print(traceback.format_exc())
 
 
-  root.destroy()
-  tk.messagebox.showinfo(message="Finished!")
+  label.config(text=f'Finished!')
 
-def generate_email(*, course, constants, code, emails):
+def generate_email(*, course, courses, constants, emails):
   with open("email_template.html", 'r') as f:
     template = f.read()
 
-  base_course = course
+
   code = course["course_code"][3:]
 
-  email_subject = f'{bp_course["course_code"][3:]} Section(s) Ready Notification'
+  example_course_data = get_course(courses[0]['id'])
+  print(json.dumps(example_course_data, indent=2))
+
+
+  start_date = datetime.datetime.fromisoformat(example_course_data['term']["start_at"])
+  start_date = start_date + datetime.timedelta(days=7)
+
+  email_subject = f'{course["course_code"][3:]} Section(s) Ready Notification'
+
   email_body = template.format(
-    term = constants["term"],
-    creator = constants["creator"],
+    term = {
+      "name" : courses[0]['term_name'],
+      "start" : start_date.strftime('%B %#d')
+    },
+    creator = {
+     "name" : "[[YOUR NAME]]",
+     "role" : "[[YOUR ROLE]]"
+    },
     code = code,
-    course = base_course,
+    course = course,
   )  
   text = f'''
   
@@ -376,7 +386,7 @@ def get_modules(course_id):
   log(url)
   return get_paged_data(url)
 
-def replace_faculty_profiles(courses, ui_root, progress_bar):
+def replace_faculty_profiles(bp_course, courses, ui_root, progress_bar):
   #if the course has no associations, JUST queue up to update the input course
   if not courses:
     if tk.messagebox.askyesno(message=f"Course {bp_course['name']} does not have associated courses. Do you want to just get the bio for this course?"):
@@ -415,14 +425,12 @@ def replace_faculty_profiles(courses, ui_root, progress_bar):
       if "email" in profile["user"]:
         emails.append(profile["user"]["email"])
       else:
-        error_textf = error_text + ("\nNo Email Found for " + profile["user"]["name"])
+        error_text = error_text + ("\nNo Email Found for " + profile["user"]["name"])
   dialog_text = f"Finished, {bio_count} records updated successfully\n{error_text}"
 
 
-  base_course = courses[0]
-
   tk.messagebox.showinfo("force_import", dialog_text)
-  generate_email(bp_course=bp_course, base_course=base_course, constants=constants, emails=emails)
+  generate_email(course=bp_course, courses=courses, constants=constants, emails=emails)
 
 
   return profiles
@@ -443,7 +451,7 @@ def get_faculty_pages(force=False):
   return pages
 
 def get_course(course_id):
-  url = f'{api_url}/courses/{course_id}'
+  url = f'{api_url}/courses/{course_id}?include[]=term&include[]=grading_periods'
   response = requests.get(url, headers=headers)
   log(response)
   return response.json()
