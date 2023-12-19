@@ -1,3 +1,5 @@
+from functools import reduce
+import time
 import traceback
 import re
 from bs4 import BeautifulSoup
@@ -52,6 +54,16 @@ live_headers = {"Authorization": f'Bearer {constants["liveApiToken"]}' }
 
 log_string = ""
 
+
+url = f'{api_url}/accounts'
+accounts = requests.get(url, headers=headers).json()
+account_ids = dict()
+for account in accounts:
+  account_ids[account['name']] = account['id']
+
+ACCOUNT_ID = account_ids['Distance Education']
+ROOT_ACCOUNT_ID = account_ids['Unity College']
+
 def main():
 
   number = 0
@@ -69,6 +81,10 @@ def main():
   progress_bar = ttk.Progressbar(root, orient="horizontal", length=200, mode="determinate")
   progress_bar.pack()
 
+  label = tk.Label(root, text="Select which steps to perform")
+  label.pack()
+
+
   bp_course = get_course(bp_id)
 
 
@@ -78,12 +94,6 @@ def main():
 
   force = None
   updates = [
-    { 
-      'name' : 'download_profiles', 
-      'argument' : 'download',
-      'message': 'Do you want to redownload the latest faculty profiles?',
-      'func' : lambda: get_faculty_pages(force=True)
-    },
     { 
       'name' : 'update_syllabus', 
       'argument' : 'syllabus',
@@ -104,12 +114,36 @@ def main():
       'func' : lambda: lock_module_items(bp_course)
     },
     { 
+      'name' : 'download_profiles', 
+      'argument' : 'download',
+      'message': 'Do you want to redownload the latest faculty profiles?',
+      'func' : lambda: get_faculty_pages(force=True)
+    },
+    {
+      'name' : 'sync',
+      'message' : 'Do you want sync associated courses? This could take a sec.',
+      'error' : 'There was a problem syncing\n{e}',
+      'func' : lambda: begin_course_sync(course=bp_course, progress_bar=progress_bar, status_label=label),
+    },
+
+    { 
       'name': 'profiles',
       'argument': 'profiles',
-      'message' : 'Do you want to update profiles?',
+      'message' : 'Do you want to update profiles in associated courses?',
       'error': 'There was a problem updating profile pages\n{e}',
       'func': lambda: replace_faculty_profiles(bp_course, courses, root, progress_bar),
     },
+
+
+
+    {
+      'name' : 'publish',
+      'message' : 'Do you want to publish associated courses?',
+      'error' : 'There was a problem publishing courses\n{e}',
+      'func' : lambda: publish_courses(courses=courses, progress_bar=progress_bar),
+
+
+    }
   ]
 
 
@@ -117,15 +151,17 @@ def main():
   if len(sys.argv) > 2:
     for update in updates:
       if update['name'] in sys.argv or 'argument' in update and update['argument'] in sys.argv:
-        update['func'](course)
+        update['func']()
+
 
 
   #if we don't have any arguments past the id, go into interactive mode
   else:
-    opening_dialog(course=bp_course, updates=updates, window=root)
+
+    opening_dialog(course=bp_course, updates=updates, window=root, status_label=label)
 
 
-def opening_dialog(*, window, course, updates):
+def opening_dialog(*, window, course, updates, status_label):
   checkboxes = []
   for update in updates:
     boolVar = tk.BooleanVar()
@@ -134,20 +170,18 @@ def opening_dialog(*, window, course, updates):
     update['run'] = boolVar
     button.pack()
 
-  button = tk.Button(master=window, text="Run", command=lambda: run_opening_dialog(window, updates))
+  button = tk.Button(master=window, text="Run", command=lambda: run_opening_dialog(window, updates, status_label))
   button.pack()
 
   window.mainloop()
 
-def run_opening_dialog(window, updates):
-  label = tk.Label(window, text="Select which steps to perform")
-  label.pack()
+def run_opening_dialog(window, updates, status_label):
   for update in updates:
     try:
       print(update)
       print(update['name'], update['run'].get())
       if update['run'].get():
-        label.config(text=f"Running {update['name']}")
+        status_label.config(text=f"Running {update['name']}")
         window.update()
         print(update)
         update['func']()
@@ -156,7 +190,7 @@ def run_opening_dialog(window, updates):
       print(traceback.format_exc())
 
 
-  label.config(text=f'Finished!')
+  status_label.config(text=f'Finished!')
 
 def generate_email(*, course, courses, constants, emails):
   with open("email_template.html", 'r') as f:
@@ -214,6 +248,49 @@ def generate_email(*, course, courses, constants, emails):
       file.write(text)
     tk.messagebox.showerror(message="Error Generating Email. Text was written to 'email.txt' ")
 
+
+def begin_course_sync(*, course, progress_bar, status_label):
+  payload = {
+    'comment' : 'Automatic sync from publishing app',
+    'copy_settings' : True,
+    'publish_after_initial_sync' : False
+
+  }
+  response = requests.post(f'{api_url}/courses/{course["id"]}/blueprint_templates/default/migrations', headers=headers, data=payload)
+  if not response.ok:
+    print(response)
+    print(response.content)
+    return
+
+  migration = response.json()
+  progress_bar.configure(mode='indeterminate')
+  while response.ok and migration['workflow_state'] in ['queued', 'exporting', 'imports_queued', 'running']:
+
+    print(response)
+    print(migration)
+
+    print(migration['workflow_state'])
+    status_label.configure(text=f"migration['workflow_state']..." )
+    time.sleep(5)
+    response = requests.get(f'{api_url}/courses/{course["id"]}/blueprint_templates/default/migrations/{migration["id"]}', headers=headers)
+    if response.ok:
+      migration = response.json()
+
+  print(response)
+  print(response.content)
+
+def publish_courses(progress_bar = None, *, courses):
+
+  response = requests.put(f'{api_url}/accounts/{ACCOUNT_ID}/courses', headers=headers, data= {
+    'event' : 'offer',
+
+    #list of course ids
+    'course_ids[]' : map(lambda a: a['id'], courses)
+
+    })
+  if not response.ok:
+    print(response)
+    print(response.content)
 
 def lock_module_items(course):
   course_id = course['id']
@@ -386,8 +463,22 @@ def get_modules(course_id):
   log(url)
   return get_paged_data(url)
 
+def update_progress_bar(progress_bar, value, maximum=100):
+  #update loading UI value after processing
+  ui_root.update_idletasks()     
+  ui_root.update()
+  progress_bar["value"] = (value / maximum) * 100
+  ui_root.update_idletasks()     
+  ui_root.update()
+
+
+browser_button = False
+email_button = False
 def replace_faculty_profiles(bp_course, courses, ui_root, progress_bar):
+  global browser_button
+  global email_button
   #if the course has no associations, JUST queue up to update the input course
+  ui_root = progress_bar.winfo_toplevel()
   if not courses:
     if tk.messagebox.askyesno(message=f"Course {bp_course['name']} does not have associated courses. Do you want to just get the bio for this course?"):
       courses = [bp_course]
@@ -396,18 +487,22 @@ def replace_faculty_profiles(bp_course, courses, ui_root, progress_bar):
 
   pages = get_faculty_pages()
   profiles = []
+  home_page_urls = []
   i = 1
   for course in courses:
 
     profile = get_course_profile(course, pages)
     profiles.append(profile)
 
-    overwrite_home_page(profile, course)
+    #overwrite_home_page returns the course url. add that to list.
+    home_page_urls.append(overwrite_home_page(profile, course))
   
     #update loading UI value after processing
     ui_root.update_idletasks()     
     ui_root.update()
     progress_bar["value"] = (i / len(courses)) * 100
+    ui_root.update_idletasks()     
+    ui_root.update()
     i = i + 1
 
 
@@ -429,8 +524,27 @@ def replace_faculty_profiles(bp_course, courses, ui_root, progress_bar):
   dialog_text = f"Finished, {bio_count} records updated successfully\n{error_text}"
 
 
+  #this button opens a browser window for each updated course
+
+
+  def open_browser_func():
+   for url in home_page_urls:
+    webbrowser.open(url, new=2, autoraise=False)
+
+  if browser_button:
+    browser_button.configure(command=open_broswer_func)
+  else:
+    browser_button = tk.Button(master=ui_root, text="Open Courses", command=open_browser_func)
+    browser_button.pack()
+
+  if email_button:
+    email_button.configure(command=lambda: generate_email(course=bp_course, courses=courses, constants=constants, emails=emails) )
+  else:
+    email_button = tk.Button(master=ui_root, text="Try Email", command=lambda: generate_email(course=bp_course, courses=courses, constants=constants, emails=emails))
+    email_button.pack()
+
   tk.messagebox.showinfo("force_import", dialog_text)
-  generate_email(course=bp_course, courses=courses, constants=constants, emails=emails)
+ 
 
 
   return profiles
@@ -575,8 +689,6 @@ def overwrite_home_page(profile, course):
   if response.status_code != 200:
     raise ValueError('Failed to get homepage of course: {}'.format(response.status_code))
 
-  webbrowser.open(page_url, new=1)
-
 
   # Parse the homepage HTML content.
   
@@ -595,6 +707,7 @@ def overwrite_home_page(profile, course):
   else:
     log("instructor not found for this course; skipping")
 
+  return page_url
 
 
 def get_instructor_profile_from_pages(user, pages):
