@@ -1461,7 +1461,7 @@ def update_syllabus_and_overview(course_id, source_course_id):
   learning_objectives_section = get_section(source_page, re.compile(r'outcomes', re.IGNORECASE))
   if not learning_objectives_section:
     learning_objectives_section = get_section(source_page, re.compile(r'objectives', re.IGNORECASE))
-  textbook_section = get_section(source_page, re.compile(r'.*textbook[:]?', re.IGNORECASE))
+  textbook_section = get_section(source_page, re.compile(r'.*(required materials|textbook)[:]?', re.IGNORECASE))
   week_1_preview = get_week_1_preview(course_id, source_course_id)
 
   term = GRAD_TERM_NAME if is_course_grad else UG_TERM_NAME
@@ -1682,9 +1682,24 @@ def get_syllabus(course_id):
   content = response.json()
   return BeautifulSoup(preprocess_html(content["syllabus_body"]), "lxml")
 
+
+def find_elements_containing(soup, tag, regex):
+  elements = soup.find_all(tag)
+  out = []
+  for element in elements:
+    if re.search(regex, str(element)):
+      out.append(element)
+  return out
+
+def find_element_containing(soup, tag, regex):
+  elements = soup.find_all(tag)
+  out = []
+  for element in elements:
+    if re.search(regex, str(element)):
+      return element
+
 def find_syllabus_title(soup):
-  print(soup.prettify())
-  header = soup.find("strong", string=re.compile("course number and title", re.IGNORECASE))
+  header = find_element_containing(soup, "strong", re.compile(r"course number and title", re.IGNORECASE))
   title_p = header.find_parent("p")
   if not title_p:
     title_p = header.find_parent("h4")
