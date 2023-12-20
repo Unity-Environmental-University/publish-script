@@ -1,27 +1,10 @@
 """Summary
 
 Attributes:
-    ACCOUNT_ID (int): The main account ID of the
-        unity account where student courses are places
     account_ids (dict): A dictionary of account ids by account name
-    accounts (list): A list of all accounts
-    api_token (str): A global variable holding the api access token
-    api_url (str): A global variable holding the api url
     browser_button (bool): A button that opens several browser windows
-    default_profile_url (str): A url to the default profile image
     email_button (bool): A button that tries to email professors
         associated with courses
-    headers (dict): a global variable holding the header used in requests
-    html_url (str): A base url for the site
-    instructor_course_id (int): A link to the course ID for instructors
-    live_headers (dict): headers for the live site.
-        Only used to read relevant data when testing
-    live_url (str): A url to the live site even when testing
-    profile_assignment_id (TYPE): The ID of the assignment
-        where user profiles are kept
-    profile_pages_course_id (TYPE): The course ID of
-        the course with all the faculty pages
-    ROOT_ACCOUNT_ID (TYPE): The account ID for the rootmost unity Account
     syllabus_replacements (list): A list of { find, replace} dicts
         where find and replace are paired regexes of re.search calls
         on the syllabus text to replace text
@@ -33,6 +16,23 @@ Deleted Attributes:
     url (TYPE): Description
     max_profile_image_size (int): The max width of profile images to scale
         downloaded profile images to
+    api_token (str): A global variable holding the api access token
+    api_url (str): A global variable holding the api url
+    html_url (str): A base url for the site
+    instructor_course_id (int): A link to the course ID for instructors
+    profile_assignment_id (TYPE): The ID of the assignment
+        where user profiles are kept
+    profile_pages_course_id (TYPE): The course ID of
+        the course with all the faculty pages
+    ACCOUNT_ID (int): The main account ID of the
+        unity account where student courses are places
+    accounts (list): A list of all accounts
+    default_profile_url (str): A url to the default profile image
+    headers (dict): a global variable holding the header used in requests
+    live_headers (dict): headers for the live site.
+        Only used to read relevant data when testing
+    live_url (str): A url to the live site even when testing
+    ROOT_ACCOUNT_ID (TYPE): The account ID for the rootmost unity Account
 """
 
 import time
@@ -70,21 +70,21 @@ instructor_course_id: int = constants["instructorCourseId"]
 profile_assignment_id: int = constants["profileAssignmentId"]
 profile_pages_course_id: int = constants["profilePagesCourseId"]
 
-default_profile_url = f"{html_url}/users/9230846/files/156109264/preview"
-live_url = constants["liveUrl"]
+default_profile_url: str = f"{html_url}/users/9230846/files/156109264/preview"
+live_url: str = constants["liveUrl"]
 
 # Authorize the request.
-headers = {"Authorization": f"Bearer {api_token}"}
-live_headers = {"Authorization": f'Bearer {constants["liveApiToken"]}'}
+headers: dict = {"Authorization": f"Bearer {api_token}"}
+live_headers: dict = {"Authorization": f'Bearer {constants["liveApiToken"]}'}
 
 
-accounts = requests.get(f'{api_url}/accounts', headers=headers).json()
-account_ids = dict()
+accounts: list = requests.get(f'{api_url}/accounts', headers=headers).json()
+account_ids: dict = dict()
 for account in accounts:
     account_ids[account['name']] = account['id']
 
-ACCOUNT_ID = account_ids['Distance Education']
-ROOT_ACCOUNT_ID = account_ids['Unity College']
+ACCOUNT_ID: int = account_ids['Distance Education']
+ROOT_ACCOUNT_ID: int = account_ids['Unity College']
 
 
 def main():
@@ -98,7 +98,7 @@ def main():
         number = simpledialog.askinteger(
             "What Course?",
             "Enter the course_id of the blueprint "
-            + "(cut the number out of the url and paste here)")
+            "(cut the number out of the url and paste here)")
 
     bp_id = number
 
@@ -147,13 +147,13 @@ def main():
             'name': 'download_profiles',
             'argument': 'download',
             'message': 'Do you want to '
-            + ' redownload the latest faculty profiles?',
+            ' redownload the latest faculty profiles?',
             'func': lambda: get_faculty_pages(force=True)
         },
         {
             'name': 'sync',
             'message': 'Do you want sync associated courses?'
-            + '\nThis could take a sec.',
+            '\nThis could take a sec.',
             'error': 'There was a problem syncing\n{e}',
             'func': lambda: begin_course_sync(
                 course=bp_course,
@@ -199,13 +199,18 @@ def main():
                        window=root, status_label=label)
 
 
-def opening_dialog(*, window, course, updates, status_label):
+def opening_dialog(*,
+                   window: object,
+                   course: dict,
+                   updates: list,
+                   status_label: object):
     """Summary
-    
+        Starts the process of creating an opening dialog window for the
+        application
     Args:
-        window (TYPE): Description
-        course (TYPE): Description
-        updates (TYPE): Description
+        window (TYPE): The base program window to render into
+        course (TYPE): The blueprint course we are working with
+        updates (TYPE): The Upda
         status_label (TYPE): Description
     """
     checkboxes = []
@@ -234,7 +239,7 @@ def opening_dialog(*, window, course, updates, status_label):
 
 def run_opening_dialog(window, updates, status_label):
     """Summary
-    
+
     Args:
         window (TYPE): Description
         updates (TYPE): Description
@@ -259,7 +264,7 @@ def run_opening_dialog(window, updates, status_label):
 
 def generate_email(*, course, courses, constants, emails):
     """Summary
-    
+
     Args:
         course (TYPE): Description
         courses (TYPE): Description
@@ -320,12 +325,12 @@ def generate_email(*, course, courses, constants, emails):
 
 def begin_course_sync(*, course, progress_bar, status_label):
     """Summary
-    
+
     Args:
         course (TYPE): Description
         progress_bar (TYPE): Description
         status_label (TYPE): Description
-    
+
     Returns:
         TYPE: Description
     """
@@ -394,7 +399,7 @@ def publish_courses(*, courses: list):
 
 def lock_module_items(course: dict):
     """Summary
-    
+
     Args:
         course (dict): The course to lock items on
     """
@@ -448,15 +453,16 @@ def lock_module_items(course: dict):
 
 def get_source_course_id(course_id):
     """Summary
-    
+
     Args:
         course_id (TYPE): Description
-    
+
     Returns:
         TYPE: Description
     """
     migrations = requests.get(
-        f'{api_url}/courses/{course_id}/content_migrations', headers=headers).json()
+        f'{api_url}/courses/{course_id}/content_migrations',
+        headers=headers).json()
     print(migrations)
     # if there are no migrations return false
     if len(migrations) < 1:
@@ -469,7 +475,7 @@ def get_source_course_id(course_id):
 
 def remove_lm_annotations_from_course(course):
     """Summary
-    
+
     Args:
         course (TYPE): Description
     """
@@ -477,13 +483,14 @@ def remove_lm_annotations_from_course(course):
     modules = get_modules(course_id)
     for module in modules:
         # find an item in the module called "Week ? Learning Materials"
-        lm_page = next((filter(lambda item: item['type'] == 'Page' and re.search(
-            r'Week \d+ Learning Materials', item['title']), module['items'])), None)
+        lm_page = next((filter(
+            lambda item: item['type'] == 'Page' and re.search(
+                r'Week \d+ Learning Materials', item['title']),
+            module['items'])), None)
         if lm_page:
             full_page = requests.get(lm_page['url'], headers=headers).json()
 
             body = remove_lm_annnotations(full_page['body'])
-            #print(json.dumps(full_page, indent=2))
             print(lm_page['url'])
             data = {
                 'wiki_page[body]': body
@@ -496,17 +503,21 @@ def remove_lm_annotations_from_course(course):
 
 
 syllabus_replacements = [{
-    'find': r'<p>The instructor will conduct [^.]*\(48 hours during weekends\)\.',
-    'replace': '<p>The instructor will conduct all correspondence with students related to the class in Canvas, and you should expect to receive a response to emails within 24 hours.'
+    'find': r'<p>The instructor will conduct [^.]*'
+    r'\(48 hours during weekends\)\.',
+
+    'replace': '<p>The instructor will conduct all correspondence with '
+    r'students related to the class in Canvas, and you should expect to '
+    r'receive a response to emails within 24 hours.'
 }]
 
 
 def update_syllabus_text(text):
     """Summary
-    
+
     Args:
         text (TYPE): Description
-    
+
     Returns:
         TYPE: Description
     """
@@ -533,41 +544,46 @@ def update_syllabus(course_id):
                             )
 
 
-def remove_lm_annnotations(text):
+REPLACEMENTS: list = [
+    {
+        'find': r'<p>\[Text for optional primary'
+        r'media element to be written by SME\]</p>',
+
+        'replace': '',
+    },
+
+    {
+        'find': r'\[[iI]nsert annotation for media\]',
+        'replace': '',
+    },
+    {
+        'find':
+            r'<h3>\[Title for <span style="text-decoration: underline;">'
+            r'optional </span>secondary media element\]</h3>',
+        'replace': '',
+    },
+    {
+        'find':
+            r'<h3><strong>\[Title for \w+ category of LMs\]</strong></h3>',
+        'replace': 'Materials',
+    },
+]
+
+
+def remove_lm_annnotations(text: str) -> str:
     """Summary
-    
+        Runs a list of regex replacements on html text of a
+        Learning Material page (replacements, defined above)
     Args:
-        text (TYPE): Description
-    
+        text (TYPE): An html string containing
+        the body of a learning materials page
+
     Returns:
-        TYPE: Description
+        TYPE: An html string with the regexs run on it
     """
     # one liners to replace
-    replacements = [
-        {
-            'find': r'<p>\[Text for optional primary media element to be written by SME\]</p>',
-            'replace': '',
-        },
 
-        {
-            'find': r'\[[iI]nsert annotation for media\]',
-            'replace': '',
-        },
-        {
-            'find': r'<h3>\[Title for <span style="text-decoration: underline;">optional </span>secondary media element\]</h3>',
-            'replace': '',
-        },
-        {
-            'find': r'<h3><strong>\[Title for \w+ category of LMs\]</strong></h3>',
-            'replace': 'Materials',
-        },
-
-
-
-
-    ]
-
-    for replace in replacements:
+    for replace in REPLACEMENTS:
         find = re.compile(replace['find'], flags=re.MULTILINE)
         print(replace['find'])
         text = re.sub('\\n', '\n', text)
@@ -581,14 +597,17 @@ def remove_lm_annnotations(text):
     soup = BeautifulSoup(text, 'lxml')
     bq = soup.find('blockquote')
     if bq and "SME" in bq.text:
-        parent = single_filter(lambda item: item.has_attr(
-            'class') and 'cbt-content' in item['class'], bq.parents)
+        parent = single_filter(
+            lambda item: item.has_attr('class')
+            and 'cbt-content' in item['class'],
+            bq.parents)
         print(parent)
         parent.decompose()
 
     divs = soup.find_all('div')
     div = single_filter(lambda item: item.has_attr(
-        'class') and 'cbt-content' in item['class'] and '[LM Narrative' in item.text, divs)
+        'class') and 'cbt-content' in item['class']
+        and '[LM Narrative' in item.text, divs)
     if div:
         div.decompose()
 
@@ -599,41 +618,48 @@ def remove_lm_annnotations(text):
 
 def single_filter(func, set, default=None):
     """Summary
-    
+
     Args:
         func (TYPE): Description
         set (TYPE): Description
         default (None, optional): Description
-    
+
     Returns:
         TYPE: Description
     """
     return next(filter(func, set), None)
 
 
-def get_modules(course_id):
-    """Summary
-    
+def get_modules(course_id: int) -> list:
+    """Gets all modules including module item details
+
     Args:
-        course_id (TYPE): Description
-    
+        course_id (int): The ID of the course
+
     Returns:
-        TYPE: Description
+        list: A list of module dicts
     """
-    url = f"{api_url}/courses/{course_id}/modules?include[]=items&include[]=content_details"
+    url: str = f"{api_url}/courses/{course_id}/modules?" \
+        + "include[]=items&include[]=content_details"
     print(url)
     return get_paged_data(url)
 
 
-def update_progress_bar(progress_bar, value, maximum=100):
+def update_progress_bar(
+        progress_bar: object,
+        value: float,
+        maximum: float = 100.0):
     """Summary
-    
+        Updates the progress of a progress bar object.
+        Defaults to out of 100
+        Sets progress to max / value
     Args:
-        progress_bar (TYPE): Description
-        value (TYPE): Description
-        maximum (int, optional): Description
+        progress_bar (object): the progress bar to update
+        value (float): the current value the bar is currently at
+        maximum (float, optional): the max value the bar is at
     """
     # update loading UI value after processing
+    ui_root = progress_bar.winfo_toplevel()
     ui_root.update_idletasks()
     ui_root.update()
     progress_bar["value"] = (value / maximum) * 100
@@ -641,28 +667,33 @@ def update_progress_bar(progress_bar, value, maximum=100):
     ui_root.update()
 
 
-browser_button = False
-email_button = False
+browser_button: object = False
+email_button: object = False
 
 
 def replace_faculty_profiles(bp_course, courses, ui_root, progress_bar):
     """Summary
-    
+
     Args:
         bp_course (TYPE): Description
         courses (TYPE): Description
         ui_root (TYPE): Description
         progress_bar (TYPE): Description
-    
+
     Returns:
         TYPE: Description
     """
     global browser_button
     global email_button
-    # if the course has no associations, JUST queue up to update the input course
+    # if the course has no associations,
+    # JUST queue up to update the input course
     ui_root = progress_bar.winfo_toplevel()
     if not courses:
-        if tk.messagebox.askyesno(message=f"Course {bp_course['name']} does not have associated courses. Do you want to just get the bio for this course?"):
+        if tk.messagebox.askyesno(
+                message=f"Course {bp_course['name']}"
+                "does not have associated courses."
+                "Do you want to just get the bio for this course?"):
+
             courses = [bp_course]
         else:
             exit()
@@ -692,7 +723,8 @@ def replace_faculty_profiles(bp_course, courses, ui_root, progress_bar):
     emails = []
     for profile in profiles:
         if not profile:
-            error_text = error_text + "A course does not have a user associated"
+            error_text = error_text
+            "A course does not have a user associated"
             continue
         if len(profile["bio"]) < 5:
             error_text = error_text + \
@@ -704,29 +736,34 @@ def replace_faculty_profiles(bp_course, courses, ui_root, progress_bar):
             else:
                 error_text = error_text + \
                     ("\nNo Email Found for " + profile["user"]["name"])
-    dialog_text = f"Finished, {bio_count} records updated successfully\n{error_text}"
+
+    dialog_text = f"Finished, {bio_count} " \
+        + f" records updated successfully\n{error_text}"
 
     # this button opens a browser window for each updated course
-
-    def open_browser_func():
-        """Summary
-        """
-        for url in home_page_urls:
-            webbrowser.open(url, new=2, autoraise=False)
-
     if browser_button:
-        browser_button.configure(command=open_broswer_func)
+        browser_button.configure(command=open_browser_func)
     else:
         browser_button = tk.Button(
             master=ui_root, text="Open Courses", command=open_browser_func)
         browser_button.pack()
 
     if email_button:
-        email_button.configure(command=lambda: generate_email(
-            course=bp_course, courses=courses, constants=constants, emails=emails))
+        email_button.configure(
+            command=lambda: generate_email(
+                course=bp_course,
+                courses=courses,
+                constants=constants,
+                emails=emails))
     else:
-        email_button = tk.Button(master=ui_root, text="Try Email", command=lambda: generate_email(
-            course=bp_course, courses=courses, constants=constants, emails=emails))
+        email_button = tk.Button(
+            master=ui_root,
+            text="Try Email",
+            command=lambda: generate_email(
+                course=bp_course,
+                courses=courses,
+                constants=constants,
+                emails=emails))
         email_button.pack()
 
     tk.messagebox.showinfo("force_import", dialog_text)
@@ -734,9 +771,18 @@ def replace_faculty_profiles(bp_course, courses, ui_root, progress_bar):
     return profiles
 
 
+def open_browser_func(urls):
+    """
+    Args:
+        urls (list): A list of urls
+    """
+    for url in urls:
+        webbrowser.open(url, new=2, autoraise=False)
+
+
 def save_bios(bios, path="bios.json"):
     """Summary
-    
+
     Args:
         bios (TYPE): Description
         path (str, optional): Description
@@ -747,10 +793,10 @@ def save_bios(bios, path="bios.json"):
 
 def get_faculty_pages(force=False):
     """Summary
-    
+
     Args:
         force (bool, optional): Description
-    
+
     Returns:
         TYPE: Description
     """
@@ -761,21 +807,24 @@ def get_faculty_pages(force=False):
             print(len(pages))
     else:
         pages = get_paged_data(
-            f"{live_url}/courses/{profile_pages_course_id}/pages?per_page=50&include=body", live_headers)
+            f"{live_url}/courses/{profile_pages_course_id}"
+            "/pages?per_page=50&include=body",
+            live_headers)
         save_bios(pages)
     return pages
 
 
-def get_course(course_id):
+def get_course(course_id: int) -> dict:
     """Summary
-    
+        Gets a course by ID
     Args:
-        course_id (TYPE): Description
-    
+        course_id (int): Id of the course to get
+
     Returns:
-        TYPE: Description
+        dict: A dictionary containing the json parsed course
     """
-    url = f'{api_url}/courses/{course_id}?include[]=term&include[]=grading_periods'
+    url = f'{api_url}/courses/{course_id}'
+    + '?include[]=term&include[]=grading_periods'
     response = requests.get(url, headers=headers)
     print(response)
     return response.json()
@@ -783,12 +832,12 @@ def get_course(course_id):
 
 def format_profile_page(profile, course, homepage):
     """Summary
-    
+
     Args:
         profile (TYPE): Description
         course (TYPE): Description
         homepage (TYPE): Description
-    
+
     Returns:
         TYPE: Description
     """
@@ -815,10 +864,10 @@ def format_profile_page(profile, course, homepage):
 
 def clean_up_bio(html):
     """Summary
-    
+
     Args:
         html (TYPE): Description
-    
+
     Returns:
         TYPE: Description
     """
@@ -828,12 +877,12 @@ def clean_up_bio(html):
 
 def format_profile_page_newdev(profile, course, homepage):
     """Summary
-    
+
     Args:
         profile (TYPE): Description
         course (TYPE): Description
         homepage (TYPE): Description
-    
+
     Returns:
         TYPE: Description
     """
@@ -855,11 +904,11 @@ def format_profile_page_newdev(profile, course, homepage):
 
 def get_course_profile(course, pages):
     """Summary
-    
+
     Args:
         course (TYPE): Description
         pages (TYPE): Description
-    
+
     Returns:
         TYPE: Description
     """
@@ -868,11 +917,11 @@ def get_course_profile(course, pages):
 
 def get_course_profile_from_pages(course, pages):
     """Summary
-    
+
     Args:
         course (TYPE): Description
         pages (TYPE): Description
-    
+
     Returns:
         TYPE: Description
     """
@@ -909,10 +958,10 @@ def get_course_profile_from_pages(course, pages):
 
 def get_course_profile_from_assignment(course):
     """Summary
-    
+
     Args:
         course (TYPE): Description
-    
+
     Returns:
         TYPE: Description
     """
@@ -927,10 +976,10 @@ def get_course_profile_from_assignment(course):
 
 def get_blueprint_courses(bp_id):
     """Summary
-    
+
     Args:
         bp_id (TYPE): Description
-    
+
     Returns:
         TYPE: Description
     """
@@ -961,14 +1010,14 @@ def get_blueprint_courses(bp_id):
 
 def overwrite_home_page(profile, course):
     """Summary
-    
+
     Args:
         profile (TYPE): Description
         course (TYPE): Description
-    
+
     Returns:
         TYPE: Description
-    
+
     Raises:
         ValueError: Description
     """
@@ -1006,11 +1055,11 @@ def overwrite_home_page(profile, course):
 
 def get_instructor_profile_from_pages(user, pages):
     """Summary
-    
+
     Args:
         user (TYPE): Description
         pages (TYPE): Description
-    
+
     Returns:
         TYPE: Description
     """
@@ -1019,10 +1068,10 @@ def get_instructor_profile_from_pages(user, pages):
 
     def restrictive_filter_func(entry):
         """Summary
-        
+
         Args:
             entry (TYPE): Description
-        
+
         Returns:
             TYPE: Description
         """
@@ -1030,10 +1079,10 @@ def get_instructor_profile_from_pages(user, pages):
 
     def premissive_filter_func(entry):
         """Summary
-        
+
         Args:
             entry (TYPE): Description
-        
+
         Returns:
             TYPE: Description
         """
@@ -1041,10 +1090,10 @@ def get_instructor_profile_from_pages(user, pages):
 
     def extremely_permissive_filter_func(entry):
         """Summary
-        
+
         Args:
             entry (TYPE): Description
-        
+
         Returns:
             TYPE: Description
         """
@@ -1120,10 +1169,10 @@ def get_instructor_profile_from_pages(user, pages):
 
 def get_instructor_profile_submission(user):
     """Summary
-    
+
     Args:
         user (TYPE): Description
-    
+
     Returns:
         TYPE: Description
     """
@@ -1183,11 +1232,11 @@ def get_instructor_profile_submission(user):
 
 def resize_image(path, max_width):
     """Summary
-    
+
     Args:
         path (TYPE): Description
         max_width (TYPE): Description
-    
+
     Returns:
         TYPE: Description
     """
@@ -1219,11 +1268,11 @@ def resize_image(path, max_width):
 
 def upload_image(pic_path, course_id):
     """Summary
-    
+
     Args:
         pic_path (TYPE): Description
         course_id (TYPE): Description
-    
+
     Returns:
         TYPE: Description
     """
@@ -1232,10 +1281,10 @@ def upload_image(pic_path, course_id):
 
 def get_instructor_page(user):
     """Summary
-    
+
     Args:
         user (TYPE): Description
-    
+
     Returns:
         TYPE: Description
     """
@@ -1275,10 +1324,10 @@ def get_instructor_page(user):
 
 def get_canvas_course_home_page(course_id):
     """Summary
-    
+
     Args:
         course_id (TYPE): Description
-    
+
     Returns:
         TYPE: Description
     """
@@ -1290,10 +1339,10 @@ def get_canvas_course_home_page(course_id):
 
 def get_canvas_instructor(course_id):
     """Summary
-    
+
     Args:
         course_id (TYPE): Description
-    
+
     Returns:
         TYPE: Description
     """
@@ -1312,11 +1361,11 @@ def get_canvas_instructor(course_id):
 
 def get_paged_data(url, headers=headers):
     """Summary
-    
+
     Args:
         url (TYPE): Description
         headers (TYPE, optional): Description
-    
+
     Returns:
         TYPE: Description
     """
