@@ -1,10 +1,6 @@
 """Summary
 
 Attributes:
-    account_ids (dict): A dictionary of account ids by account name
-    browser_button (bool): A button that opens several browser windows
-    email_button (bool): A button that tries to email professors
-        associated with courses
     syllabus_replacements (list): A list of { find, replace} dicts
         where find and replace are paired regexes of re.search calls
         on the syllabus text to replace text
@@ -33,6 +29,10 @@ Deleted Attributes:
         Only used to read relevant data when testing
     live_url (str): A url to the live site even when testing
     ROOT_ACCOUNT_ID (TYPE): The account ID for the rootmost unity Account
+    account_ids (dict): A dictionary of account ids by account name
+    browser_button (bool): A button that opens several browser windows
+    email_button (bool): A button that tries to email professors
+        associated with courses
 """
 
 import time
@@ -194,7 +194,6 @@ def main():
 
     # if we don't have any arguments past the id, go into interactive mode
     else:
-
         opening_dialog(course=bp_course, updates=updates,
                        window=root, status_label=label)
 
@@ -262,9 +261,12 @@ def run_opening_dialog(window, updates, status_label):
     status_label.config(text=f'Finished!')
 
 
-def generate_email(*, course, courses, constants, emails):
+def generate_email(
+        *,
+        course: dict, courses: list,
+        constants: dict, emails: list):
     """Summary
-
+        Generates an email to a
     Args:
         course (TYPE): Description
         courses (TYPE): Description
@@ -742,10 +744,14 @@ def replace_faculty_profiles(bp_course, courses, ui_root, progress_bar):
 
     # this button opens a browser window for each updated course
     if browser_button:
-        browser_button.configure(command=open_browser_func)
+        browser_button.configure(
+            command=lambda: open_browser_func(home_page_urls))
+
     else:
         browser_button = tk.Button(
-            master=ui_root, text="Open Courses", command=open_browser_func)
+            master=ui_root, text="Open Courses",
+            command=lambda: open_browser_func(home_page_urls))
+
         browser_button.pack()
 
     if email_button:
@@ -823,8 +829,8 @@ def get_course(course_id: int) -> dict:
     Returns:
         dict: A dictionary containing the json parsed course
     """
-    url = f'{api_url}/courses/{course_id}'
-    + '?include[]=term&include[]=grading_periods'
+    url = f'{api_url}/courses/{course_id}' \
+        + '?include[]=term&include[]=grading_periods'
     response = requests.get(url, headers=headers)
     print(response)
     return response.json()
@@ -849,14 +855,19 @@ def format_profile_page(profile, course, homepage):
         with open("template.html", 'r') as f:
             template = f.read()
         text = template.format(
-            course_title=homepage[
-                "title"] if "title" in homepage else f' Welcome to {course["name"]}',
-            instructor_name=profile["display_name"] if "display_name" in profile else profile["user"]["name"],
+            course_title=homepage["title"] if "title" in homepage
+            else f' Welcome to {course["name"]}',
+
+            instructor_name=profile["display_name"] if
+            "display_name" in profile
+            else profile["user"]["name"],
+
             img_src=profile["img_src"],
             bio=profile["bio"])
 
     text = clean_up_bio(text)
-    with open(f'profiles/{profile["user"]["id"]}_{course["id"]}.htm', 'wb') as f:
+    profile_path = f'profiles/{profile["user"]["id"]}_{course["id"]}.htm'
+    with open(profile_path, 'wb') as f:
         f.write(text.encode("utf-8", "replace"))
 
     return text
@@ -887,17 +898,21 @@ def format_profile_page_newdev(profile, course, homepage):
         TYPE: Description
     """
     body = homepage['body']
-    instructor_name = profile["display_name"] if "display_name" in profile else profile["user"]["name"]
     bio_body = profile["bio"]
     # change to api instead of site url
     data_url = re.sub('.com/', '.com/ap1/v1/', profile['img_src'])
     body = re.sub(
-        r'<p>\w*<span>\w*Instructor bio coming soon!\w*</span>\w*</p>', bio_body, body)
+        r'<p>\w*<span>\w*Instructor bio coming soon!\w*</span>\w*</p>',
+        bio_body,
+        body)
     # replace image
-    find_profile_image = re.compile(
-        r'src="[^"]*"([^>]*)alt="male-profile-image-placeholder.png" data-api-endpoint="[^"]*"')
+    find_profile_image = r'src="[^"]*"([^>]*)' \
+        + 'alt="male-profile-image-placeholder.png"' \
+        + r'data-api-endpoint="[^"]*"'
     homepage = re.sub(
-        find_profile_image, f'src="{profile["img_src"]}"\1data-api-endpoint="{data_url}"', body)
+        find_profile_image,
+        f'src="{profile["img_src"]}"\1data-api-endpoint="{data_url}"',
+        body)
 
     return homepage
 
@@ -927,17 +942,23 @@ def get_course_profile_from_pages(course, pages):
     """
     instructor = get_canvas_instructor(course["id"])
 
-    prompt = f'No instructor found for {course["name"]} do you want to to search for an instructor by name?'
+    prompt = f'No instructor found for {course["name"]} ' \
+        + 'do you want to to search for an instructor by name?'
+
     if not instructor:
         while tk.messagebox.askyesno(message=prompt):
             name = tk.simpledialog.askstring(
-                title="Name", prompt="Please enter the full user name of the person you would like to find")
-            users = []
+                title="Name",
+                prompt="Please enter the full user name"
+                "of the person you would like to find")
+
             result = requests.get(
-                f"{api_url}/accounts/self/users?search_term={name}", headers=headers)
+                f"{api_url}/accounts/self/users?search_term={name}",
+                headers=headers)
             if result.ok and len(result.json()) > 0:
                 for user in result.json():
-                    if tk.messagebox.askyesno(message=f"Do you want to use {user['name']}?"):
+                    if tk.messagebox.askyesno(
+                            message=f"Do you want to use {user['name']}?"):
                         instructor = user
                         break
                 if instructor:
@@ -945,14 +966,16 @@ def get_course_profile_from_pages(course, pages):
             else:
                 print(result)
                 print(result.json())
-                prompt = f"No results found for {name}. Do you want to search for another instructor?"
+                prompt = f"No results found for {name}. " \
+                    + "Do you want to search for another instructor?"
         if not instructor:
             return None
-    course_id = course["id"]
+
     profile = get_instructor_profile_from_pages(instructor, pages)
 
     if not profile or len(profile["bio"]) == 0:
         profile = get_instructor_profile_submission(instructor)
+
     return profile
 
 
@@ -968,71 +991,55 @@ def get_course_profile_from_assignment(course):
     instructor = get_canvas_instructor(course["id"])
     course_id = course["id"]
     if instructor is not None:
-        print("The instructor of the course {} is {}".format(course_id, instructor))
+        print("The instructor of the course {} is {}".format(
+            course_id,
+            instructor))
     else:
-        print("The instructor of the course {} cannot be found.".format(course_id))
+        print("The instructor of the course {} cannot be found.".format(
+            course_id))
     return get_instructor_profile_submission(instructor)
 
 
 def get_blueprint_courses(bp_id):
     """Summary
-
+        Gets a list of courses associated with a blueprint course id
     Args:
-        bp_id (TYPE): Description
+        bp_id (TYPE): The blueprint course ID
 
     Returns:
-        TYPE: Description
+        TYPE: A list of courses associated with this blueprint
     """
-    url = f"{api_url}/courses/{bp_id}/blueprint_templates/default/associated_courses?per_page=50"
-    response = requests.get(url, headers=headers)
-    courses = response.json()
-
-    if "errors" in courses:
-        print(courses["errors"])
-        return False
-
-    next_page_link = "!"
-    while len(next_page_link) != 0 and "link" in response.headers:
-        pagination_links = response.headers["Link"].split(",")
-        for link in pagination_links:
-            if 'next' in link:
-                next_page_link = link.split(";")[0].split("<")[1].split(">")[0]
-                response = requests.get(next_page_link, headers=headers)
-                courses = courses + response.json()
-                print("added courses at", next_page_link)
-                break
-            else:
-                next_page_link = ""
-            print(link)
+    url = f"{api_url}/courses/{bp_id}/"\
+        "blueprint_templates/default/associated_courses?per_page=50"
+    courses = get_paged_data(url)
 
     return courses
 
 
-def overwrite_home_page(profile, course):
+def overwrite_home_page(profile: dict, course: dict) -> str:
     """Summary
+        Replaces the picture and bio element, if able
+        of a course home page
+     Args:
+        profile (dict): The faculty profile dictionary
+        course (dict): The course dictionary
 
-    Args:
-        profile (TYPE): Description
-        course (TYPE): Description
-
-    Returns:
-        TYPE: Description
+     Returns:
+        TYPE: The url of the changed page
 
     Raises:
-        ValueError: Description
+        ValueError: Couldn't access home page of course
     """
-    # Make a GET request to the Canvas LMS API to get the homepage of the course.
+
     url = f'{api_url}/courses/{course["id"]}/front_page'
     page_url = f'{html_url}/courses/{course["id"]}/'
     print(page_url)
     response = requests.get(url, headers=headers)
 
-    # Check the response status code.
     if response.status_code != 200:
-        raise ValueError(
-            'Failed to get homepage of course: {}'.format(response.status_code))
-
-    # Parse the homepage HTML content.
+        raise Exception(
+            'Failed to get homepage of course: {}'.format(
+                response.status_code))
 
     homepage_html = response.json()['body']
     homepage = {"course_title": None, "body": homepage_html}
@@ -1066,71 +1073,55 @@ def get_instructor_profile_from_pages(user, pages):
     first_name = user["name"].split(" ")[0]
     last_name = user["name"].split(" ")[-1]
 
-    def restrictive_filter_func(entry):
-        """Summary
+    # A list of filter functions to apply from least to most permissive
+    filter_funcs: list = [
+        lambda entry: user["name"].lower() in entry["title"].lower(),
 
-        Args:
-            entry (TYPE): Description
+        lambda entry: last_name.lower() in entry["title"].lower()
+        and first_name.lower() in entry["title"].lower(),
 
-        Returns:
-            TYPE: Description
-        """
-        return user["name"].lower() in entry["title"].lower()
+        lambda entry: last_name.lower() in entry["title"].lower()
+        or first_name.lower() in entry["title"].lower(),
+    ]
 
-    def premissive_filter_func(entry):
-        """Summary
-
-        Args:
-            entry (TYPE): Description
-
-        Returns:
-            TYPE: Description
-        """
-        return last_name.lower() in entry["title"].lower() and first_name.lower() in entry["title"].lower()
-
-    def extremely_permissive_filter_func(entry):
-        """Summary
-
-        Args:
-            entry (TYPE): Description
-
-        Returns:
-            TYPE: Description
-        """
-        return last_name.lower() in entry["title"].lower() or first_name.lower() in entry["title"].lower()
-
-    prompt_user = False
-    potentials = list(filter(restrictive_filter_func, pages))
-    if len(potentials) == 0:
-        potentials = list(filter(premissive_filter_func, pages))
-
-    if len(potentials) == 0:
-        # Prompt the user to check this/these names because we've used the extremely permissive function
-        prompt_user = True
-        potentials = list(filter(extremely_permissive_filter_func, pages))
+    iterations = 0
+    for func in filter_funcs:
+        potentials = list(filter(func, pages))
+        if len(potentials) > 0:
+            break
+        iterations = iterations + 1
 
     out = dict(user=user, bio="", img="", img_src="")
     page = None
 
-    if len(potentials) > 1 or prompt_user:
+    # if we are more than two filters deep,
+    # or there are more than one potential user,
+    # prompt the user to confirm
+
+    if len(potentials) > 1 or iterations > 2:
         print(json.dumps(user, indent=2))
         print("_________________POTENTIALS______________________")
         print(json.dumps(potentials, indent=2))
         print("----------------------------------------------------")
-
         for potential in potentials:
-            if not "body" in potential:
+            if "body" not in potential:
                 continue
-            if tk.messagebox.askyesno(message=f"No direct match found for {user['name']}. Do you want to use { potential['title'] }?"):
+            if tk.messagebox.askyesno(
+                message=f"No direct match found for {user['name']}."
+                    f"Do you want to use { potential['title'] }?"):
                 page = potential
-    else:
-        page = potentials[0]
 
-    if not page:
+    # alert the user if there are no results
+    elif len(pages) == 0:
         tk.messagebox.showinfo(
             message=f"No profile found matching {user['name']}")
         return False
 
+    # otherwise pick the first result
+    else:
+        page = potentials[0]
+
+    # Now that we hage the page, grab the instructor info
     html = page["body"]
     soup = BeautifulSoup(html, 'html.parser')
 
@@ -1176,7 +1167,8 @@ def get_instructor_profile_submission(user):
     Returns:
         TYPE: Description
     """
-    url = f"{api_url}/courses/{instructor_course_id}/assignments/{profile_assignment_id}/submissions/{user['id']}"
+    url = f"{api_url}/courses/{instructor_course_id}" \
+        f"/assignments/{profile_assignment_id}/submissions/{user['id']}"
     response = requests.get(url, headers=headers)
     submission = response.json()
     print(submission)
@@ -1194,17 +1186,22 @@ def get_instructor_profile_submission(user):
             filename = attachment["filename"]
 
             # handle doc
-            if os.path.splitext(filename)[1] == ".docx" or os.path.splitext(filename)[1] == ".zip":
+            if os.path.splitext(filename)[1] == ".docx" \
+                    or os.path.splitext(filename)[1] == ".zip":
                 doc = docx.Document(filename)
                 with open(filename, 'rb') as f:
                     zip = zipfile.ZipFile(f)
 
                     for info in zip.infolist():
                         is_image = (
-                            "jpg" in info.filename or "png" in info.filename or "jpeg" in info.filename)
+                            "jpg" in info.filename
+                            or "png" in info.filename
+                            or "jpeg" in info.filename)
                         if is_image:
                             pic_path = zip.extract(
-                                info, f"/{user['name']}{user['id']}profile{os.path.splitext(info.filename)[1]}")
+                                info,
+                                f"/{user['name']}{user['id']}"
+                                f"profile{os.path.splitext(info.filename)[1]}")
 
                 for para in doc.paragraphs:
                     if len(para.text) > 10:
@@ -1212,7 +1209,11 @@ def get_instructor_profile_submission(user):
 
             # if it's an attached image
             elif os.path.splitext(filename)[1] in ['.jpg', '.jpeg', '.png']:
-                with open(f"{user['name']}{user['id']}profile{os.path.splitext(filename)[1]}", "wb") as f:
+                with open(
+                        f"{user['name']}"
+                        f"{user['id']}profile"
+                        f"{os.path.splitext(filename)[1]}",
+                        "wb") as f:
                     f.write(attachmentData.content)
                     pic_path = os.path.realpath(f.name)
 
@@ -1288,7 +1289,8 @@ def get_instructor_page(user):
     Returns:
         TYPE: Description
     """
-    url = f"{api_url}/courses/{profile_pages_course_id}/pages?per_page=999&search={urllib.parse.quote(user['name'])}"
+    url = f"{api_url}/courses/{profile_pages_course_id}/pages" \
+        f"?per_page=999&search={urllib.parse.quote(user['name'])}"
     response = requests.get(url, headers=headers)
     if response.status_code != 200:
         return None
