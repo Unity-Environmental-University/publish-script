@@ -91,7 +91,7 @@ lm_replacements = [
     },
 ]
 
-CONSTANTS_FILE: str = 'constants_test.json'
+CONSTANTS_FILE: str = 'constants.json'
 max_profile_image_size: int = 400
 # Open the file and read the contents
 with open(CONSTANTS_FILE, 'r') as f:
@@ -427,15 +427,6 @@ def generate_email(
         code=code,
         course=course,
     )
-    text = f'''
-    {','.join(emails)}
-
-    {email_subject}
-
-    {email_body}
-    '''
-
-    text = re.sub(r'<\/?\w+>', '', text)
 
     try:
         outlook = win32.Dispatch('outlook.application')
@@ -447,11 +438,18 @@ def generate_email(
         mail.Display()
 
     except Exception:
-        text = f"bcc:{', '.join(emails)}\n{text}"
+        email_body = f"<p>bcc:{', '.join(emails)}</p>\n{email_body}"
         with open("email.htm", "w") as file:
-            file.write(text)
+            file.write(email_body)
+
         tk.messagebox.showerror(
-            message="Error Generating Email. Text was written to 'email.htm'")
+            message="Error Generating Email."
+            "Text has been copied to an html file which will open now.")
+
+        webbrowser.open(
+            f"file://{os.path.abspath('email.htm')}",
+            new=1,
+            autoraise=True)
 
 
 def begin_course_sync(
