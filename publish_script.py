@@ -267,7 +267,8 @@ def setup_main_ui(
         },
         {
             'name': 'sync',
-            'message': 'Do you want sync associated courses?',
+            'message': 'Do you want sync associated courses? \n'
+            'NOTE: You must associate courses by hand before doing this',
             'error': 'There was a problem syncing\n{e}',
             'func': lambda: begin_course_sync(
                 course=bp_course,
@@ -607,7 +608,8 @@ def get_source_course_id(course_id: int) -> int:
         headers=headers).json()
     print(migrations)
     # if there are no migrations return false
-    if len(migrations) < 1:
+    if not requests.ok or len(migrations) < 1:
+        print("No imports found for course {course_id}")
         return False
 
     # sort by id descending so the first element is the latest created
