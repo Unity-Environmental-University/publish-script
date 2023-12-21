@@ -5,7 +5,7 @@ from PIL import Image
 import sys
 import re
 import requests
-from  urllib.parse import urlparse, urlunparse
+from urllib.parse import urlparse, urlunparse
 import os
 import PyPDF2
 import json
@@ -23,7 +23,7 @@ CONSTANTS_FILE = "constants.json"
 GRAD_TERM_NAME = "DE8W01.08.24"
 UG_TERM_NAME = "HL-24-Jan"
 GRADE_TERM_DATES = "January 8 - March 3"
-UG_TERM_DATES = "January 15 - February 18" 
+UG_TERM_DATES = "January 15 - February 18"
 HOMETILE_WIDTH = 512
 GRAD_SCHEME_NAME = "DE Graduate Programs"
 
@@ -33,30 +33,32 @@ try:
   with open(CONSTANTS_FILE, 'r') as f:
     constants = json.load(f)
 except Exception as e:
-  tk.messagebox.showerror(message=f"Problem loading constants.json. Ask hallie for a copy of constants.json and put it in this folder.\n{e}")
+  tk.messagebox.showerror(
+    message=f"Problem loading constants.json."
+    " Ask hallie for a copy of constants.json and put it in this folder.\n{e}")
 # save the api key
 try:
   api_token = constants["apiToken"]
   api_url = constants["apiUrl"]
-  html_url = re.sub('\/api\/v1', '', api_url)
+  html_url = re.sub(r'/api/v1', '', api_url)
   drive_url = None
   if "driveUrl" in constants:
     drive_url = constants["driveUrl"]
-
-  #account_id = ACCOUNT_ID
-
 except Exception as e:
-  print(e)
-  tk.messagebox.showerror(message=f"It looks like your constants file is missing some values. Ask hallie for a current copy of the constants.json file.\n{e}")
+  tk.messagebox.showerror(
+    message=f"It looks like your constants file is missing some values."
+    "Ask hallie for a current copy of the constants.json file.\n{e}")
 
 
 # Authorize the request.
 headers = {
   "Authorization": f"Bearer {api_token}",
-  "User-Agent" : 'UnityThemeMigratorBot/0.0 (http://unity.edu; hlarsson@unity.edu)'
+  "User-Agent": "UnityThemeMigratorBot/0.0"
+  " (http://unity.edu; hlarsson@unity.edu)"
 }
 img_headers = {
-  "User-Agent" : 'UnityThemeMigratorBot/0.0 (http://unity.edu; hlarsson@unity.edu)'
+  "User-Agent": "UnityThemeMigratorBot/0.0"
+  " (http://unity.edu; hlarsson@unity.edu)"
 }
 
 
@@ -73,6 +75,8 @@ ROOT_ACCOUNT_ID = account_ids['Unity College']
 print(ACCOUNT_ID, ROOT_ACCOUNT_ID)
 
 account_id = ACCOUNT_ID
+
+
 def main():
   course_id = 0
   source_course_id = 0
@@ -848,34 +852,58 @@ def align_assignments(course_id, source_course_id):
   files_lut = get_files_lookup_table(course_id, source_course_id)
   update_assignment_categories(course_id, source_course_id)
 
-
   for source_module in source_modules:
     items = source_module["items"]
-
-    #skip non-week modules
+    # skip non-week modules
     number = get_source_module_number(source_module)
-    name = get_source_module_title(source_module)
     if not number:
       continue
 
     module = find_new_module_by_number(number, modules)
-  
-    source_assignments = list ( filter( lambda item: item["type"] == "Assignment", source_module["items"]) )
-    assignments = list( filter( lambda item: item["type"] == "Assignment", module["items"]) )
-  
-    source_discussions = list ( filter( lambda item: item["type"] == "Discussion", source_module["items"]) )
+
+    source_assignments = list(
+      filter(
+        lambda item: item["type"] == "Assignment", items)
+    assignments = list(
+      filter(
+        lambda item: item["type"] == "Assignment",
+        items)
+
+    source_discussions = list(
+      filter(
+        lambda item: item["type"] == "Discussion", source_module["items"]))
     source_gallery_discussions = remove_gallery_discussions(source_discussions)
 
-    discussions = list( filter( lambda item: item["type"] == "Discussion", module["items"]) )
+    discussions = list(
+      filter(
+        lambda item: item["type"] == "Discussion", module["items"]))
+
     gallery_discussions = remove_gallery_discussions(discussions)
 
-    discussion_number = 1
-    gallery_discussion_number = 1
-    assignment_number = 1
+    handle_items(
+        course_id,
+        source_course_id,
+        module,
+        gallery_discussions,
+        source_gallery_discussions,
+        handle_discussion,
+        f"Week {number} " + "Gallery Discussion {number}- {name}")
 
-    handle_items(course_id, source_course_id, module, gallery_discussions, source_gallery_discussions, handle_discussion, f"Week {number} " +  "Gallery Discussion {number}- {name}")
-    handle_items(course_id, source_course_id, module, discussions, source_discussions, handle_discussion, f"Week {number} " + "Discussion {number}- {name}")
-    handle_items(course_id, source_course_id, module, assignments, source_assignments, handle_assignment, f"Week {number} " + "Assignment {number}- {name}")
+    handle_items(
+        course_id,
+        source_course_id,
+        module, discussions,
+        source_discussions,
+        handle_discussion,
+        f"Week {number} " + "Discussion {number}- {name}")
+
+    handle_items(
+        course_id,
+        source_course_id,
+        module, assignments,
+        source_assignments,
+        handle_assignment,
+        f"Week {number} " + "Assignment {number}- {name}")
 
 
 
@@ -1856,9 +1884,12 @@ def get_week_1_preview(course_id, source_course_id):
 def get_latest_lm_backup(course_id, week_num):
   url = f"{api_url}/courses/{course_id}/pages/"
   print(url)
-  response = requests.get(url, headers=headers, data={
-    "sort" : "created_at",
-    "search_term" : f"Week {week_num} Learning Materials"
+  response = requests.get(
+    url,
+    headers=headers,
+    data={
+      "sort": "created_at",
+      "search_term": f"Week {week_num} Learning Materials"
     })
   if not response.ok:
     raise Exception(response.json())
@@ -2061,7 +2092,13 @@ def handle_first_lm_button(items : list, buttons : list, button_text : str):
   else:
     return items.copy()
 
-def handle_secondary_media_element_link(box : object, number : int, soup: object, items : list, type_ : str):
+
+def handle_secondary_media_element_link(
+    box: object,
+    number: int,
+    soup: object,
+    items: list,
+    type_: str):
   if number < len(items):
     item = items[number]
     link = box.find('a', id=f"{type_}_link_{number}")
