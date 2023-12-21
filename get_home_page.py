@@ -1,9 +1,11 @@
 """Summary
 
 Attributes:
-    syllabus_replacements (list): A list of { find, replace} dicts
-        where find and replace are paired regexes of re.search calls
-        on the syllabus text to replace text
+    lm_replacements (TYPE): A list of {find, replace} dicts
+        to re.sub to perform on learning materials
+    syllabus_replacements (list): A list of {find, replace} dicts
+        with paired regexes to run on syllabi of both the blueprint
+        and the DEV_ course
 
 Deleted Attributes:
     log_filename (str): A file to log logs to. Not currently used.
@@ -51,9 +53,43 @@ import datetime
 import win32com.client as win32
 import tkinter as tk
 from tkinter import ttk
-from tkinter import simpledialog
+from tkinter import messagebox
 from PIL import Image
 
+
+syllabus_replacements = [{
+    'find': r'<p>The instructor will conduct [^.]*'
+    r'\(48 hours during weekends\)\.',
+
+    'replace': '<p>The instructor will conduct all correspondence with '
+    r'students related to the class in Canvas, and you should expect to '
+    r'receive a response to emails within 24 hours.'
+}]
+
+lm_replacements = [
+    {
+        'find': r'<p>\[Text for optional primary'
+        r'media element to be written by SME\]</p>',
+
+        'replace': '',
+    },
+
+    {
+        'find': r'\[[iI]nsert annotation for media\]',
+        'replace': '',
+    },
+    {
+        'find':
+            r'<h3>\[Title for <span style="text-decoration: underline;">'
+            r'optional </span>secondary media element\]</h3>',
+        'replace': '',
+    },
+    {
+        'find':
+            r'<h3><strong>\[Title for \w+ category of LMs\]</strong></h3>',
+        'replace': 'Materials',
+    },
+]
 
 CONSTANTS_FILE: str = 'constants_test.json'
 max_profile_image_size: int = 400
@@ -89,42 +125,118 @@ ROOT_ACCOUNT_ID: int = account_ids['Unity College']
 
 def main():
     """Summary
+        Main loop. Opens an interface you can perform various
+        course publishing operations with.
     """
-    root = tk.Tk()
-    number = 0
-    if len(sys.argv) > 1:
-        number = sys.argv[1]
-    else:
-        number = simpledialog.askinteger(
-            "What Course?",
-            "Enter the course_id of the blueprint "
-            "(cut the number out of the url and paste here)")
 
-    bp_id = number
+    window = tk.Tk()
+    window.geometry("600x400")
+    initial_value: str = ""
+    if len(sys.argv) > 1:
+        initial_value = sys.argv[1]
+    else:
+        try:
+            initial_value = get_course_id_from_string(window.clipboard_get())
+        except tk.TclError:
+            print("Clipboard empty")
+
+    label = tk.Label(window, text="Enter the course name")
+    label.pack()
+
+    course_string_var: object = tk.StringVar(
+        master=window,
+        value=initial_value)
+
+    text_entry = tk.Entry(
+        window,
+        textvariable=course_string_var)
+    text_entry.pack()
+
+    enter_binding_id = None
+
+    def callback(event=None):
+        success = course_entry_callback(
+            window=window,
+            status_label=label,
+            to_remove=[button, text_entry],
+            course_string=course_string_var.get())
+        if success:
+            window.unbind('<Return>', enter_binding_id)
+
+    window.bind('<Return>', callback)
+
+    button = tk.Button(
+        master=window,
+        text="Get Course",
+        command=callback)
+    button.pack()
+
+    window.mainloop()
+
+
+def course_entry_callback(
+        *,
+        to_remove: list,
+        course_string: str,
+        window: object,
+        status_label: tk.Label):
+    """Summary
+        Callback to search for the course.
+    Args:
+        to_remove (list): A list of widgets to destroy on execution
+        course_string (str): the string of the course to use
+        window (object): the window we're working in
+        status_label (tk.Label): Place to display
+    """
+    course_id = get_course_id_from_string(course_string)
+    course = get_course(course_id)
+    if not course_id:
+        status_label.configure(text="Course Not Found")
+        return False
+    else:
+        status_label.configure(text=f"Course Found\n{course['name']}")
+        setup_main_ui(
+            bp_course=get_course(course_id),
+            window=window,
+            status_label=status_label)
+        for widget in to_remove:
+            widget.destroy()
+        return True
+
+
+def setup_main_ui(
+        *,
+        bp_course,
+        window,
+        status_label):
+    """Summary
+        Sets up the main workflow UI
+
+    Args:
+        bp_course (TYPE): the course we're working with
+        window (TYPE): The widow to create UI in
+        status_label (TYPE): Description
+    """
+    bp_id = bp_course['id']
+    print(bp_course)
+    # source_course_id = get_source_course_id(bp_id)
+    courses = get_blueprint_courses(bp_id)
 
     # Create a progress bar
     progress_bar = ttk.Progressbar(
-        root,
+        window,
         orient="horizontal",
         length=200,
         mode="determinate")
     progress_bar.pack()
-
-    label = tk.Label(root, text="Select which steps to perform")
-    label.pack()
-
-    bp_course = get_course(bp_id)
-    print(bp_course)
-    # source_course_id = get_source_course_id(bp_id)
-    courses = get_blueprint_courses(bp_id)
 
     updates = [
         {
             'name': 'update_syllabus',
             'argument': 'syllabus',
             'message': "Do you want to update syllabus language"
-            + "in this and any source?"
-            + "\nDo this before sync!",
+            " in this and any source?"
+            "\nDo this before sync!",
             'func': lambda: [
                 update_syllabus(bp_id),
                 update_syllabus(get_source_course_id(bp_id))]
@@ -133,7 +245,7 @@ def main():
             'name': 'remove_lm_annnotations',
             'argument': 'lm',
             'message': "Do you want to remove "
-            + f"lm annotations from {bp_course['name']}?",
+            f"lm annotations from\n{bp_course['name']}?",
             'func': lambda: remove_lm_annotations_from_course(bp_course)
 
         },
@@ -158,7 +270,7 @@ def main():
             'func': lambda: begin_course_sync(
                 course=bp_course,
                 progress_bar=progress_bar,
-                status_label=label),
+                status_label=status_label),
         },
 
         {
@@ -167,10 +279,10 @@ def main():
             'message': 'Do you want to update profiles in associated courses?',
             'error': 'There was a problem updating profile pages\n{e}',
             'func': lambda: replace_faculty_profiles(
-                bp_course,
-                courses,
-                root,
-                progress_bar),
+                bp_course=bp_course,
+                courses=courses,
+                window=window,
+                progress_bar=progress_bar),
         },
         {
             'name': 'publish',
@@ -178,8 +290,6 @@ def main():
             'error': 'There was a problem publishing courses\n{e}',
             'func': lambda: publish_courses(
                 courses=courses),
-
-
         }
     ]
 
@@ -194,8 +304,11 @@ def main():
 
     # if we don't have any arguments past the id, go into interactive mode
     else:
-        opening_dialog(course=bp_course, updates=updates,
-                       window=root, status_label=label)
+        opening_dialog(
+            course=bp_course,
+            updates=updates,
+            window=window,
+            status_label=status_label)
 
 
 def opening_dialog(*,
@@ -206,17 +319,19 @@ def opening_dialog(*,
     """Summary
         Starts the process of creating an opening dialog window for the
         application
+    
     Args:
-        window (TYPE): The base program window to render into
-        course (TYPE): The blueprint course we are working with
-        updates (TYPE): The Upda
-        status_label (TYPE): Description
+        window (object): The base program window to render into
+        course (dict): The blueprint course we are working with
+        updates (list): The Upda
+        status_label (object): Description
     """
     checkboxes = []
     for update in updates:
         boolVar = tk.BooleanVar()
         button = tk.Checkbutton(
-            window, text=update['message'],
+            window,
+            text=update['message'],
             onvalue=True,
             offvalue=False,
             variable=boolVar)
@@ -224,29 +339,34 @@ def opening_dialog(*,
         update['run'] = boolVar
         button.pack()
 
+    def callback(event=None):
+        handle_run(
+            updates,
+            status_label)
+
+    window.bind('<Return>', callback)
+
     button = tk.Button(
         master=window,
         text="Run",
-        command=lambda: run_opening_dialog(
-            window,
-            updates,
-            status_label))
+        command=callback)
     button.pack()
 
-    window.mainloop()
 
-
-def run_opening_dialog(window, updates, status_label):
+def handle_run(updates: list, status_label: object):
     """Summary
+        Callback for when the user clicks 'run' on the opening dialog
+        Iterates across the workflow options to check which are true
+        and executes them in order.
 
     Args:
-        window (TYPE): Description
-        updates (TYPE): Description
-        status_label (TYPE): Description
+        updates (list): A list of dicts containing the callbacks
+         and data for each checkbox / workflow step on the interface
+        status_label (object): A label widget to update with status info
     """
+    window = status_label.winfo_toplevel()
     for update in updates:
         try:
-            print(update)
             print(update['name'], update['run'].get())
             if update['run'].get():
                 status_label.config(text=f"Running {update['name']}")
@@ -254,7 +374,7 @@ def run_opening_dialog(window, updates, status_label):
                 print(update)
                 update['func']()
         except Exception as e:
-            tk.messagebox.showerror(message=update['error'].format(
+            messagebox.showerror(message=update['error'].format(
                 e=str(e)) + "\n" + traceback.format_exc())
             print(traceback.format_exc())
 
@@ -263,22 +383,29 @@ def run_opening_dialog(window, updates, status_label):
 
 def generate_email(
         *,
-        course: dict, courses: list,
-        constants: dict, emails: list):
+        course: dict,
+        courses: list,
+        emails: list,
+        window: object):
     """Summary
-        Generates an email to a
+        Generates an an email to a list of recipients and attempts to open
+        outlook. On failure, copies to clipboard.
+
     Args:
-        course (TYPE): Description
-        courses (TYPE): Description
-        constants (TYPE): Description
-        emails (TYPE): Description
+        course (dict): The BP_ course we're operating on
+        courses (list): A list of all the courses we've operated on
+        emails (list): A list of all the emails to bcc
+        window (object): Description
+        I may change this to example_course_data
     """
     with open("email_template.html", 'r') as f:
         template = f.read()
 
     code = course["course_code"][3:]
 
-    example_course_data = get_course(courses[0]['id'])
+    example_course_data = get_course(
+        courses[0]['id'] if courses
+        else course['id'])
     print(json.dumps(example_course_data, indent=2))
 
     start_date = datetime.datetime.fromisoformat(
@@ -290,7 +417,7 @@ def generate_email(
 
     email_body = template.format(
         term={
-            "name": courses[0]['term_name'],
+            "name": example_course_data['term']['name'],
             "start": start_date.strftime('%B %#d')
         },
         creator={
@@ -318,23 +445,32 @@ def generate_email(
         mail.Subject = email_subject
         mail.HtmlBody = email_body
         mail.Display()
+
     except Exception:
-        with open("email.txt", "w") as file:
+        text = f"bcc:{', '.join(emails)}\n{text}"
+        with open("email.htm", "w") as file:
             file.write(text)
         tk.messagebox.showerror(
-            message="Error Generating Email. Text was written to 'email.txt' ")
+            message="Error Generating Email. Text was written to 'email.htm'")
 
 
-def begin_course_sync(*, course, progress_bar, status_label):
+def begin_course_sync(
+        *,
+        course: dict,
+        progress_bar: object,
+        status_label: object) -> dict:
     """Summary
-
+        Begins the sync process of the blueprint to its member course
+    
     Args:
-        course (TYPE): Description
-        progress_bar (TYPE): Description
-        status_label (TYPE): Description
-
+        course (dict): The blueprint course
+        progress_bar (object): The progress bar to update. Not sure if we
+        status_label (object): The status label to update with info
+        have enough info to use this though
+    
     Returns:
-        TYPE: Description
+        dict: The migration data dict if the operation was a success,
+        otherwise False
     """
     payload = {
         'comment': 'Automatic sync from publishing app',
@@ -351,10 +487,10 @@ def begin_course_sync(*, course, progress_bar, status_label):
     if not response.ok:
         print(response)
         print(response.content)
-        return
+        return False
 
+    # poll the migration object until it is done
     migration = response.json()
-    progress_bar.configure(mode='indeterminate')
     while response.ok \
         and migration['workflow_state'] in [
             'queued',
@@ -365,8 +501,8 @@ def begin_course_sync(*, course, progress_bar, status_label):
         print(migration)
 
         print(migration['workflow_state'])
-        status_label.configure(text=f"migration['workflow_state']...")
-        time.sleep(5)
+        status_label.configure(text=f"{migration['workflow_state']}...")
+        time.sleep(2)
         response = requests.get(
             f'{api_url}/courses/{course["id"]}'
             + '/blueprint_templates/default/'
@@ -377,12 +513,13 @@ def begin_course_sync(*, course, progress_bar, status_label):
 
     print(response)
     print(response.content)
+    return migration
 
 
 def publish_courses(*, courses: list):
     """Summary
     Publishes a set of courses.
-
+    
     Args:
         courses (list): A list of course dicts
     """
@@ -401,7 +538,8 @@ def publish_courses(*, courses: list):
 
 def lock_module_items(course: dict):
     """Summary
-
+        Locks all module items in a blueprint course
+    
     Args:
         course (dict): The course to lock items on
     """
@@ -453,14 +591,15 @@ def lock_module_items(course: dict):
                 print(json.dumps(item, indent=2))
 
 
-def get_source_course_id(course_id):
+def get_source_course_id(course_id: int) -> int:
     """Summary
-
+        Gets the id of the first course that migrated data into this one
+    
     Args:
-        course_id (TYPE): Description
-
+        course_id (int): The id of the course to check
+    
     Returns:
-        TYPE: Description
+        int: The course id of the source course
     """
     migrations = requests.get(
         f'{api_url}/courses/{course_id}/content_migrations',
@@ -477,9 +616,14 @@ def get_source_course_id(course_id):
 
 def remove_lm_annotations_from_course(course):
     """Summary
-
+        Removes placeholder text for annotators from a course'
+        learning materials
+    
     Args:
-        course (TYPE): Description
+        object (TYPE): Description
+    
+    Deleted Parameters:
+        course (TYPE): The course to operate on
     """
     course_id = course['id']
     modules = get_modules(course_id)
@@ -504,88 +648,59 @@ def remove_lm_annotations_from_course(course):
             print(response.text)
 
 
-syllabus_replacements = [{
-    'find': r'<p>The instructor will conduct [^.]*'
-    r'\(48 hours during weekends\)\.',
-
-    'replace': '<p>The instructor will conduct all correspondence with '
-    r'students related to the class in Canvas, and you should expect to '
-    r'receive a response to emails within 24 hours.'
-}]
-
-
-def update_syllabus_text(text):
+def update_syllabus_text(text: str):
     """Summary
-
+        Executes a series of find/replaces on the text of a syllabus
+    
     Args:
-        text (TYPE): Description
-
+        text (str): The syllabus body html
+    
     Returns:
-        TYPE: Description
+        TYPE: The syllabus with all operations performed
     """
+
+    global syllabus_replacements
     for replacement in syllabus_replacements:
         text = re.sub(replacement['find'], replacement['replace'], text)
     return text
 
-
-def update_syllabus(course_id):
+def update_syllabus(course_id: int):
     """Summary
+        Updates the syllabus of a specific course id
     
     Args:
-        course_id (TYPE): Description
+        course_id (int): The id of the course to operate on
     """
     url = f"{api_url}/courses/{course_id}?include[]=syllabus_body"
     response = requests.get(url, headers=headers)
     content = response.json()
+    if not response.ok:
+        return False
+    print(content)
     syllabus = update_syllabus_text(content["syllabus_body"])
-    response = requests.put(f'{api_url}/courses/{course_id}',
-                            headers=headers,
-                            data={
-                                "course[syllabus_body]": syllabus
-                            }
-                            )
-
-
-REPLACEMENTS: list = [
-    {
-        'find': r'<p>\[Text for optional primary'
-        r'media element to be written by SME\]</p>',
-
-        'replace': '',
-    },
-
-    {
-        'find': r'\[[iI]nsert annotation for media\]',
-        'replace': '',
-    },
-    {
-        'find':
-            r'<h3>\[Title for <span style="text-decoration: underline;">'
-            r'optional </span>secondary media element\]</h3>',
-        'replace': '',
-    },
-    {
-        'find':
-            r'<h3><strong>\[Title for \w+ category of LMs\]</strong></h3>',
-        'replace': 'Materials',
-    },
-]
+    response = requests.put(
+        f'{api_url}/courses/{course_id}',
+        headers=headers,
+        data={
+            "course[syllabus_body]": syllabus})
 
 
 def remove_lm_annnotations(text: str) -> str:
     """Summary
         Runs a list of regex replacements on html text of a
         Learning Material page (replacements, defined above)
+    
     Args:
-        text (TYPE): An html string containing
+        text (str): An html string containing
         the body of a learning materials page
-
+    
     Returns:
-        TYPE: An html string with the regexs run on it
+        str: An html string with the regexs run on it
     """
     # one liners to replace
+    global lm_replacements
 
-    for replace in REPLACEMENTS:
+    for replace in lm_replacements:
         find = re.compile(replace['find'], flags=re.MULTILINE)
         print(replace['find'])
         text = re.sub('\\n', '\n', text)
@@ -620,12 +735,12 @@ def remove_lm_annnotations(text: str) -> str:
 
 def single_filter(func, set, default=None):
     """Summary
-
+    
     Args:
         func (TYPE): Description
         set (TYPE): Description
         default (None, optional): Description
-
+    
     Returns:
         TYPE: Description
     """
@@ -634,10 +749,10 @@ def single_filter(func, set, default=None):
 
 def get_modules(course_id: int) -> list:
     """Gets all modules including module item details
-
+    
     Args:
         course_id (int): The ID of the course
-
+    
     Returns:
         list: A list of module dicts
     """
@@ -655,6 +770,7 @@ def update_progress_bar(
         Updates the progress of a progress bar object.
         Defaults to out of 100
         Sets progress to max / value
+    
     Args:
         progress_bar (object): the progress bar to update
         value (float): the current value the bar is currently at
@@ -673,23 +789,32 @@ browser_button: object = False
 email_button: object = False
 
 
-def replace_faculty_profiles(bp_course, courses, ui_root, progress_bar):
+def replace_faculty_profiles(
+        *,
+        bp_course: dict,
+        courses: list,
+        window: object,
+        progress_bar: object) -> list:
     """Summary
-
+        Iterates across courses, grabs the instrutor profile pages and updates
+        the home page with bio and pic info.
+    
     Args:
-        bp_course (TYPE): Description
-        courses (TYPE): Description
-        ui_root (TYPE): Description
-        progress_bar (TYPE): Description
-
+        bp_course (dict): The blueprint course governing the courses
+        courses (list): A list of courses to update
+        ui_root (object): The root ui window. We can probably get rid of this
+        progress_bar (object): The progress bar to update
+        at some point as we can access it through progress_bar
+        we're editing OR, if not a blueprint, the single course we're
+        updating the home page of
+    
     Returns:
-        TYPE: Description
+        list: A list of faculty profile objects
     """
     global browser_button
     global email_button
     # if the course has no associations,
     # JUST queue up to update the input course
-    ui_root = progress_bar.winfo_toplevel()
     if not courses:
         if tk.messagebox.askyesno(
                 message=f"Course {bp_course['name']}"
@@ -698,14 +823,14 @@ def replace_faculty_profiles(bp_course, courses, ui_root, progress_bar):
 
             courses = [bp_course]
         else:
-            exit()
+            return
 
     pages = get_faculty_pages()
     profiles = []
     home_page_urls = []
     i = 1
     for course in courses:
-
+        print(json.dumps(course))
         profile = get_course_profile(course, pages)
         profiles.append(profile)
 
@@ -713,11 +838,11 @@ def replace_faculty_profiles(bp_course, courses, ui_root, progress_bar):
         home_page_urls.append(overwrite_home_page(profile, course))
 
         # update loading UI value after processing
-        ui_root.update_idletasks()
-        ui_root.update()
+        window.update_idletasks()
+        window.update()
         progress_bar["value"] = (i / len(courses)) * 100
-        ui_root.update_idletasks()
-        ui_root.update()
+        window.update_idletasks()
+        window.update()
         i = i + 1
 
     bio_count = 0
@@ -749,27 +874,28 @@ def replace_faculty_profiles(bp_course, courses, ui_root, progress_bar):
 
     else:
         browser_button = tk.Button(
-            master=ui_root, text="Open Courses",
+            master=window,
+            text="Open Courses",
             command=lambda: open_browser_func(home_page_urls))
 
         browser_button.pack()
 
+    def email_func():
+        """Summary
+        """
+        generate_email(
+            course=bp_course,
+            courses=courses,
+            window=window,
+            emails=emails)
+
     if email_button:
-        email_button.configure(
-            command=lambda: generate_email(
-                course=bp_course,
-                courses=courses,
-                constants=constants,
-                emails=emails))
+        email_button.configure(command=email_func)
     else:
         email_button = tk.Button(
-            master=ui_root,
+            master=window,
             text="Try Email",
-            command=lambda: generate_email(
-                course=bp_course,
-                courses=courses,
-                constants=constants,
-                emails=emails))
+            command=email_func)
         email_button.pack()
 
     tk.messagebox.showinfo("force_import", dialog_text)
@@ -788,7 +914,7 @@ def open_browser_func(urls):
 
 def save_bios(bios, path="bios.json"):
     """Summary
-
+    
     Args:
         bios (TYPE): Description
         path (str, optional): Description
@@ -799,10 +925,10 @@ def save_bios(bios, path="bios.json"):
 
 def get_faculty_pages(force=False):
     """Summary
-
+    
     Args:
         force (bool, optional): Description
-
+    
     Returns:
         TYPE: Description
     """
@@ -823,27 +949,29 @@ def get_faculty_pages(force=False):
 def get_course(course_id: int) -> dict:
     """Summary
         Gets a course by ID
+    
     Args:
         course_id (int): Id of the course to get
-
+    
     Returns:
         dict: A dictionary containing the json parsed course
     """
     url = f'{api_url}/courses/{course_id}' \
         + '?include[]=term&include[]=grading_periods'
     response = requests.get(url, headers=headers)
+    print(url)
     print(response)
     return response.json()
 
 
 def format_profile_page(profile, course, homepage):
     """Summary
-
+    
     Args:
         profile (TYPE): Description
         course (TYPE): Description
         homepage (TYPE): Description
-
+    
     Returns:
         TYPE: Description
     """
@@ -875,10 +1003,10 @@ def format_profile_page(profile, course, homepage):
 
 def clean_up_bio(html):
     """Summary
-
+    
     Args:
         html (TYPE): Description
-
+    
     Returns:
         TYPE: Description
     """
@@ -888,12 +1016,12 @@ def clean_up_bio(html):
 
 def format_profile_page_newdev(profile, course, homepage):
     """Summary
-
+    
     Args:
         profile (TYPE): Description
         course (TYPE): Description
         homepage (TYPE): Description
-
+    
     Returns:
         TYPE: Description
     """
@@ -919,11 +1047,11 @@ def format_profile_page_newdev(profile, course, homepage):
 
 def get_course_profile(course, pages):
     """Summary
-
+    
     Args:
         course (TYPE): Description
         pages (TYPE): Description
-
+    
     Returns:
         TYPE: Description
     """
@@ -932,11 +1060,11 @@ def get_course_profile(course, pages):
 
 def get_course_profile_from_pages(course, pages):
     """Summary
-
+    
     Args:
         course (TYPE): Description
         pages (TYPE): Description
-
+    
     Returns:
         TYPE: Description
     """
@@ -981,10 +1109,10 @@ def get_course_profile_from_pages(course, pages):
 
 def get_course_profile_from_assignment(course):
     """Summary
-
+    
     Args:
         course (TYPE): Description
-
+    
     Returns:
         TYPE: Description
     """
@@ -1003,9 +1131,10 @@ def get_course_profile_from_assignment(course):
 def get_blueprint_courses(bp_id):
     """Summary
         Gets a list of courses associated with a blueprint course id
+    
     Args:
         bp_id (TYPE): The blueprint course ID
-
+    
     Returns:
         TYPE: A list of courses associated with this blueprint
     """
@@ -1023,11 +1152,21 @@ def overwrite_home_page(profile: dict, course: dict) -> str:
      Args:
         profile (dict): The faculty profile dictionary
         course (dict): The course dictionary
-
+    
      Returns:
         TYPE: The url of the changed page
-
+    
     Raises:
+        Exception: Description
+    
+    Args:
+        profile (dict): Description
+        course (dict): Description
+    
+    Returns:
+        str: Description
+    
+    No Longer Raises:
         ValueError: Couldn't access home page of course
     """
 
@@ -1062,11 +1201,11 @@ def overwrite_home_page(profile: dict, course: dict) -> str:
 
 def get_instructor_profile_from_pages(user, pages):
     """Summary
-
+    
     Args:
         user (TYPE): Description
         pages (TYPE): Description
-
+    
     Returns:
         TYPE: Description
     """
@@ -1160,10 +1299,10 @@ def get_instructor_profile_from_pages(user, pages):
 
 def get_instructor_profile_submission(user):
     """Summary
-
+    
     Args:
         user (TYPE): Description
-
+    
     Returns:
         TYPE: Description
     """
@@ -1233,11 +1372,11 @@ def get_instructor_profile_submission(user):
 
 def resize_image(path, max_width):
     """Summary
-
+    
     Args:
         path (TYPE): Description
         max_width (TYPE): Description
-
+    
     Returns:
         TYPE: Description
     """
@@ -1264,28 +1403,30 @@ def resize_image(path, max_width):
         print(output_path)
     return output_path
 
-# TODO: write this in
 
-
-def upload_image(pic_path, course_id):
+# TODO: Write this function
+def upload_image(pic_path: str, course_id: int) -> str:
     """Summary
-
+        NOT IMPLEMENTED
+        Uploads a locally stored image to a course and returns the url
+        path to that file
+    
     Args:
-        pic_path (TYPE): Description
-        course_id (TYPE): Description
-
+        pic_path (str): The local 
+        course_id (int): Description
+    
     Returns:
-        TYPE: Description
+        str: Description
     """
     return ""
 
 
 def get_instructor_page(user):
     """Summary
-
+    
     Args:
         user (TYPE): Description
-
+    
     Returns:
         TYPE: Description
     """
@@ -1316,8 +1457,8 @@ def get_instructor_page(user):
             # Get the next page link from the response headers
             pagination_links = response.headers["Link"].split(",")
             print(pagination_links)
-            next_page_link = pagination_links[1].split(";")[0].split("<")[
-                1].split(">")[0]
+            next_page_link = pagination_links[1].split(";")[0] \
+                .split("<")[1].split(">")[0]
             print(next_page_link)
 
     for page in pages:
@@ -1326,10 +1467,10 @@ def get_instructor_page(user):
 
 def get_canvas_course_home_page(course_id):
     """Summary
-
+    
     Args:
         course_id (TYPE): Description
-
+    
     Returns:
         TYPE: Description
     """
@@ -1341,10 +1482,10 @@ def get_canvas_course_home_page(course_id):
 
 def get_canvas_instructor(course_id):
     """Summary
-
+    
     Args:
         course_id (TYPE): Description
-
+    
     Returns:
         TYPE: Description
     """
@@ -1361,20 +1502,26 @@ def get_canvas_instructor(course_id):
     return None
 
 
-def get_paged_data(url, headers=headers):
+def get_paged_data(url: str, headers: dict = headers) -> list:
     """Summary
-
+        returns a list of data from a get request, going through
+        multiple pages of data requests as necessary
+    
     Args:
-        url (TYPE): Description
-        headers (TYPE, optional): Description
-
+        url (str): The url to query
+        headers (dict, optional): Headers for the request
+    
     Returns:
-        TYPE: Description
+        list: Description
     """
     response = requests.get(url, headers=headers)
     out = response.json()
+    if not response.ok:
+        return None
     next_page_link = "!"
-    while len(next_page_link) != 0:
+    while len(next_page_link) != 0 \
+            and 'link' in response.headers \
+            and response.ok:
         pagination_links = response.headers["Link"].split(",")
         for link in pagination_links:
             if 'next' in link:
@@ -1388,6 +1535,56 @@ def get_paged_data(url, headers=headers):
     print(len(out))
 
     return out
+
+
+def get_course_id_from_string(course_string: str) -> int:
+    """Summary
+
+    Args:
+        course_string(str): The string to match
+    Returns:
+        int: the course id if it matches a regex for course id
+    """
+    id_match = re.search(r'(\d{7}\d*)', course_string)
+    course_name_match = re.search(r'(\w+_\w{4}\d{3})', course_string)
+
+    if id_match:
+        print(id_match)
+        return int(id_match.group(1))
+    elif course_name_match:
+        print(course_name_match)
+        return get_course_by_code(course_name_match.group(1))
+    else:
+        return None
+
+
+def get_course_by_code(code: str) -> dict:
+    """Summary
+        attempts to find a course by course code,
+        inclusive of starting component
+        currently does not support
+        course sections
+    
+    Args:
+        code (str): The course code
+    
+    Returns:
+        dict: A dictionary representing the first course found
+        or None if no match
+    """
+    url = f"{api_url}/accounts/{ROOT_ACCOUNT_ID}/courses"
+    print(url)
+    response = requests.get(
+        url,
+        headers=headers,
+        params={"search_term": f"{code}"})
+    print(response)
+    print(response.json())
+    if response.ok and len(response.json()) > 0:
+        courses = response.json()
+        return courses[0]['id']
+    else:
+        return None
 
 
 main()
