@@ -140,7 +140,11 @@ def main():
         except tk.TclError:
             print("Clipboard empty")
 
-    label = tk.Label(window, text="Enter the course name")
+    label = tk.Label(
+        window,
+        text="Enter the course code (e.g. BP_ANIM305) or id\n"
+        "(if you are seeing auto-text, you already had a course code "
+        "or id copied)")
     label.pack()
 
     course_string_var: object = tk.StringVar(
@@ -235,8 +239,7 @@ def setup_main_ui(
             'name': 'update_syllabus',
             'argument': 'syllabus',
             'message': "Do you want to update syllabus language"
-            " in this and any source?"
-            "\nDo this before sync!",
+            " in this and DEV_?",
             'func': lambda: [
                 update_syllabus(bp_id),
                 update_syllabus(get_source_course_id(bp_id))]
@@ -264,8 +267,7 @@ def setup_main_ui(
         },
         {
             'name': 'sync',
-            'message': 'Do you want sync associated courses?'
-            '\nThis could take a sec.',
+            'message': 'Do you want sync associated courses?',
             'error': 'There was a problem syncing\n{e}',
             'func': lambda: begin_course_sync(
                 course=bp_course,
@@ -377,6 +379,7 @@ def handle_run(updates: list, status_label: object):
             messagebox.showerror(message=update['error'].format(
                 e=str(e)) + "\n" + traceback.format_exc())
             print(traceback.format_exc())
+            raise e
 
     status_label.config(text=f'Finished!')
 
@@ -1545,13 +1548,15 @@ def get_course_id_from_string(course_string: str) -> int:
     """
     id_match = re.search(r'(\d{7}\d*)', course_string)
     course_name_match = re.search(r'(\w+_\w{4}\d{3})', course_string)
-
+    course_root_name_match = re.search(r'(\w{4}\d{3})', course_string)
     if id_match:
         print(id_match)
         return int(id_match.group(1))
     elif course_name_match:
         print(course_name_match)
         return get_course_by_code(course_name_match.group(1))
+    elif course_root_name_match:
+        return (get_course_by_code(f"BP_{course_root_name_match.group(1)}"))
     else:
         return None
 
