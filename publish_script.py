@@ -1,3 +1,4 @@
+
 """Summary
 
 Attributes:
@@ -36,7 +37,6 @@ Deleted Attributes:
     email_button (bool): A button that tries to email professors
         associated with courses
 """
-
 import datetime
 import json
 import os
@@ -56,6 +56,8 @@ import requests
 import win32com.client as win32
 from PIL import Image
 from bs4 import BeautifulSoup
+
+course_code_regex = re.compile(r'([\-.\w]+)_(\w{4}\d{3})', re.IGNORECASE)
 
 syllabus_replacements = [{
     'find': r'<p>The instructor will conduct [^.]*\(48 hours during weekends\)\.',
@@ -397,13 +399,51 @@ def reset_course(course: dict[str, str]):
             return response.json()
     return False
 
-def import_dev_course(course: dict) -> dict:
-    """Summary
-        Imports the dev version of a course into the bp version of the course
-        and returns the BP course
-    Args:
-        course (dict): The BP_ course we're operating on
+
+def import_dev_course(bp_course: dict):
     """
+    Imports the dev version of a BP course into the BP course
+
+    Args:
+        bp_course: the bp course to import into
+    """
+    match = re.search(course_code_regex, bp_course["course_code"])
+    assert match, "This is not a course code "+ bp_course["course_code"]
+    prefix = match.group(1)
+    course_code = match.group(2)
+    assert prefix.upper() == 'BP', "Course code is not a blueprint"
+    dev_course = get_course_by_code(f"DEV_{course_code}")
+
+    # if we're running this right from the script (instead of a unit test) prompt to confirm
+    if course_code == "__main__":
+        if not tk.messagebox.askyesno(
+                f"Are you sure you want to import {dev_course['name']} into {bp_course['name']}?"):
+            return None
+
+    return import_course(bp_course, dev_course)
+
+
+def import_course(dest_course: dict, source_course: dict) -> dict:
+    """
+        Copies source course into destination course. Returns the migration object
+        once the migration is finished.
+    Args:
+        dest_course: The course to copy into
+        source_course: The course to copy from
+
+    Returns:
+
+    """
+    payload = {
+        "migration_type" : "course_copy_importer",
+        "settings[source_course_id]" : source_course["id"]}
+
+    url = f"{api_url}/courses/{dest_course['id']}/content_migrations"
+    response = requests.post(url, data=payload, headers=headers)
+    print(response)
+    if response.ok:
+        return poll_migration(migration=response.json())
+
 
 def generate_email(
         *,
@@ -483,13 +523,13 @@ def begin_course_sync(
         status_label: tk.Label) -> dict | None:
     """Summary
         Begins the sync process of the blueprint to its member course
-    
+
     Args:
         course (dict): The blueprint course
         progress_bar (object): The progress bar to update. Not sure if we
         status_label (object): The status label to update with info
         have enough info to use this though
-    
+
     Returns:
         dict: The migration data dict if the operation was a success,
         otherwise False
@@ -521,11 +561,13 @@ def begin_course_sync(
 
 def poll_migration(
         migration: dict,
-        migration_url: str,
+        migration_url: str = None,
         progress_bar: ttk.Progressbar = None,
         status_label: tk.Label = None,
         poll_interval: float = 2.0):
 
+    if migration_url is None:
+        migration_url = migration['progress_url']
     response = requests.get(migration_url, headers=headers)
     # poll the migration object until it is done
     while response.ok and migration['workflow_state'] in [
@@ -539,6 +581,8 @@ def poll_migration(
         print(migration['workflow_state'])
         if status_label is not None:
             status_label.configure(text=f"{migration['workflow_state']}...")
+        if progress_bar is not None:
+            update_progress_bar(progress_bar, migration['completion'])
         time.sleep(poll_interval)
         response = requests.get(migration_url, headers=headers)
         if response.ok:
@@ -552,7 +596,7 @@ def poll_migration(
 def publish_courses(*, courses: list):
     """Summary
     Publishes a set of courses.
-    
+
     Args:
         courses (list): A list of course dicts
     """
@@ -572,7 +616,7 @@ def publish_courses(*, courses: list):
 def lock_module_items(course: dict):
     """Summary
         Locks all module items in a blueprint course
-    
+
     Args:
         course (dict): The course to lock items on
     """
@@ -627,10 +671,10 @@ def lock_module_items(course: dict):
 def get_source_course_id(course_id: int) -> int:
     """Summary
         Gets the id of the first course that migrated data into this one
-    
+
     Args:
         course_id (int): The id of the course to check
-    
+
     Returns:
         int: The course id of the source course
     """
@@ -654,10 +698,10 @@ def remove_lm_annotations_from_course(course):
     """Summary
         Removes placeholder text for annotators from a course'
         learning materials
-    
+
     Args:
         course (TYPE): The course to remove
-    
+
     Deleted Parameters:
         course (TYPE): The course to operate on
     """
@@ -688,10 +732,10 @@ def remove_lm_annotations_from_course(course):
 def update_syllabus_text(text: str):
     """Summary
         Executes a series of find/replaces on the text of a syllabus
-    
+
     Args:
         text (str): The syllabus body html
-    
+
     Returns:
         TYPE: The syllabus with all operations performed
     """
@@ -705,7 +749,7 @@ def update_syllabus_text(text: str):
 def update_syllabus(course_id: int):
     """Summary
         Updates the syllabus of a specific course id
-    
+
     Args:
         course_id (int): The id of the course to operate on
     """
@@ -741,11 +785,11 @@ def remove_lm_annotations(text: str) -> str:
     """Summary
         Runs a list of regex replacements on html text of a
         Learning Material page (replacements, defined above)
-    
+
     Args:
         text (str): An html string containing
         the body of a learning materials page
-    
+
     Returns:
         str: An html string with the regexs run on it
     """
@@ -784,24 +828,24 @@ def remove_lm_annotations(text: str) -> str:
 
 def single_filter(func, set, default=None):
     """Summary
-    
+
     Args:
         func (TYPE): Description
         set (TYPE): Description
         default (None, optional): Description
-    
+
     Returns:
         TYPE: Description
     """
     return next(filter(func, set), None)
 
 
-def get_modules(course_id: int) -> list:
+def get_modules(course_id: int | str) -> list:
     """Gets all modules including module item details
-    
+
     Args:
         course_id (int): The ID of the course
-    
+
     Returns:
         list: A list of module dicts
     """
@@ -819,7 +863,7 @@ def update_progress_bar(
         Updates the progress of a progress bar object.
         Defaults to out of 100
         Sets progress to max / value
-    
+
     Args:
         progress_bar (object): the progress bar to update
         value (float): the current value the bar is currently at
@@ -847,7 +891,7 @@ def replace_faculty_profiles(
     """Summary
         Iterates across courses, grabs the instrutor profile pages and updates
         the home page with bio and pic info.
-    
+
     Args:
         bp_course (dict): The blueprint course governing the courses
         courses (list): A list of courses to update
@@ -856,7 +900,7 @@ def replace_faculty_profiles(
         at some point as we can access it through progress_bar
         we're editing OR, if not a blueprint, the single course we're
         updating the home page of
-    
+
     Returns:
         list: A list of faculty profile objects
     """
@@ -963,7 +1007,7 @@ def open_browser_func(urls):
 
 def save_bios(bios, path="bios.json"):
     """Summary
-    
+
     Args:
         bios (TYPE): Description
         path (str, optional): Description
@@ -974,10 +1018,10 @@ def save_bios(bios, path="bios.json"):
 
 def get_faculty_pages(force=False):
     """Summary
-    
+
     Args:
         force (bool, optional): Description
-    
+
     Returns:
         TYPE: Description
     """
@@ -998,10 +1042,10 @@ def get_faculty_pages(force=False):
 def get_course(course_id: int) -> dict:
     """Summary
         Gets a course by ID
-    
+
     Args:
         course_id (int): Id of the course to get
-    
+
     Returns:
         dict: A dictionary containing the json parsed course
     """
@@ -1015,12 +1059,12 @@ def get_course(course_id: int) -> dict:
 
 def format_profile_page(profile, course, homepage):
     """Summary
-    
+
     Args:
         profile (TYPE): Description
         course (TYPE): Description
         homepage (TYPE): Description
-    
+
     Returns:
         TYPE: Description
     """
@@ -1052,10 +1096,10 @@ def format_profile_page(profile, course, homepage):
 
 def clean_up_bio(html):
     """Summary
-    
+
     Args:
         html (TYPE): Description
-    
+
     Returns:
         TYPE: Description
     """
@@ -1065,12 +1109,12 @@ def clean_up_bio(html):
 
 def format_profile_page_newdev(profile, course, homepage):
     """Summary
-    
+
     Args:
         profile (TYPE): Description
         course (TYPE): Description
         homepage (TYPE): Description
-    
+
     Returns:
         TYPE: Description
     """
@@ -1095,11 +1139,11 @@ def format_profile_page_newdev(profile, course, homepage):
 
 def get_course_profile(course, pages):
     """Summary
-    
+
     Args:
         course (TYPE): Description
         pages (TYPE): Description
-    
+
     Returns:
         TYPE: Description
     """
@@ -1108,11 +1152,11 @@ def get_course_profile(course, pages):
 
 def get_course_profile_from_pages(course, pages):
     """Summary
-    
+
     Args:
         course (TYPE): Description
         pages (TYPE): Description
-    
+
     Returns:
         TYPE: Description
     """
@@ -1157,10 +1201,10 @@ def get_course_profile_from_pages(course, pages):
 
 def get_course_profile_from_assignment(course):
     """Summary
-    
+
     Args:
         course (TYPE): Description
-    
+
     Returns:
         TYPE: Description
     """
@@ -1179,10 +1223,10 @@ def get_course_profile_from_assignment(course):
 def get_blueprint_courses(bp_id):
     """Summary
         Gets a list of courses associated with a blueprint course id
-    
+
     Args:
         bp_id (TYPE): The blueprint course ID
-    
+
     Returns:
         TYPE: A list of courses associated with this blueprint
     """
@@ -1200,20 +1244,20 @@ def overwrite_home_page(profile: dict, course: dict) -> str:
      Args:
         profile (dict): The faculty profile dictionary
         course (dict): The course dictionary
-    
+
      Returns:
         TYPE: The url of the changed page
-    
+
     Raises:
         Exception: Description
-    
+
     Args:
         profile (dict): Description
         course (dict): Description
-    
+
     Returns:
         str: Description
-    
+
     No Longer Raises:
         ValueError: Couldn't access home page of course
     """
@@ -1249,11 +1293,11 @@ def overwrite_home_page(profile: dict, course: dict) -> str:
 
 def get_instructor_profile_from_pages(user, pages):
     """Summary
-    
+
     Args:
         user (TYPE): Description
         pages (TYPE): Description
-    
+
     Returns:
         TYPE: Description
     """
@@ -1347,10 +1391,10 @@ def get_instructor_profile_from_pages(user, pages):
 
 def get_instructor_profile_submission(user):
     """Summary
-    
+
     Args:
         user (TYPE): Description
-    
+
     Returns:
         TYPE: Description
     """
@@ -1417,11 +1461,11 @@ def get_instructor_profile_submission(user):
 
 def resize_image(path, max_width):
     """Summary
-    
+
     Args:
         path (TYPE): Description
         max_width (TYPE): Description
-    
+
     Returns:
         TYPE: Description
     """
@@ -1455,11 +1499,11 @@ def upload_image(pic_path: str, course_id: int) -> str:
         NOT IMPLEMENTED
         Uploads a locally stored image to a course and returns the url
         path to that file
-    
+
     Args:
-        pic_path (str): The local 
+        pic_path (str): The local
         course_id (int): Description
-    
+
     Returns:
         str: Description
     """
@@ -1468,10 +1512,10 @@ def upload_image(pic_path: str, course_id: int) -> str:
 
 def get_instructor_page(user):
     """Summary
-    
+
     Args:
         user (TYPE): Description
-    
+
     Returns:
         TYPE: Description
     """
@@ -1512,10 +1556,10 @@ def get_instructor_page(user):
 
 def get_canvas_course_home_page(course_id):
     """Summary
-    
+
     Args:
         course_id (TYPE): Description
-    
+
     Returns:
         TYPE: Description
     """
@@ -1527,10 +1571,10 @@ def get_canvas_course_home_page(course_id):
 
 def get_canvas_instructor(course_id):
     """Summary
-    
+
     Args:
         course_id (TYPE): Description
-    
+
     Returns:
         TYPE: Description
     """
@@ -1551,11 +1595,11 @@ def get_paged_data(url: str, headers: dict = headers) -> list:
     """Summary
         returns a list of data from a get request, going through
         multiple pages of data requests as necessary
-    
+
     Args:
         url (str): The url to query
         headers (dict, optional): Headers for the request
-    
+
     Returns:
         list: Description
     """
@@ -1606,26 +1650,27 @@ def get_course_id_from_string(course_string: str):
         return None
 
 
-def get_course_by_code(code: str) -> dict[str, str] | None:
+def get_course_by_code(code: str, params: dict={}) -> dict[str, str] | None:
     """Summary
         attempts to find a course by course code,
         inclusive of starting component
         currently does not support
         course sections
-    
+
     Args:
+        params: any params to be passed to the call
         code (str): The course code
-    
+
     Returns:
         dict: A dictionary representing the first course found
         or None if no match
     """
-    url = f"{api_url}/accounts/{ROOT_ACCOUNT_ID}/courses"
+    url = f"{api_url}/accounts/{ROOT_ACCOUNT_ID}/courses?"
     print(url)
     response = requests.get(
         url,
         headers=headers,
-        params={"search_term": f"{code}"})
+        params={"search_term": f"{code}", **params})
     print(response)
     print(response.json())
     if response.ok and len(response.json()) > 0:
@@ -1633,7 +1678,6 @@ def get_course_by_code(code: str) -> dict[str, str] | None:
         return courses[0]
     else:
         return None
-
 
 if __name__ == "__main__":
     main()
