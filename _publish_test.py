@@ -29,16 +29,26 @@ for account in accounts:
 ACCOUNT_ID = account_ids['Distance Education']
 ROOT_ACCOUNT_ID = account_ids['Unity College']
 
-bp_test_course_code: str = 'UNITTEST'
+bp_test_course_code: str = 'TEST000'
 
 print(api_url)
 
 
-class TestCourseReset(unittest.TestCase):
-    def runTest(self):
+class TestCourseResetAndImport(unittest.TestCase):
+    def test_reset(self):
         course = get_course_by_code(f'BP_{bp_test_course_code}')
-        reset_course(course)
+        self.assertIsNotNone(course, "Can't Find Test Course by code")
+
+        original_course_id = course['id']
+        reply_course = reset_course(course)
+        self.assertNotEqual(original_course_id, reply_course['id'], "Course id has not been changed on reset")
+
         course = get_course_by_code(f'BP_{bp_test_course_code}')
-        self.assertTrue(course is not None, "Course does not exist")
-        self.assertIn("id", course.keys(), "Course does not contain id")
-        self.assertFalse(get_modules(int(course['id'])), "Course does not contain modules")
+        self.assertIsNotNone(course, "Course does not exist")
+        self.assertFalse(get_modules(int(course['id'])), "Course contains modules after reset")
+
+        self.assertEqual(reply_course, course, f"Reset course is not the same as searched for course - {reply_course['id']}, {course['id']}")
+
+    def test_import_dev(self):
+        course = get_course_by_code(f'BP_{bp_test_course_code}')
+

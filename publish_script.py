@@ -37,25 +37,25 @@ Deleted Attributes:
         associated with courses
 """
 
-import time
-import traceback
-import re
-from bs4 import BeautifulSoup
-import docx
-import sys
-import requests
-import urllib.parse
-import zipfile
-import os
-import json
-import webbrowser
 import datetime
-import win32com.client as win32
+import json
+import os
+import re
+import sys
+import time
 import tkinter as tk
+import traceback
+import urllib.parse
+import webbrowser
+import zipfile
+from tkinter import messagebox, StringVar, simpledialog
 from tkinter import ttk
-from tkinter import messagebox
-from PIL import Image
 
+import docx
+import requests
+import win32com.client as win32
+from PIL import Image
+from bs4 import BeautifulSoup
 
 syllabus_replacements = [{
     'find': r'<p>The instructor will conduct [^.]*\(48 hours during weekends\)\.',
@@ -103,9 +103,8 @@ default_profile_url: str = f"{html_url}/users/9230846/files/156109264/preview"
 live_url: str = constants["liveUrl"]
 
 # Authorize the request.
-headers: dict = {"Authorization": f"Bearer {api_token}"}
-live_headers: dict = {"Authorization": f'Bearer {constants["liveApiToken"]}'}
-
+headers: dict[str, str] = {"Authorization": f"Bearer {api_token}"}
+live_headers: dict[str, str] = {"Authorization": f'Bearer {constants["liveApiToken"]}'}
 
 accounts: list = requests.get(f'{api_url}/accounts', headers=headers).json()
 account_ids: dict = dict()
@@ -124,7 +123,7 @@ def main():
 
     window = tk.Tk()
     window.geometry("600x400")
-    initial_value: str = ""
+    initial_value = ""
     if len(sys.argv) > 1:
         initial_value = sys.argv[1]
     else:
@@ -136,11 +135,11 @@ def main():
     label = tk.Label(
         window,
         text="Enter the course code (e.g. BP_ANIM305) or id\n"
-        + "(if you are seeing auto-text, you already had a course code "
-        + "or id copied)")
+             + "(if you are seeing auto-text, you already had a course code "
+             + "or id copied)")
     label.pack()
 
-    course_string_var: object = tk.StringVar(
+    course_string_var: StringVar = tk.StringVar(
         master=window,
         value=initial_value)
 
@@ -226,13 +225,12 @@ def setup_main_ui(
         mode="determinate")
     progress_bar.pack()
 
-
     updates = [
         {
             'name': 'update_syllabus',
             'argument': 'syllabus',
             'message': "Do you want to update syllabus language"
-            + " in this and DEV_?",
+                       + " in this and DEV_?",
             'func': lambda: [
                 update_syllabus(bp_course['id']),
                 update_syllabus(get_source_course_id(bp_course['id']))]
@@ -241,7 +239,7 @@ def setup_main_ui(
             'name': 'remove_lm_annotations',
             'argument': 'lm',
             'message': "Do you want to remove "
-            + f"lm annotation placeholders from\n{bp_course['name']}?",
+                       + f"lm annotation placeholders from\n{bp_course['name']}?",
             'func': lambda: remove_lm_annotations_from_course(bp_course)
 
         },
@@ -255,13 +253,13 @@ def setup_main_ui(
             'name': 'download_profiles',
             'argument': 'download',
             'message': 'Do you want to '
-            + ' redownload the latest faculty profiles?',
+                       + ' redownload the latest faculty profiles?',
             'func': lambda: get_faculty_pages(force=True)
         },
         {
             'name': 'sync',
             'message': 'Do you want sync associated courses? \n'
-            + 'NOTE: You must associate courses by hand before doing this',
+                       + 'NOTE: You must associate courses by hand before doing this',
             'error': 'There was a problem syncing\n{e}',
             'func': lambda: begin_course_sync(
                 course=bp_course,
@@ -308,10 +306,10 @@ def setup_main_ui(
 
 
 def opening_dialog(*,
-                   window: object,
                    course: dict,
+                   window: tk.Tk,
                    updates: list,
-                   status_label: object):
+                   status_label: tk.Label):
     """Summary
         Starts the process of creating an opening dialog window for the
         application
@@ -319,7 +317,7 @@ def opening_dialog(*,
     Args:
         window (object): The base program window to render into
         course (dict): The blueprint course we are working with
-        updates (list): The Upda
+        updates (list): The Updates to run
         status_label (object): Description
     """
     checkboxes = []
@@ -349,7 +347,7 @@ def opening_dialog(*,
     button.pack()
 
 
-def handle_run(updates: list, status_label: object):
+def handle_run(updates: list, status_label: tk.Label):
     """Summary
         Callback for when the user clicks 'run' on the opening dialog
         Iterates across the workflow options to check which are true
@@ -378,24 +376,34 @@ def handle_run(updates: list, status_label: object):
     status_label.config(text=f'Finished!')
 
 
-def reset_course(course: dict) -> object:
+def reset_course(course: dict[str, str]):
+    assert course, "Course does not exist"
     """Summary
         Resets the course and returns the reset version of the course
     Args:
         course (dict): The course to reset
 
     Returns:
-        TYPE: The new shiny course
+        TYPE: The new shiny, empty course
     """
-    if tk.messagebox.askyesno(
+
+    # ask for confirmation if we're not running this imported from another module
+    if __name__ != "__main__" or tk.messagebox.askyesno(
             title="Do You Want To Reset",
             message=f"Are you sure you want to reset {course['name']}?'"):
         url = f'{api_url}/courses/{course["id"]}/reset_content'
         response = requests.post(url, headers=headers)
         if response.ok:
-            return requests.json()
+            return response.json()
     return False
 
+def import_dev_course(course: dict) -> dict:
+    """Summary
+        Imports the dev version of a course into the bp version of the course
+        and returns the BP course
+    Args:
+        course (dict): The BP_ course we're operating on
+    """
 
 def generate_email(
         *,
@@ -428,7 +436,7 @@ def generate_email(
         example_course_data['term']["start_at"])
     start_date = start_date + datetime.timedelta(days=7)
 
-    email_subject =\
+    email_subject = \
         f'{course["course_code"][3:]} Section(s) Ready Notification'
 
     email_body = template.format(
@@ -460,7 +468,7 @@ def generate_email(
 
         tk.messagebox.showerror(
             message="Error Generating Email."
-            + "Text has been copied to an html file which will open now.")
+                    + "Text has been copied to an html file which will open now.")
 
         webbrowser.open(
             f"file://{os.path.abspath('email.htm')}",
@@ -471,8 +479,8 @@ def generate_email(
 def begin_course_sync(
         *,
         course: dict,
-        progress_bar: object,
-        status_label: object) -> dict:
+        progress_bar: ttk.Progressbar,
+        status_label: tk.Label) -> dict | None:
     """Summary
         Begins the sync process of the blueprint to its member course
     
@@ -501,12 +509,26 @@ def begin_course_sync(
     if not response.ok:
         print(response)
         print(response.content)
-        return False
+        return None
 
-    # poll the migration object until it is done
     migration = response.json()
-    while response.ok \
-        and migration['workflow_state'] in [
+    poll_migration(
+        migration,
+        f'{api_url}/courses/{course["id"]}'
+        + '/blueprint_templates/default/'
+        + f'migrations/{migration["id"]}')
+
+
+def poll_migration(
+        migration: dict,
+        migration_url: str,
+        progress_bar: ttk.Progressbar = None,
+        status_label: tk.Label = None,
+        poll_interval: float = 2.0):
+
+    response = requests.get(migration_url, headers=headers)
+    # poll the migration object until it is done
+    while response.ok and migration['workflow_state'] in [
             'queued',
             'exporting',
             'imports_queued',
@@ -515,13 +537,10 @@ def begin_course_sync(
         print(migration)
 
         print(migration['workflow_state'])
-        status_label.configure(text=f"{migration['workflow_state']}...")
-        time.sleep(2)
-        response = requests.get(
-            f'{api_url}/courses/{course["id"]}'
-            + '/blueprint_templates/default/'
-            + f'migrations/{migration["id"]}',
-            headers=headers)
+        if status_label is not None:
+            status_label.configure(text=f"{migration['workflow_state']}...")
+        time.sleep(poll_interval)
+        response = requests.get(migration_url, headers=headers)
         if response.ok:
             migration = response.json()
 
@@ -562,7 +581,7 @@ def lock_module_items(course: dict):
     for module in modules:
         for item in module['items']:
             url = f"{api_url}/courses/{course_id}/" \
-                + "blueprint_templates/default/restrict_item"
+                  + "blueprint_templates/default/restrict_item"
             id_ = ""
             type_ = item["type"]
             if type_ == "Assignment":
@@ -637,7 +656,7 @@ def remove_lm_annotations_from_course(course):
         learning materials
     
     Args:
-        object (TYPE): Description
+        course (TYPE): The course to remove
     
     Deleted Parameters:
         course (TYPE): The course to operate on
@@ -681,6 +700,7 @@ def update_syllabus_text(text: str):
     for replacement in syllabus_replacements:
         text = re.sub(replacement['find'], replacement['replace'], text)
     return text
+
 
 def update_syllabus(course_id: int):
     """Summary
@@ -733,7 +753,6 @@ def remove_lm_annotations(text: str) -> str:
     global lm_replacements
 
     for replace in lm_replacements:
-        break
         find = re.compile(replace['find'], flags=re.MULTILINE)
         print(replace['find'])
         text = re.sub('\\n', '\n', text)
@@ -787,13 +806,13 @@ def get_modules(course_id: int) -> list:
         list: A list of module dicts
     """
     url: str = f"{api_url}/courses/{course_id}/modules?" \
-        + "include[]=items&include[]=content_details"
+               + "include[]=items&include[]=content_details"
     print(url)
     return get_paged_data(url)
 
 
 def update_progress_bar(
-        progress_bar: object,
+        progress_bar: ttk.Progressbar,
         value: float,
         maximum: float = 100.0):
     """Summary
@@ -815,15 +834,15 @@ def update_progress_bar(
     ui_root.update()
 
 
-browser_button: object = False
-email_button: object = False
+browser_button: tk.Button | None = None
+email_button: tk.Button | None = None
 
 
 def replace_faculty_profiles(
         *,
         bp_course: dict,
         courses: list,
-        window: object,
+        window: tk.Tk,
         progress_bar: object) -> list:
     """Summary
         Iterates across courses, grabs the instrutor profile pages and updates
@@ -848,8 +867,8 @@ def replace_faculty_profiles(
     if not courses:
         if tk.messagebox.askyesno(
                 message=f"Course {bp_course['name']}"
-                + "does not have associated courses."
-                + "Do you want to just get the bio for this course?"):
+                        + "does not have associated courses."
+                        + "Do you want to just get the bio for this course?"):
 
             courses = [bp_course]
         else:
@@ -885,17 +904,17 @@ def replace_faculty_profiles(
             continue
         if len(profile["bio"]) < 5:
             error_text = error_text + \
-                f'{profile["user"]["name"]} does NOT have a bio we can find\n'
+                         f'{profile["user"]["name"]} does NOT have a bio we can find\n'
         else:
             bio_count = bio_count + 1
             if "email" in profile["user"]:
                 emails.append(profile["user"]["email"])
             else:
                 error_text = error_text + \
-                    ("\nNo Email Found for " + profile["user"]["name"])
+                             ("\nNo Email Found for " + profile["user"]["name"])
 
     dialog_text = f"Finished, {bio_count} " \
-        + f" records updated successfully\n{error_text}"
+                  + f" records updated successfully\n{error_text}"
 
     # this button opens a browser window for each updated course
     if browser_button:
@@ -987,7 +1006,7 @@ def get_course(course_id: int) -> dict:
         dict: A dictionary containing the json parsed course
     """
     url = f'{api_url}/courses/{course_id}' \
-        + '?include[]=term&include[]=grading_periods'
+          + '?include[]=term&include[]=grading_periods'
     response = requests.get(url, headers=headers)
     print(url)
     print(response)
@@ -1100,14 +1119,14 @@ def get_course_profile_from_pages(course, pages):
     instructor = get_canvas_instructor(course["id"])
 
     prompt = f'No instructor found for {course["name"]} ' \
-        + 'do you want to to search for an instructor by name?'
+             + 'do you want to to search for an instructor by name?'
 
     if not instructor:
         while tk.messagebox.askyesno(message=prompt):
-            name = tk.simpledialog.askstring(
+            name = simpledialog.askstring(
                 title="Name",
                 prompt="Please enter the full user name"
-                "of the person you would like to find")
+                       "of the person you would like to find")
 
             result = requests.get(
                 f"{api_url}/accounts/self/users?search_term={name}",
@@ -1124,7 +1143,7 @@ def get_course_profile_from_pages(course, pages):
                 print(result)
                 print(result.json())
                 prompt = f"No results found for {name}. " \
-                    + "Do you want to search for another instructor?"
+                         + "Do you want to search for another instructor?"
         if not instructor:
             return None
 
@@ -1167,8 +1186,8 @@ def get_blueprint_courses(bp_id):
     Returns:
         TYPE: A list of courses associated with this blueprint
     """
-    url = f"{api_url}/courses/{bp_id}/"\
-        "blueprint_templates/default/associated_courses?per_page=50"
+    url = f"{api_url}/courses/{bp_id}/" \
+          "blueprint_templates/default/associated_courses?per_page=50"
     courses = get_paged_data(url)
 
     return courses
@@ -1246,10 +1265,10 @@ def get_instructor_profile_from_pages(user, pages):
         lambda entry: user["name"].lower() in entry["title"].lower(),
 
         lambda entry: last_name.lower() in entry["title"].lower()
-        and first_name.lower() in entry["title"].lower(),
+                      and first_name.lower() in entry["title"].lower(),
 
         lambda entry: last_name.lower() in entry["title"].lower()
-        or first_name.lower() in entry["title"].lower(),
+                      or first_name.lower() in entry["title"].lower(),
     ]
 
     iterations = 0
@@ -1275,8 +1294,8 @@ def get_instructor_profile_from_pages(user, pages):
             if "body" not in potential:
                 continue
             if tk.messagebox.askyesno(
-                message=f"No direct match found for {user['name']}."
-                    f"Do you want to use { potential['title'] }?"):
+                    message=f"No direct match found for {user['name']}."
+                            f"Do you want to use {potential['title']}?"):
                 page = potential
 
     # alert the user if there are no results
@@ -1336,12 +1355,12 @@ def get_instructor_profile_submission(user):
         TYPE: Description
     """
     url = f"{api_url}/courses/{instructor_course_id}" \
-        f"/assignments/{profile_assignment_id}/submissions/{user['id']}"
+          f"/assignments/{profile_assignment_id}/submissions/{user['id']}"
     response = requests.get(url, headers=headers)
     submission = response.json()
     print(submission)
     bio = submission["body"] if (
-        "body" in submission and submission["body"] is not None) else ""
+            "body" in submission and submission["body"] is not None) else ""
     pic_path = ""
     if "attachments" in submission:
         for attachment in submission["attachments"]:
@@ -1362,9 +1381,9 @@ def get_instructor_profile_submission(user):
 
                     for info in zip.infolist():
                         is_image = (
-                            "jpg" in info.filename
-                            or "png" in info.filename
-                            or "jpeg" in info.filename)
+                                "jpg" in info.filename
+                                or "png" in info.filename
+                                or "jpeg" in info.filename)
                         if is_image:
                             pic_path = zip.extract(
                                 info,
@@ -1395,9 +1414,6 @@ def get_instructor_profile_submission(user):
         img_upload_url) > 0 else default_profile_url
 
     return dict(user=user, bio=bio, img_src=img_src, local_image_path=pic_path)
-
-# TODO write this in
-
 
 def resize_image(path, max_width):
     """Summary
@@ -1460,7 +1476,7 @@ def get_instructor_page(user):
         TYPE: Description
     """
     url = f"{api_url}/courses/{profile_pages_course_id}/pages" \
-        + f"?per_page=999&search={urllib.parse.quote(user['name'])}"
+          + f"?per_page=999&search={urllib.parse.quote(user['name'])}"
     response = requests.get(url, headers=headers)
     if response.status_code != 200:
         return None
@@ -1519,7 +1535,7 @@ def get_canvas_instructor(course_id):
         TYPE: Description
     """
     url = f"{api_url}/courses/{course_id}/users?" + \
-        "enrollment_type=teacher"
+          "enrollment_type=teacher"
     response = requests.get(url, headers=headers)
     if response.status_code != 200:
         return None
@@ -1568,7 +1584,8 @@ def get_paged_data(url: str, headers: dict = headers) -> list:
 
 def get_course_id_from_string(course_string: str):
     """Summary
-
+        Gets a course id from a course code matching
+        the course code format (e.g. AAA0000)
     Args:
         course_string(str): The string to match
     Returns:
@@ -1582,14 +1599,14 @@ def get_course_id_from_string(course_string: str):
         return int(id_match.group(1))
     elif course_name_match:
         print(course_name_match)
-        return get_course_by_code(course_name_match.group(1))
+        return get_course_by_code(course_name_match.group(1))['id']
     elif course_root_name_match:
-        return (get_course_by_code(f"BP_{course_root_name_match.group(1)}"))
+        return get_course_by_code(f"BP_{course_root_name_match.group(1)}")['id']
     else:
         return None
 
 
-def get_course_by_code(code: str) -> int:
+def get_course_by_code(code: str) -> dict[str, str] | None:
     """Summary
         attempts to find a course by course code,
         inclusive of starting component
@@ -1613,9 +1630,10 @@ def get_course_by_code(code: str) -> int:
     print(response.json())
     if response.ok and len(response.json()) > 0:
         courses = response.json()
-        return courses[0]['id']
+        return courses[0]
     else:
         return None
 
 
-main()
+if __name__ == "__main__":
+    main()
