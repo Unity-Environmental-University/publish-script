@@ -58,19 +58,13 @@ from PIL import Image
 
 
 syllabus_replacements = [{
-    'find': r'<p>The instructor will conduct [^.]*'
-    r'\(48 hours during weekends\)\.',
-
-    'replace': '<p>The instructor will conduct all correspondence with '
-    r'students related to the class in Canvas, and you should expect to '
-    r'receive a response to emails within 24 hours.'
+    'find': r'<p>The instructor will conduct [^.]*\(48 hours during weekends\)\.',
+    'replace': r'<p>The instructor will conduct all correspondence with students related to the class in Canvas, and you should expect to receive a response to emails within 24 hours.'
 }]
 
 lm_replacements = [
     {
-        'find': r'<p>\[Text for optional primary'
-        r'media element to be written by SME\]</p>',
-
+        'find': r'<p>\[Text for optional primary media element to be written by SME\]</p>',
         'replace': '',
     },
 
@@ -80,8 +74,7 @@ lm_replacements = [
     },
     {
         'find':
-            r'<h3>\[Title for <span style="text-decoration: underline;">'
-            r'optional </span>secondary media element\]</h3>',
+            r'<h3>\[Title for <span style="text-decoration: underline;"> optional </span>secondary media element\]</h3>',
         'replace': '',
     },
     {
@@ -143,8 +136,8 @@ def main():
     label = tk.Label(
         window,
         text="Enter the course code (e.g. BP_ANIM305) or id\n"
-        "(if you are seeing auto-text, you already had a course code "
-        "or id copied)")
+        + "(if you are seeing auto-text, you already had a course code "
+        + "or id copied)")
     label.pack()
 
     course_string_var: object = tk.StringVar(
@@ -221,10 +214,9 @@ def setup_main_ui(
         window (TYPE): The widow to create UI in
         status_label (TYPE): Description
     """
-    bp_id = bp_course['id']
     print(bp_course)
     # source_course_id = get_source_course_id(bp_id)
-    courses = get_blueprint_courses(bp_id)
+    courses = get_blueprint_courses(bp_course['id'])
 
     # Create a progress bar
     progress_bar = ttk.Progressbar(
@@ -234,21 +226,22 @@ def setup_main_ui(
         mode="determinate")
     progress_bar.pack()
 
+
     updates = [
         {
             'name': 'update_syllabus',
             'argument': 'syllabus',
             'message': "Do you want to update syllabus language"
-            " in this and DEV_?",
+            + " in this and DEV_?",
             'func': lambda: [
-                update_syllabus(bp_id),
-                update_syllabus(get_source_course_id(bp_id))]
+                update_syllabus(bp_course['id']),
+                update_syllabus(get_source_course_id(bp_course['id']))]
         },
         {
-            'name': 'remove_lm_annnotations',
+            'name': 'remove_lm_annotations',
             'argument': 'lm',
             'message': "Do you want to remove "
-            f"lm annotations from\n{bp_course['name']}?",
+            + f"lm annotation placeholders from\n{bp_course['name']}?",
             'func': lambda: remove_lm_annotations_from_course(bp_course)
 
         },
@@ -262,13 +255,13 @@ def setup_main_ui(
             'name': 'download_profiles',
             'argument': 'download',
             'message': 'Do you want to '
-            ' redownload the latest faculty profiles?',
+            + ' redownload the latest faculty profiles?',
             'func': lambda: get_faculty_pages(force=True)
         },
         {
             'name': 'sync',
             'message': 'Do you want sync associated courses? \n'
-            'NOTE: You must associate courses by hand before doing this',
+            + 'NOTE: You must associate courses by hand before doing this',
             'error': 'There was a problem syncing\n{e}',
             'func': lambda: begin_course_sync(
                 course=bp_course,
@@ -322,7 +315,7 @@ def opening_dialog(*,
     """Summary
         Starts the process of creating an opening dialog window for the
         application
-    
+
     Args:
         window (object): The base program window to render into
         course (dict): The blueprint course we are working with
@@ -344,8 +337,8 @@ def opening_dialog(*,
 
     def callback(event=None):
         handle_run(
-            updates,
-            status_label)
+            updates=updates,
+            status_label=status_label)
 
     window.bind('<Return>', callback)
 
@@ -383,6 +376,25 @@ def handle_run(updates: list, status_label: object):
             raise e
 
     status_label.config(text=f'Finished!')
+
+
+def reset_course(course: dict) -> object:
+    """Summary
+        Resets the course and returns the reset version of the course
+    Args:
+        course (dict): The course to reset
+
+    Returns:
+        TYPE: The new shiny course
+    """
+    if tk.messagebox.askyesno(
+            title="Do You Want To Reset",
+            message=f"Are you sure you want to reset {course['name']}?'"):
+        url = f'{api_url}/courses/{course["id"]}/reset_content'
+        response = requests.post(url, headers=headers)
+        if response.ok:
+            return requests.json()
+    return False
 
 
 def generate_email(
@@ -448,7 +460,7 @@ def generate_email(
 
         tk.messagebox.showerror(
             message="Error Generating Email."
-            "Text has been copied to an html file which will open now.")
+            + "Text has been copied to an html file which will open now.")
 
         webbrowser.open(
             f"file://{os.path.abspath('email.htm')}",
@@ -603,12 +615,14 @@ def get_source_course_id(course_id: int) -> int:
     Returns:
         int: The course id of the source course
     """
-    migrations = requests.get(
+    response = requests.get(
         f'{api_url}/courses/{course_id}/content_migrations',
-        headers=headers).json()
-    print(migrations)
+        headers=headers)
+    if not response.ok:
+        return False
+    migrations = response.json()
     # if there are no migrations return false
-    if not requests.ok or len(migrations) < 1:
+    if len(migrations) < 1:
         print("No imports found for course {course_id}")
         return False
 
@@ -630,25 +644,26 @@ def remove_lm_annotations_from_course(course):
     """
     course_id = course['id']
     modules = get_modules(course_id)
+
+    def lm_page_filter(item):
+        return item['type'] == 'Page' \
+            and re.search(r'Week \d+ Learning Materials', item['title'])
+
     for module in modules:
         # find an item in the module called "Week ? Learning Materials"
-        lm_page = next((filter(
-            lambda item: item['type'] == 'Page' and re.search(
-                r'Week \d+ Learning Materials', item['title']),
-            module['items'])), None)
+        lm_page = single_filter(lm_page_filter, module['items'])
         if lm_page:
-            full_page = requests.get(lm_page['url'], headers=headers).json()
-
-            body = remove_lm_annnotations(full_page['body'])
+            url = f"{api_url}/courses/{course['id']}/pages/{lm_page['page_url']}"
+            full_page = requests.get(url, headers=headers).json()
+            body = remove_lm_annotations(full_page['body'])
             print(lm_page['url'])
             data = {
                 'wiki_page[body]': body
             }
-            print(data)
-            response = requests.put(lm_page['url'], headers=headers,
-                                    data=data)
-
-            print(response.text)
+            requests.put(
+                lm_page['url'],
+                headers=headers,
+                data=data)
 
 
 def update_syllabus_text(text: str):
@@ -688,7 +703,21 @@ def update_syllabus(course_id: int):
             "course[syllabus_body]": syllabus})
 
 
-def remove_lm_annnotations(text: str) -> str:
+class LmFilters:
+    def cbt_parents(item):
+        return item.has_attr('class') and 'cbt-content' in item['class']
+
+    def lm_narrative(item):
+        is_content_block = item.has_attr('class') and 'cbt-content' in item['class']
+        print(is_content_block)
+        match = re.search(r'(\[\w*LM Narrative|LM Narrative\])', item.text)
+        if match:
+            print(item)
+            print(match)
+        return is_content_block and match
+
+
+def remove_lm_annotations(text: str) -> str:
     """Summary
         Runs a list of regex replacements on html text of a
         Learning Material page (replacements, defined above)
@@ -704,6 +733,7 @@ def remove_lm_annnotations(text: str) -> str:
     global lm_replacements
 
     for replace in lm_replacements:
+        break
         find = re.compile(replace['find'], flags=re.MULTILINE)
         print(replace['find'])
         text = re.sub('\\n', '\n', text)
@@ -716,20 +746,17 @@ def remove_lm_annnotations(text: str) -> str:
     # remove these sections
     soup = BeautifulSoup(text, 'lxml')
     bq = soup.find('blockquote')
-    if bq and "SME" in bq.text:
-        parent = single_filter(
-            lambda item: item.has_attr('class')
-            and 'cbt-content' in item['class'],
-            bq.parents)
-        print(parent)
+    print("BQ", bq)
+    if bq and "SME" in str(bq):
+        parent = single_filter(LmFilters.cbt_parents, bq.parents)
         parent.decompose()
 
     divs = soup.find_all('div')
-    div = single_filter(lambda item: item.has_attr(
-        'class') and 'cbt-content' in item['class']
-        and '[LM Narrative' in item.text, divs)
-    if div:
-        div.decompose()
+    trash_divs = filter(LmFilters.lm_narrative, divs)
+    print(trash_divs)
+    if trash_divs:
+        for div in trash_divs:
+            div.decompose()
 
     out = str(soup.find('body'))
     out = re.sub(r'</?body>', '', out)
@@ -821,8 +848,8 @@ def replace_faculty_profiles(
     if not courses:
         if tk.messagebox.askyesno(
                 message=f"Course {bp_course['name']}"
-                "does not have associated courses."
-                "Do you want to just get the bio for this course?"):
+                + "does not have associated courses."
+                + "Do you want to just get the bio for this course?"):
 
             courses = [bp_course]
         else:
@@ -1031,18 +1058,17 @@ def format_profile_page_newdev(profile, course, homepage):
     body = homepage['body']
     bio_body = profile["bio"]
     # change to api instead of site url
-    data_url = re.sub('.com/', '.com/ap1/v1/', profile['img_src'])
+    img_data_url = re.sub('.com/', '.com/ap1/v1/', profile['img_src'])
     body = re.sub(
         r'<p>\w*<span>\w*Instructor bio coming soon!\w*</span>\w*</p>',
         bio_body,
         body)
     # replace image
-    find_profile_image = r'src="[^"]*"([^>]*)' \
-        + 'alt="male-profile-image-placeholder.png"' \
-        + r'data-api-endpoint="[^"]*"'
+    find_profile_image = r'src="[^"]*"([^>]*) alt="male-profile-image-placeholder.png" data-api-endpoint="[^"]*"'
+    print(re.search(find_profile_image, body))
     homepage = re.sub(
         find_profile_image,
-        f'src="{profile["img_src"]}"\1data-api-endpoint="{data_url}"',
+        f'src="{profile["img_src"]}"\1data-api-endpoint="{img_data_url}"',
         body)
 
     return homepage
@@ -1343,7 +1369,7 @@ def get_instructor_profile_submission(user):
                             pic_path = zip.extract(
                                 info,
                                 f"/{user['name']}{user['id']}"
-                                f"profile{os.path.splitext(info.filename)[1]}")
+                                + f"profile{os.path.splitext(info.filename)[1]}")
 
                 for para in doc.paragraphs:
                     if len(para.text) > 10:
@@ -1353,8 +1379,8 @@ def get_instructor_profile_submission(user):
             elif os.path.splitext(filename)[1] in ['.jpg', '.jpeg', '.png']:
                 with open(
                         f"{user['name']}"
-                        f"{user['id']}profile"
-                        f"{os.path.splitext(filename)[1]}",
+                        + f"{user['id']}profile"
+                        + f"{os.path.splitext(filename)[1]}",
                         "wb") as f:
                     f.write(attachmentData.content)
                     pic_path = os.path.realpath(f.name)
@@ -1434,7 +1460,7 @@ def get_instructor_page(user):
         TYPE: Description
     """
     url = f"{api_url}/courses/{profile_pages_course_id}/pages" \
-        f"?per_page=999&search={urllib.parse.quote(user['name'])}"
+        + f"?per_page=999&search={urllib.parse.quote(user['name'])}"
     response = requests.get(url, headers=headers)
     if response.status_code != 200:
         return None
@@ -1540,7 +1566,7 @@ def get_paged_data(url: str, headers: dict = headers) -> list:
     return out
 
 
-def get_course_id_from_string(course_string: str) -> int:
+def get_course_id_from_string(course_string: str):
     """Summary
 
     Args:
@@ -1563,7 +1589,7 @@ def get_course_id_from_string(course_string: str) -> int:
         return None
 
 
-def get_course_by_code(code: str) -> dict:
+def get_course_by_code(code: str) -> int:
     """Summary
         attempts to find a course by course code,
         inclusive of starting component
