@@ -21,7 +21,7 @@ images/3898528/hometile1.png
 images/
 course_data/
 email.htm
-.idea/
 _constants.json
+__constants.json
+.idea/
 __pycache__/
-constants_live.json
