@@ -24,3 +24,4 @@ email.htm
 _constants.json
 __constants.json
 .idea/
+__pycache__/
