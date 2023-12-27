@@ -826,13 +826,15 @@ def update_syllabus(course_id: int):
 
 
 class LmFilters:
+    @staticmethod
     def cbt_parents(item):
         return item.has_attr('class') and 'cbt-content' in item['class']
 
+    @staticmethod
     def lm_narrative(item):
         is_content_block = item.has_attr('class') and 'cbt-content' in item['class']
         print(is_content_block)
-        match = re.search(r'(\[\w*LM Narrative|LM Narrative\])', item.text)
+        match = re.search(r'(\[\w*LM Narrative|LM Narrative])', item.text)
         if match:
             print(item)
             print(match)
@@ -945,15 +947,15 @@ def replace_faculty_profiles(
         bp_course: dict,
         courses: list,
         window: tk.Tk,
-        progress_bar: object) -> list:
+        progress_bar: ttk.Progressbar) -> list:
     """Summary
-        Iterates across courses, grabs the instrutor profile pages and updates
+        Iterates across courses, grabs the instructor profile pages and updates
         the home page with bio and pic info.
 
     Args:
+        window: The tk window.
         bp_course (dict): The blueprint course governing the courses
         courses (list): A list of courses to update
-        ui_root (object): The root ui window. We can probably get rid of this
         progress_bar (object): The progress bar to update
         at some point as we can access it through progress_bar
         we're editing OR, if not a blueprint, the single course we're
@@ -974,7 +976,7 @@ def replace_faculty_profiles(
 
             courses = [bp_course]
         else:
-            return
+            return courses
 
     pages = get_faculty_pages()
     profiles = []
@@ -1367,12 +1369,13 @@ def get_instructor_profile_from_pages(user, pages):
         lambda entry: user["name"].lower() in entry["title"].lower(),
 
         lambda entry: last_name.lower() in entry["title"].lower()
-                      and first_name.lower() in entry["title"].lower(),
+        and first_name.lower() in entry["title"].lower(),
 
         lambda entry: last_name.lower() in entry["title"].lower()
-                      or first_name.lower() in entry["title"].lower(),
+        or first_name.lower() in entry["title"].lower(),
     ]
 
+    potentials = []
     iterations = 0
     for func in filter_funcs:
         potentials = list(filter(func, pages))
@@ -1382,7 +1385,6 @@ def get_instructor_profile_from_pages(user, pages):
 
     out = dict(user=user, bio="", img="", img_src="")
     page = None
-
 
     # alert the user if there are no results
     if len(potentials) == 0:
@@ -1555,7 +1557,7 @@ def resize_image(path, max_width):
     return output_path
 
 
-#TODO: Finish this when it's not crunch time. 
+#TODO: Finish this when it's not crunch time.
 def upload_image(pic_path: str, course_id: int) -> dict[str, str] | None:
     # Process and upload user image
     modules = get_modules(course_id)
@@ -1673,7 +1675,7 @@ def get_canvas_instructor(course_id):
     return None
 
 
-def get_paged_data(url: str, headers: dict = headers) -> list:
+def get_paged_data(url: str, headers = headers) -> list | None:
     """Summary
         returns a list of data from a get request, going through
         multiple pages of data requests as necessary
