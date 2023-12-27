@@ -98,3 +98,18 @@ class TestCourseResetAndImport(unittest.TestCase):
             get_item_names(flatten_modules(bp_modules)),
             get_item_names(flatten_modules(dev_modules)),
             f"BP modules do not match dev modules.")
+
+    def test_set_blueprint(self):
+        course = get_course_by_code(f'BP_{test_course_code}')
+        self.assertIsNotNone(course, "Can't Find Test Course by code")
+        response_course = set_course_as_blueprint(course)
+        self.assertEqual(
+            response_course['blueprint_restrictions_by_object_type'],
+            {
+                'assignment': {'content': True},
+                'attachment': {'content': True},
+                'discussion_topic': {'content': True},
+                'quiz': {'content': True},
+                'wiki_page': {'content': True}
+            },
+            "Restrictions not properly set on course")

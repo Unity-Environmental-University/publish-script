@@ -229,6 +229,16 @@ def setup_main_ui(
 
     updates = [
         {
+            'name': 'reset_and_import',
+            'argument': 'reset',
+            'message': "Do you want to reset this course and import DEV?",
+            'func': lambda: [
+                reset_course(bp_course),
+                import_dev_course(bp_course),
+                set_course_as_blueprint(bp_course)
+            ]
+        },
+        {
             'name': 'update_syllabus',
             'argument': 'syllabus',
             'message': "Do you want to update syllabus language"
@@ -376,6 +386,22 @@ def handle_run(updates: list, status_label: tk.Label):
             raise e
 
     status_label.config(text=f'Finished!')
+
+
+def set_course_as_blueprint(course: dict[str, str]) -> dict[str, str]:
+    url = f"{api_url}/courses/{course['id']}"
+    payload = {
+        'course[blueprint]': True,
+        'course[use_blueprint_restrictions_by_object_type]': 1,
+        'course[blueprint_restrictions_by_object_type][assignment][content]': 1,
+        'course[blueprint_restrictions_by_object_type][attachment][content]': 1,
+        'course[blueprint_restrictions_by_object_type][discussion_topic][content]': 1,
+        'course[blueprint_restrictions_by_object_type][quiz][content]': 1,
+        'course[blueprint_restrictions_by_object_type][wiki_page][content]': 1,
+    }
+    response = requests.put(url, data=payload, headers=headers)
+    print(response)
+    return response.json()
 
 
 def reset_course(course: dict[str, str]):
