@@ -258,6 +258,7 @@ def setup_main_ui(
             'argument': 'reset',
             'message': "Do you want to reset this course and import DEV?",
             'func': reset_and_import,
+            'hide': True,
         },
         {
             'name': 'update_syllabus',
@@ -287,7 +288,8 @@ def setup_main_ui(
             'message' : "THIS STEP DOES NOTHING\n"
             + "Associate courses by hand on Canvas site.\n"
             + "This step only opens the page for you to do it.",
-            'func': lambda: open_browser_func([f"{html_url}/courses/{bp_course['id']}/settings"])
+            'func': lambda: open_browser_func([f"{html_url}/courses/{bp_course['id']}/settings"]),
+            'hide': True,
 
         },
         {
@@ -354,6 +356,8 @@ def opening_dialog(*,
     """
     checkboxes = []
     for update in updates:
+        if 'hide' in update and update['hide']:
+            continue
         boolVar = tk.BooleanVar()
         button = tk.Checkbutton(
             window,
