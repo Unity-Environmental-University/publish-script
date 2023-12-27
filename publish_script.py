@@ -202,6 +202,12 @@ def course_entry_callback(
         return True
 
 
+def set_api_url(_api_url: str):
+    global api_url
+    api_url = _api_url
+    return api_url
+
+
 def setup_main_ui(
         *,
         bp_course,
@@ -217,8 +223,6 @@ def setup_main_ui(
     """
     print(bp_course)
     # source_course_id = get_source_course_id(bp_id)
-    courses = get_blueprint_courses(bp_course['id'])
-
     # Create a progress bar
     progress_bar = ttk.Progressbar(
         window,
@@ -227,16 +231,33 @@ def setup_main_ui(
         mode="determinate")
     progress_bar.pack()
 
+    def reset_and_import():
+        unset_course_as_blueprint(bp_course),
+        reset_course(bp_course),
+        # ID changes on reset so ge the new one
+        bp_course['id'] = get_course_by_code(bp_course['course_code'])['id']
+
+        import_dev_course(bp_course),
+        set_course_as_blueprint(bp_course)
+
+    unused_updates = [
+        {
+            'name': 'sync',
+            'message': 'Do you want sync associated courses? \n'
+                       + 'NOTE: You must associate courses by hand before doing this',
+            'error': 'There was a problem syncing\n{e}',
+            'func': lambda: begin_course_sync(
+                course=bp_course,
+                progress_bar=progress_bar,
+                status_label=status_label),
+        },
+    ]
     updates = [
         {
             'name': 'reset_and_import',
             'argument': 'reset',
             'message': "Do you want to reset this course and import DEV?",
-            'func': lambda: [
-                reset_course(bp_course),
-                import_dev_course(bp_course),
-                set_course_as_blueprint(bp_course)
-            ]
+            'func': reset_and_import,
         },
         {
             'name': 'update_syllabus',
@@ -262,21 +283,19 @@ def setup_main_ui(
             'func': lambda: lock_module_items(bp_course)
         },
         {
+            'name' : 'associate',
+            'message' : "THIS STEP DOES NOTHING\n"
+            + "Associate courses by hand on Canvas site.\n"
+            + "This step only opens the page for you to do it.",
+            'func': lambda: open_browser_func([f"{html_url}/courses/{bp_course['id']}/settings"])
+
+        },
+        {
             'name': 'download_profiles',
             'argument': 'download',
             'message': 'Do you want to '
-                       + ' redownload the latest faculty profiles?',
+            + ' redownload the latest faculty profiles?',
             'func': lambda: get_faculty_pages(force=True)
-        },
-        {
-            'name': 'sync',
-            'message': 'Do you want sync associated courses? \n'
-                       + 'NOTE: You must associate courses by hand before doing this',
-            'error': 'There was a problem syncing\n{e}',
-            'func': lambda: begin_course_sync(
-                course=bp_course,
-                progress_bar=progress_bar,
-                status_label=status_label),
         },
 
         {
@@ -286,7 +305,8 @@ def setup_main_ui(
             'error': 'There was a problem updating profile pages\n{e}',
             'func': lambda: replace_faculty_profiles(
                 bp_course=bp_course,
-                courses=courses,
+                # get course by code in case it has changed
+                courses=get_blueprint_courses(get_course_by_code(bp_course['course_code'])['id']),
                 window=window,
                 progress_bar=progress_bar),
         },
@@ -295,7 +315,7 @@ def setup_main_ui(
             'message': 'Do you want to publish associated courses?',
             'error': 'There was a problem publishing courses\n{e}',
             'func': lambda: publish_courses(
-                courses=courses),
+                courses=get_blueprint_courses(bp_course['id'])),
         }
     ]
 
@@ -388,6 +408,15 @@ def handle_run(updates: list, status_label: tk.Label):
     status_label.config(text=f'Finished!')
 
 
+def unset_course_as_blueprint(course: dict[str, str]) -> dict[str, str]:
+    url = f"{api_url}/courses/{course['id']}"
+    payload = {
+        'course[blueprint]': False,
+    }
+    response = requests.put(url, data=payload, headers=headers)
+    print(response)
+    return response.json()
+
 def set_course_as_blueprint(course: dict[str, str]) -> dict[str, str]:
     url = f"{api_url}/courses/{course['id']}"
     payload = {
@@ -416,12 +445,15 @@ def reset_course(course: dict[str, str]):
     """
 
     # ask for confirmation if we're not running this imported from another module
-    if __name__ != "__main__" or tk.messagebox.askyesno(
+    if __name__ != "__main__" or messagebox.askyesno(
             title="Do You Want To Reset",
             message=f"Are you sure you want to reset {course['name']}?'"):
+
         url = f'{api_url}/courses/{course["id"]}/reset_content'
         response = requests.post(url, headers=headers)
+        print(response)
         if response.ok:
+            course['id'] = response.json()['id']
             return response.json()
     return False
 
@@ -1351,11 +1383,18 @@ def get_instructor_profile_from_pages(user, pages):
     out = dict(user=user, bio="", img="", img_src="")
     page = None
 
+
+    # alert the user if there are no results
+    if len(potentials) == 0:
+        print("Potentials ")
+        messagebox.showinfo(
+            message=f"No profile found matching {user['name']}")
+        return False
+
     # if we are more than two filters deep,
     # or there are more than one potential user,
     # prompt the user to confirm
-
-    if len(potentials) > 1 or iterations > 2:
+    elif len(potentials) > 1 or iterations > 2:
         print(json.dumps(user, indent=2))
         print("_________________POTENTIALS______________________")
         print(json.dumps(potentials, indent=2))
@@ -1363,22 +1402,16 @@ def get_instructor_profile_from_pages(user, pages):
         for potential in potentials:
             if "body" not in potential:
                 continue
-            if tk.messagebox.askyesno(
+            if messagebox.askyesno(
                     message=f"No direct match found for {user['name']}."
                             f"Do you want to use {potential['title']}?"):
                 page = potential
-
-    # alert the user if there are no results
-    elif len(pages) == 0:
-        tk.messagebox.showinfo(
-            message=f"No profile found matching {user['name']}")
-        return False
 
     # otherwise pick the first result
     else:
         page = potentials[0]
 
-    # Now that we hage the page, grab the instructor info
+    print(len(potentials))
     html = page["body"]
     soup = BeautifulSoup(html, 'html.parser')
 
