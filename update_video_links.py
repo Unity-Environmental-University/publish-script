@@ -7,15 +7,12 @@ import re
 import requests
 from urllib.parse import urlparse, urlunparse
 import os
-import PyPDF2
 import json
-import datetime
 import copy
 import tkinter as tk
 from tkinter import simpledialog
-from tkinter import ttk
 from bs4 import BeautifulSoup
-import argparse
+import publish_script as ps
 
 ADD_LEARNING_MATERIALS = False
 UPDATE_SYLLABUS = True
@@ -320,6 +317,7 @@ def revert_assignment(course_id, assignment_id):
 
     })
   print(response)
+
 
 def revert_discussion(course_id, discussion_id):
   backup = get_backup(course_id, discussion_id, "discussions")
@@ -681,7 +679,6 @@ def get_files_lookup_table(course_id, source_course_id, force=False):
 def get_course(course_id):
   url = f'{api_url}/courses/{course_id}'
   response = requests.get(url, headers=headers)
-  log(response)
   return response.json()
 
 
@@ -838,8 +835,9 @@ def align_rubrics(course_id, source_course_id):
       print(f"Problem with {source_rubric['id']}...")
       print(type(e))
       print(e.args)
-      raise e
       print("---/ERROR---")
+      raise e
+
 
 
 
@@ -861,13 +859,12 @@ def align_assignments(course_id, source_course_id):
 
     module = find_new_module_by_number(number, modules)
 
-    source_assignments = list(
-      filter(
-        lambda item: item["type"] == "Assignment", items)
+    source_assignments = list(filter(lambda item: item["type"] == "Assignment", items))
+
     assignments = list(
       filter(
         lambda item: item["type"] == "Assignment",
-        items)
+        items))
 
     source_discussions = list(
       filter(
@@ -909,7 +906,7 @@ def align_assignments(course_id, source_course_id):
 
 def get_new_file_url(src, course_id, source_course_id):
   files_lut = get_files_lookup_table(course_id, source_course_id)
-  file_match = re.search(r"files\/([0-9]+)", src)
+  file_match = re.search(r"files/([0-9]+)", src)
   if file_match:
     groups = file_match.groups()
     source_id = groups[0]
@@ -927,7 +924,7 @@ def get_new_file_url(src, course_id, source_course_id):
 def get_new_assignment_url(src, course_id, source_course_id):
   assignments_lut = get_assignments_lookup_table(course_id, source_course_id)
 
-  file_match = re.search(r"(assignments|discussion_topics)\/([0-9]+)", src)
+  file_match = re.search(r"(assignments|discussion_topics)/([0-9]+)", src)
 
   if file_match:
     type_url_part = file_match.groups()[0]
@@ -956,7 +953,7 @@ def get_new_assignment_url(src, course_id, source_course_id):
 
 def get_new_page_url(src, course_id, source_course_id):
   #naively update link by keeping same path and updating course if
-  page_match = re.search(fr"courses\/{source_course_id}/pages\/(.+)", src)
+  page_match = re.search(fr"courses/{source_course_id}/pages/(.+)", src)
   print(f"Remapping page {src}")
   if page_match:
     groups = page_match.groups()
@@ -1063,12 +1060,12 @@ def handle_discussion(item, source_item, course_id, source_course_id, put_url, i
   source_name = source_item["title"]
   name = item["title"]
 
-  #sets the display number of the discussion (e.g. discussion 2) only if there are more than one of them
+  # sets the display number of the discussion (e.g. discussion 2) only if there are more than one of them
   display_number = ""
   if total > 1:
     display_number = f"{index + 1} "
 
-  #split the header into components for use later
+  # split the header into components for use later
   new_name, title, subhead = get_new_name_title_and_subhead(source_name, format_title, display_number)
   print(f"migrating {source_name} to {new_name}")
 
@@ -1471,7 +1468,7 @@ def get_file_url_by_name(course_id, file_search):
   files = response.json()
   if len(files) > 0:
     return files[0]["url"]
-  return false
+  return False
 
 def update_syllabus_and_overview(course_id, source_course_id):
 
@@ -2199,30 +2196,6 @@ def get_paged_data(url, headers=headers):
         next_page_link = ""  
 
   return out
-
-def update_assignment_dates():
-  assignments = get_paged_data(f"{api_url}/courses/{course_id}/assignments?include=due_at")
-  update_date_data = []
-  for assignment in assignments:
-    print(assignment["due_at"])
-    due_at = datetime.datetime.fromisoformat(assignment["due_at"])
-    due_at = due_at + datetime.timedelta(days=offset)
-    response = requests.put(f"{api_url}/courses/{course_id}/assignments/{assignment['id']}",
-      headers = headers,
-      json = {
-          
-          "assignment" : {
-            "id" : assignment["id"],
-            "due_at" : due_at.isoformat()
-        }
-      }
-    )
-    if response.status_code == 200:
-      print(f"Changed date of {assignment['name']} to {due_at}")
-    else:
-      print(f"Error changing date of {assignment['name']}")
-      print(response.status_code)
-      print(response.text)
 
 
 main()
