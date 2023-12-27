@@ -1511,12 +1511,15 @@ def get_instructor_profile_submission(user):
     img_upload_url = ""
     if len(pic_path) > 0:
         pic_path = resize_image(pic_path, max_profile_image_size)
-        img_upload_url = upload_image(pic_path, instructor_course_id)
+        img_upload = upload_image(pic_path, instructor_course_id)
 
-    img_src = img_upload_url if len(
-        img_upload_url) > 0 else default_profile_url
+
+    img_src = img_upload_url if\
+        len(img_upload_url) > 0 \
+        else default_profile_url
 
     return dict(user=user, bio=bio, img_src=img_src, local_image_path=pic_path)
+
 
 def resize_image(path, max_width):
     """Summary
@@ -1552,22 +1555,42 @@ def resize_image(path, max_width):
     return output_path
 
 
-# TODO: Write this function
-def upload_image(pic_path: str, course_id: int) -> str:
-    """Summary
-        NOT IMPLEMENTED
-        Uploads a locally stored image to a course and returns the url
-        path to that file
+#TODO: Finish this when it's not crunch time. 
+def upload_image(pic_path: str, course_id: int) -> dict[str, str] | None:
+    # Process and upload user image
+    modules = get_modules(course_id)
+    # get the correct folder id
+    url = f"{api_url}/courses/{course_id}/folders/by_path/Images/"
+    response = requests.get(url, headers=headers)
+    folders = response.json()
+    upload_folder = folders[-1]
 
-    Args:
-        pic_path (str): The local
-        course_id (int): Description
+    # upload the file
+    file_url = f"{api_url}/courses/{course_id}/files"
+    print(f"uploading {pic_path} to {file_url}")
+    data = {
+        "name": os.path.basename(pic_path),
+        "no_redirect": True,
+        "parent_folder_id": upload_folder["id"],
+        "on_duplicate": "overwrite"
+    }
 
-    Returns:
-        str: Description
-    """
-    return ""
+    response = requests.post(file_url, data=data, headers=headers)
 
+    if response.ok:
+        response_data = response.json()
+        files = {"file": open(pic_path, 'rb')}
+        url = response_data["upload_url"]
+        response = requests.post(url, files=files, data=response_data['upload_params'])
+        print(response)
+        if not response.ok:
+            print(response.text)
+            return None
+
+        if response.is_redirect:
+            response = requests.Session().send(response.next)
+
+        return response.json()
 
 def get_instructor_page(user):
     """Summary
@@ -1588,9 +1611,9 @@ def get_instructor_page(user):
     pagination_links = response.headers["Link"].split(",")
     next_page_link = pagination_links[1].split(";")[0].split("<")[
         1].split(">")[0]
-    firstTime = True
-    while len(pagination_links) > 4 or firstTime:
-        firstTime = False
+    first_time = True
+    while len(pagination_links) > 4 or first_time:
+        first_time = False
         print(len(pagination_links))
         # Make a request to the next page
         response = requests.get(next_page_link, headers=headers)

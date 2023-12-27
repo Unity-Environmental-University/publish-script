@@ -122,3 +122,9 @@ class TestCourseResetAndImport(unittest.TestCase):
                 'wiki_page': {'content': True}
             },
             "Restrictions not properly set on course")
+
+    def test_upload_profile_pic(self):
+        course = publish_script.get_course_by_code(f'BP_{test_course_code}')
+        upload = publish_script.upload_image('test.png', int( course['id']))
+
+
