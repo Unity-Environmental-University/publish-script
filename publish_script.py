@@ -66,7 +66,7 @@ syllabus_replacements = [{
 
 lm_replacements = [
     {
-        'find': r'<p>\[Text for optional primary media element to be written by SME\]</p>',
+        'find': r'<p>\[Text[^\]]*by SME.[^\]]*\]</p>',
         'replace': '',
     },
 
@@ -283,7 +283,7 @@ def setup_main_ui(
             'name': 'lock',
             'argument': 'lock',
             'message': 'Do you want to lock bluprint module items?',
-            'func': lambda: lock_module_items(bp_course)
+            'func': lambda: lock_module_items(bp_course, progress_bar)
         },
         {
             'name' : 'associate',
@@ -657,6 +657,7 @@ def poll_migration(
         if response.ok:
             migration = response.json()
 
+    update_progress_bar(progress_bar, 100)
     print(response)
     print(response.content)
     return migration
@@ -682,7 +683,7 @@ def publish_courses(*, courses: list):
         print(response.content)
 
 
-def lock_module_items(course: dict):
+def lock_module_items(course: dict, progress_bar = None):
     """Summary
         Locks all module items in a blueprint course
 
@@ -691,11 +692,17 @@ def lock_module_items(course: dict):
     """
     course_id = course['id']
     modules = get_modules(course_id)
+    total = 0
+    for module in modules:
+        total = total + len(module['items'])
+    i = 0
+    update_progress_bar(progress_bar, 0)
     for module in modules:
         for item in module['items']:
             url = f"{api_url}/courses/{course_id}/" \
                   + "blueprint_templates/default/restrict_item"
             id_ = ""
+            i = i + 1
             type_ = item["type"]
             if type_ == "Assignment":
                 type_ = "assignment"
@@ -735,6 +742,10 @@ def lock_module_items(course: dict):
                 print(response)
                 print(response.text)
                 print(json.dumps(item, indent=2))
+
+            update_progress_bar(progress_bar, i, total)
+
+        update_progress_bar(progress_bar, 100, 100)
 
 
 def get_source_course_id(course_id: int) -> int:
@@ -870,9 +881,7 @@ def remove_lm_annotations(text: str) -> str:
     for replace in lm_replacements:
         find = re.compile(replace['find'], flags=re.MULTILINE)
         print(replace['find'])
-        text = re.sub('\\n', '\n', text)
-        text = re.sub(r'(\s)\s+', '\1', text)
-        match = re.findall(find, text.format())
+        match = re.search(find, text)
         if match:
             print("FOUND", match)
             text = re.sub(find, replace['replace'], text)
