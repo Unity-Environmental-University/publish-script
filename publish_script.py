@@ -66,7 +66,7 @@ syllabus_replacements = [{
 
 lm_replacements = [
     {
-        'find': r'<p>\[Text[^\]]*by SME.[^\]]*\]</p>',
+        'find': r'<p>\[Text[^\]]*by SME[^\]]*\]</p>',
         'replace': '',
     },
 
@@ -745,7 +745,7 @@ def lock_module_items(course: dict, progress_bar = None):
 
             update_progress_bar(progress_bar, i, total)
 
-        update_progress_bar(progress_bar, 100, 100)
+    update_progress_bar(progress_bar, 100, 100)
 
 
 def get_source_course_id(course_id: int) -> int:
@@ -1780,6 +1780,9 @@ def get_course_by_code(code: str, params: dict={}) -> dict[str, str] | None:
     print(response.json())
     if response.ok and len(response.json()) > 0:
         courses = response.json()
+        # if there's more than one, pick the most recently created one
+        if len(courses) > 1:
+            courses.sort(reverse=True, key=lambda course: course['id'])
         return courses[0]
     else:
         return None
