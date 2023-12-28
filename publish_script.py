@@ -323,15 +323,17 @@ def setup_main_ui(
 
     # Check if the arguments are on the
     # command line and run those options that are
-    if len(sys.argv) > 2:
-        for update in updates:
-            if update['name'] in sys.argv \
-                    or 'argument' in update \
-                    and update['argument'] in sys.argv:
-                update['func']()
+
+    ran_command_line = False
+    for update in updates:
+        if update['name'] in sys.argv \
+                or 'argument' in update \
+                and update['argument'] in sys.argv:
+            update['func']()
+            ran_command_line = True
 
     # if we don't have any arguments past the id, go into interactive mode
-    else:
+    if not ran_command_line:
         opening_dialog(
             course=bp_course,
             updates=updates,
@@ -356,9 +358,10 @@ def opening_dialog(*,
     """
     checkboxes = []
     for update in updates:
-        if 'hide' in update and update['hide']:
-            continue
         boolVar = tk.BooleanVar()
+        update['run'] = boolVar
+        if 'hide' in update and update['hide'] and not "hidden" in sys.argv:
+            continue
         button = tk.Checkbutton(
             window,
             text=update['message'],
@@ -366,7 +369,6 @@ def opening_dialog(*,
             offvalue=False,
             variable=boolVar)
         checkboxes.append(button)
-        update['run'] = boolVar
         button.pack()
 
     def callback(event=None):
@@ -425,12 +427,11 @@ def set_course_as_blueprint(course: dict[str, str]) -> dict[str, str]:
     url = f"{api_url}/courses/{course['id']}"
     payload = {
         'course[blueprint]': True,
-        'course[use_blueprint_restrictions_by_object_type]': 1,
-        'course[blueprint_restrictions_by_object_type][assignment][content]': 1,
-        'course[blueprint_restrictions_by_object_type][attachment][content]': 1,
-        'course[blueprint_restrictions_by_object_type][discussion_topic][content]': 1,
-        'course[blueprint_restrictions_by_object_type][quiz][content]': 1,
-        'course[blueprint_restrictions_by_object_type][wiki_page][content]': 1,
+        'course[use_blueprint_restrictions_by_object_type]': 0,
+        'course[blueprint_restrictions][content]': 1,
+        'course[blueprint_restrictions][points]': 1,
+        'course[blueprint_restrictions][due_dates]': 1,
+        'course[blueprint_restrictions][availability_dates]': 1,
     }
     response = requests.put(url, data=payload, headers=headers)
     print(response)
@@ -958,7 +959,7 @@ def replace_faculty_profiles(
 
     Args:
         window: The tk window.
-        bp_course (dict): The blueprint course governing the courses
+        bp_course (dict): The blueprint course governing the courses.
         courses (list): A list of courses to update
         progress_bar (object): The progress bar to update
         at some point as we can access it through progress_bar
@@ -1038,8 +1039,6 @@ def replace_faculty_profiles(
         browser_button.pack()
 
     def email_func():
-        """Summary
-        """
         generate_email(
             course=bp_course,
             courses=courses,
@@ -1062,6 +1061,7 @@ def replace_faculty_profiles(
 
 def open_browser_func(urls):
     """
+    Opens a list of urls in a web browser
     Args:
         urls (list): A list of urls
     """
@@ -1160,9 +1160,9 @@ def format_profile_page(profile, course, homepage):
 
 def clean_up_bio(html):
     """Summary
-
+    Strips out empty html tags
     Args:
-        html (TYPE): Description
+        html (TYPE): The html of the faculty bio
 
     Returns:
         TYPE: Description
@@ -1333,7 +1333,7 @@ def overwrite_home_page(profile: dict, course: dict) -> str:
 
     if response.status_code != 200:
         raise Exception(
-            'Failed to get homepage of course: {}'.format(
+            'Failed to get homepage of course: {}\nAre the associated sections still Syncing?'.format(
                 response.status_code))
 
     homepage_html = response.json()['body']
@@ -1461,7 +1461,7 @@ def get_instructor_profile_submission(user):
         user (TYPE): Description
 
     Returns:
-        TYPE: Description
+        dict: returns a dictionary containing the user, bio, image url, and a local path to the downloaded profile pic
     """
     url = f"{api_url}/courses/{instructor_course_id}" \
           f"/assignments/{profile_assignment_id}/submissions/{user['id']}"
@@ -1517,11 +1517,11 @@ def get_instructor_profile_submission(user):
     img_upload_url = ""
     if len(pic_path) > 0:
         pic_path = resize_image(pic_path, max_profile_image_size)
-        img_upload = upload_image(pic_path, instructor_course_id)
+        img_upload_url = "" # upload_image(pic_path, instructor_course_id)
 
 
     img_src = img_upload_url if\
-        len(img_upload_url) > 0 \
+        img_upload_url and len(img_upload_url) > 0 \
         else default_profile_url
 
     return dict(user=user, bio=bio, img_src=img_src, local_image_path=pic_path)
@@ -1561,7 +1561,7 @@ def resize_image(path, max_width):
     return output_path
 
 
-#TODO: Finish this when it's not crunch time.
+# TODO: Finish this when it's not crunch time.
 def upload_image(pic_path: str, course_id: int) -> dict[str, str] | None:
     # Process and upload user image
     modules = get_modules(course_id)
@@ -1597,6 +1597,7 @@ def upload_image(pic_path: str, course_id: int) -> dict[str, str] | None:
             response = requests.Session().send(response.next)
 
         return response.json()
+
 
 def get_instructor_page(user):
     """Summary
@@ -1766,6 +1767,13 @@ def get_course_by_code(code: str, params: dict={}) -> dict[str, str] | None:
         return courses[0]
     else:
         return None
+
+
+def ensure_directory_exists(directory_path):
+    # Ensure the directory exists; create if not
+    if not os.path.exists(directory_path):
+        os.makedirs(directory_path)
+
 
 if __name__ == "__main__":
     main()

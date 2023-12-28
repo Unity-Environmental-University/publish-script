@@ -96,7 +96,7 @@ def main():
   if not source_course_id or source_course_id == 0:
     code = course["course_code"].split("_")[1][0:7]
     print("Code", code)
-    #look for dep or deprecated first
+    # look for dep or deprecated first
 
     response = requests.get(f"{api_url}/accounts/{account_id}/courses", headers=headers, params = {"search_term" : f"DEPRECATED_{code}"} )
     courses = response.json()
@@ -105,7 +105,7 @@ def main():
       response = requests.get(f"{api_url}/accounts/{account_id}/courses", headers=headers, params = {"search_term" : f"DEP_{code}"} )
       courses = response.json()
       print(courses)
-      #if that's not there, look for DEV assuming DEP has not been made
+      # if that's not there, look for DEV assuming DEP has not been made
     if len(courses) == 0:
       response = requests.get(f"{api_url}/accounts/{account_id}/courses", headers=headers, params = {"search_term" : f"DEV_{code}"} )
       courses = response.json()

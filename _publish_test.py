@@ -71,6 +71,12 @@ class TestMisc(unittest.TestCase):
             f'flattened_modules={flattened_modules}')
 
 
+class TestContentFixes(unittest.TestCase):
+    def test_fix_intro_header(self):
+        course = publish_script.get_course_by_code(f'BP_{test_course_code}')
+        self.assertIsNotNone(course, "Can't Find Test Course by code")
+
+
 class TestCourseResetAndImport(unittest.TestCase):
     def test_reset(self):
         course = publish_script.get_course_by_code(f'BP_{test_course_code}')
@@ -112,16 +118,15 @@ class TestCourseResetAndImport(unittest.TestCase):
         course = publish_script.get_course_by_code(f'BP_{test_course_code}')
         self.assertIsNotNone(course, "Can't Find Test Course by code")
         response_course = publish_script.set_course_as_blueprint(course)
+        print(response_course['blueprint_restrictions'])
         self.assertEqual(
-            response_course['blueprint_restrictions_by_object_type'],
+            response_course['blueprint_restrictions'],
             {
-                'assignment': {'content': True},
-                'attachment': {'content': True},
-                'discussion_topic': {'content': True},
-                'quiz': {'content': True},
-                'wiki_page': {'content': True}
+                'content': True,
+                'points': True,
+                'due_dates': True,
+                'availability_dates': True,
             },
             "Restrictions not properly set on course")
-
 
 
