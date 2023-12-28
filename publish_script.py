@@ -125,7 +125,7 @@ def main():
 
     window = tk.Tk()
     window.geometry("600x400")
-    initial_value = ""
+    initial_value = None
     if len(sys.argv) > 1:
         initial_value = sys.argv[1]
     else:
@@ -169,6 +169,8 @@ def main():
         command=callback)
     button.pack()
 
+    if(initial_value != None):
+        callback()
     window.mainloop()
 
 
@@ -237,7 +239,7 @@ def setup_main_ui(
         # ID changes on reset so ge the new one
         bp_course['id'] = get_course_by_code(bp_course['course_code'])['id']
 
-        import_dev_course(bp_course),
+        import_dev_course(bp_course, progress_bar=progress_bar),
         set_course_as_blueprint(bp_course)
 
     unused_updates = [
@@ -423,6 +425,7 @@ def unset_course_as_blueprint(course: dict[str, str]) -> dict[str, str]:
     print(response)
     return response.json()
 
+
 def set_course_as_blueprint(course: dict[str, str]) -> dict[str, str]:
     url = f"{api_url}/courses/{course['id']}"
     payload = {
@@ -463,7 +466,7 @@ def reset_course(course: dict[str, str]):
     return False
 
 
-def import_dev_course(bp_course: dict):
+def import_dev_course(bp_course: dict, progress_bar=None):
     """
     Imports the dev version of a BP course into the BP course
 
@@ -483,10 +486,10 @@ def import_dev_course(bp_course: dict):
                 f"Are you sure you want to import {dev_course['name']} into {bp_course['name']}?"):
             return None
 
-    return import_course(bp_course, dev_course)
+    return import_course(bp_course, dev_course, progress_bar=progress_bar)
 
 
-def import_course(dest_course: dict, source_course: dict) -> dict:
+def import_course(dest_course: dict, source_course: dict, progress_bar = None) -> dict:
     """
         Copies source course into destination course. Returns the migration object
         once the migration is finished.
@@ -505,7 +508,7 @@ def import_course(dest_course: dict, source_course: dict) -> dict:
     response = requests.post(url, data=payload, headers=headers)
     print(response)
     if response.ok:
-        return poll_migration(migration=response.json())
+        return poll_migration(migration=response.json(), progress_bar=progress_bar)
 
 
 def generate_email(
@@ -525,7 +528,10 @@ def generate_email(
         window (object): Description
         I may change this to example_course_data
     """
-    with open("email_template.html", 'r') as f:
+    template = ""
+    custom_email_path = "email_template.custom.html"
+    email_path = custom_email_path if os.path.exists(custom_email_path) else "email_template.html"
+    with open(email_path, 'r') as f:
         template = f.read()
 
     code = course["course_code"][3:]
@@ -644,7 +650,7 @@ def poll_migration(
         print(migration['workflow_state'])
         if status_label is not None:
             status_label.configure(text=f"{migration['workflow_state']}...")
-        if progress_bar is not None:
+        if progress_bar is not None and 'completion' in migration:
             update_progress_bar(progress_bar, migration['completion'])
         time.sleep(poll_interval)
         response = requests.get(migration_url, headers=headers)
@@ -1149,8 +1155,9 @@ def format_profile_page(profile, course, homepage):
 
             img_src=profile["img_src"],
             bio=profile["bio"])
+        text = clean_up_bio(text)
 
-    text = clean_up_bio(text)
+    ensure_directory_exists('profiles')
     profile_path = f'profiles/{profile["user"]["id"]}_{course["id"]}.htm'
     with open(profile_path, 'wb') as f:
         f.write(text.encode("utf-8", "replace"))
@@ -1167,7 +1174,7 @@ def clean_up_bio(html):
     Returns:
         TYPE: Description
     """
-    html = re.sub(r'<p>\w*(&nbsp;)?\w*</p>', '', html)
+    #html = re.sub(r'<p>\w*(&nbsp;)?\w*</p>', '', html)
     return html
 
 
