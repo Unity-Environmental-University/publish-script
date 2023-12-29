@@ -37,6 +37,8 @@ Deleted Attributes:
     email_button (bool): A button that tries to email professors
         associated with courses
 """
+import inspect
+
 try:
     import aiohttp
 except ImportError:
@@ -292,7 +294,8 @@ def setup_main_ui(
             'name': 'lock',
             'argument': 'lock',
             'message': 'Do you want to lock bluprint module items?',
-            'func': lambda: asyncio.create_task(lock_module_items(bp_course, progress_bar))
+            'func': lock_module_items_async(bp_course, progress_bar) if aiohttp else
+            lambda: lock_module_items(bp_course, progress_bar)
         },
         {
             'name' : 'associate',
@@ -332,24 +335,11 @@ def setup_main_ui(
         }
     ]
 
-    # Check if the arguments are on the
-    # command line and run those options that are
-
-    ran_command_line = False
-    for update in updates:
-        if update['name'] in sys.argv \
-                or 'argument' in update \
-                and update['argument'] in sys.argv:
-            value = update['func']()
-            ran_command_line = True
-
-    # if we don't have any arguments past the id, go into interactive mode
-    if not ran_command_line:
-        opening_dialog(
-            course=bp_course,
-            updates=updates,
-            window=window,
-            status_label=status_label)
+    asyncio.run(opening_dialog(
+        course=bp_course,
+        updates=updates,
+        window=window,
+        status_label=status_label))
 
 
 async def opening_dialog(*,
@@ -367,36 +357,46 @@ async def opening_dialog(*,
         updates (list): The Updates to run
         status_label (object): Description
     """
-    checkboxes = []
+    ran_command_line = False
     for update in updates:
-        boolVar = tk.BooleanVar()
-        update['run'] = boolVar
-        if 'hide' in update and update['hide'] and not "hidden" in sys.argv:
-            continue
-        button = tk.Checkbutton(
-            window,
-            text=update['message'],
-            onvalue=True,
-            offvalue=False,
-            variable=boolVar)
-        checkboxes.append(button)
+        if update['name'] in sys.argv \
+                or 'argument' in update \
+                and update['argument'] in sys.argv:
+            value = await update['func']
+            ran_command_line = True
+    if ran_command_line:
+        return
+    else:
+        checkboxes = []
+        for update in updates:
+            boolVar = tk.BooleanVar()
+            update['run'] = boolVar
+            if 'hide' in update and update['hide'] and not "hidden" in sys.argv:
+                continue
+            button = tk.Checkbutton(
+                window,
+                text=update['message'],
+                onvalue=True,
+                offvalue=False,
+                variable=boolVar)
+            checkboxes.append(button)
+            button.pack()
+
+        def callback(event=None):
+            asyncio.run(handle_run(
+                updates=updates,
+                status_label=status_label))
+
+        window.bind('<Return>', callback)
+
+        button = tk.Button(
+            master=window,
+            text="Run",
+            command=callback)
         button.pack()
 
-    def callback(event=None):
-        handle_run(
-            updates=updates,
-            status_label=status_label)
 
-    window.bind('<Return>', callback)
-
-    button = tk.Button(
-        master=window,
-        text="Run",
-        command=callback)
-    button.pack()
-
-
-def handle_run(updates: list, status_label: tk.Label):
+async def handle_run(updates: list, status_label: tk.Label):
     """Summary
         Callback for when the user clicks 'run' on the opening dialog
         Iterates across the workflow options to check which are true
@@ -415,7 +415,11 @@ def handle_run(updates: list, status_label: tk.Label):
                 status_label.config(text=f"Running {update['name']}")
                 window.update()
                 print(update)
-                update['func']()
+                print(inspect.isawaitable(update['func']))
+                if inspect.isawaitable(update['func']):
+                    await update['func']
+                else:
+                    update['func']()
         except Exception as e:
             messagebox.showerror(message=update['error'].format(
                 e=str(e)) + "\n" + traceback.format_exc())
@@ -740,9 +744,6 @@ def lock_module_items(course: dict, progress_bar: ttk.Progressbar | None = None,
         progress_bar (ttk.ProgressBar, optional): A progress bar object to update
         course (dict): The course to lock items on
     """
-    if aiohttp and not synchronous:
-        asyncio.run(lock_module_items_async(course, progress_bar))
-        return
 
     course_id = course['id']
     modules = get_modules(course_id)
@@ -782,7 +783,7 @@ def lock_module_items(course: dict, progress_bar: ttk.Progressbar | None = None,
     return successes > 0 and failures == 0
 
 
-async def lock_module_items_async(course, progress_bar):
+async def lock_module_items_async(course, progress_bar=None):
     # Get modules using asynchronous API call
     modules = get_modules(course['id'])
 
@@ -793,15 +794,27 @@ async def lock_module_items_async(course, progress_bar):
         total = total + len(module['items'])
 
     i = 0
+    successes = 0
+    failures = 0
     async with asyncio.TaskGroup() as tg:
         for module in modules:
             for item in module['items']:
                 async def lock(item):
+                    nonlocal successes
+                    nonlocal failures
                     nonlocal i
-                    await lock_module_item_async(course, item, progress_bar)
+                    success = await lock_module_item_async(course, item, progress_bar)
+                    if success:
+                        successes = successes + 1
+                    elif success is not None:
+                        failures = failures + 1
                     i = i + 1
                     update_progress_bar(progress_bar, i, total)
                 tg.create_task(lock(item))
+        if failures > 0:
+            return False
+        else:
+            return True
 
 
 async def lock_module_item_async(course, item, progress_bar=None):
@@ -816,10 +829,18 @@ async def lock_module_item_async(course, item, progress_bar=None):
         "content_id": id_,
         "restricted": True,
     }
-    # Make asynchronous HTTP request to fetch page ID
-    async with aiohttp.ClientSession() as session:
-        async with session.put(url, headers=headers, data=data) as response:
-            response = await response.text()
+
+    if type_:
+        # Make asynchronous HTTP request to fetch page ID
+        async with aiohttp.ClientSession() as session:
+            async with session.put(url, headers=headers, data=data) as response:
+                text = await response.text()
+                if response.ok:
+                    return True
+                else:
+                    return False
+    else:
+        return None
 
 
 def get_item_type_and_id(item: dict) -> tuple[Any, Any | None] | tuple[None, None]:

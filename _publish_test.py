@@ -135,10 +135,12 @@ class TestCourseResetAndImport(unittest.TestCase):
             },
             "Restrictions not properly set on course")
 
-    def test_lock(self):
+
+class TestLocking(unittest.IsolatedAsyncioTestCase):
+    async def test_lock(self):
         course = get_test_course()
         self.assertIsNotNone(course, "Can't Find Test Course by code")
-        self.assertTrue(publish_script.lock_module_items(course), "locking did not succeed")
+        self.assertTrue(await publish_script.lock_module_items_async(course), "locking did not succeed")
 
     def test_lock_sync(self):
         course = get_test_course()
