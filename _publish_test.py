@@ -1,9 +1,11 @@
+import csv
 import functools
 import unittest
 import publish_script
 import re
 import requests
 import json
+import csv
 from functools import reduce
 CONSTANTS_FILE = 'constants_test.json'
 with open(CONSTANTS_FILE) as f:
@@ -31,7 +33,7 @@ for account in accounts:
 
 ACCOUNT_ID = account_ids['Distance Education']
 ROOT_ACCOUNT_ID = account_ids['Unity College']
-
+api_url = publish_script.api_url
 test_course_code: str = 'TEST000'
 
 print(publish_script.api_url)
