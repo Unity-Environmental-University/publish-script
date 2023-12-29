@@ -1696,7 +1696,7 @@ def get_canvas_instructor(course_id):
     return None
 
 
-def get_paged_data(url: str, headers = headers) -> list | None:
+def get_paged_data(url: str, headers = headers, params = {}) -> list | None:
     """Summary
         returns a list of data from a get request, going through
         multiple pages of data requests as necessary
@@ -1708,7 +1708,7 @@ def get_paged_data(url: str, headers = headers) -> list | None:
     Returns:
         list: Description
     """
-    response = requests.get(url, headers=headers)
+    response = requests.get(url, headers=headers, params=params)
     out = response.json()
     if not response.ok:
         return None
@@ -1721,7 +1721,7 @@ def get_paged_data(url: str, headers = headers) -> list | None:
             if 'next' in link:
                 next_page_link = link.split(";")[0].split("<")[1].split(">")[0]
                 print(next_page_link)
-                response = requests.get(next_page_link, headers=headers)
+                response = requests.get(next_page_link, headers=headers, params=params)
                 out = out + response.json()
                 break
             else:
@@ -1755,7 +1755,7 @@ def get_course_id_from_string(course_string: str):
         return None
 
 
-def get_course_by_code(code: str, params: dict={}) -> dict[str, str] | None:
+def get_course_by_code(code: str, params: dict={}, return_list=False) -> dict[str, str] | None:
     """Summary
         attempts to find a course by course code,
         inclusive of starting component
@@ -1763,6 +1763,7 @@ def get_course_by_code(code: str, params: dict={}) -> dict[str, str] | None:
         course sections
 
     Args:
+        return_list: True if you want to return a list of courses that match
         params: any params to be passed to the call
         code (str): The course code
 
@@ -1772,21 +1773,22 @@ def get_course_by_code(code: str, params: dict={}) -> dict[str, str] | None:
     """
     url = f"{api_url}/accounts/{ROOT_ACCOUNT_ID}/courses?"
     print(url)
-    response = requests.get(
+    courses = get_paged_data(
         url,
         headers=headers,
         params={"search_term": f"{code}", **params})
-    print(response)
-    print(response.json())
-    if response.ok and len(response.json()) > 0:
-        courses = response.json()
-        # if there's more than one, pick the most recently created one
-        if len(courses) > 1:
-            courses.sort(reverse=True, key=lambda course: course['id'])
-        return courses[0]
-    else:
-        return None
+    if courses and len(courses) > 1:
+        courses.sort(reverse=True, key=lambda course: course['id'])
 
+    return courses if return_list else courses[0]
+
+
+def get_sections(course):
+    url = f'{api_url}/courses/{course["id"]}/sections?include[]=students&include[]=enrollments'
+    sections = requests.get(url, headers=headers, data={
+        "include[]": "enrollments"
+    }).json()
+    return(sections)
 
 def ensure_directory_exists(directory_path):
     # Ensure the directory exists; create if not
