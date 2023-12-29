@@ -37,7 +37,15 @@ Deleted Attributes:
     email_button (bool): A button that tries to email professors
         associated with courses
 """
+try:
+    import aiohttp
+except ImportError:
+    aiohttp = None
+    print("aiohttp not loaded, no async operations")
+
+import asyncio
 import datetime
+from typing import *
 import json
 import os
 import re
@@ -50,6 +58,7 @@ import webbrowser
 import zipfile
 from tkinter import messagebox, StringVar, simpledialog
 from tkinter import ttk
+from typing import Tuple, Any
 
 import docx
 import requests
@@ -283,7 +292,7 @@ def setup_main_ui(
             'name': 'lock',
             'argument': 'lock',
             'message': 'Do you want to lock bluprint module items?',
-            'func': lambda: lock_module_items(bp_course, progress_bar)
+            'func': lambda: asyncio.create_task(lock_module_items(bp_course, progress_bar))
         },
         {
             'name' : 'associate',
@@ -331,7 +340,7 @@ def setup_main_ui(
         if update['name'] in sys.argv \
                 or 'argument' in update \
                 and update['argument'] in sys.argv:
-            update['func']()
+            value = update['func']()
             ran_command_line = True
 
     # if we don't have any arguments past the id, go into interactive mode
@@ -343,7 +352,7 @@ def setup_main_ui(
             status_label=status_label)
 
 
-def opening_dialog(*,
+async def opening_dialog(*,
                    course: dict,
                    window: tk.Tk,
                    updates: list,
@@ -417,6 +426,16 @@ def handle_run(updates: list, status_label: tk.Label):
 
 
 def unset_course_as_blueprint(course: dict[str, str]) -> dict[str, str]:
+    """
+    Removes a blueprint designation from a course
+    Args:
+        course: The course to unset as blueprint
+
+    Returns:
+
+    """
+    assert course, "Course does not exist"
+
     url = f"{api_url}/courses/{course['id']}"
     payload = {
         'course[blueprint]': False,
@@ -427,6 +446,19 @@ def unset_course_as_blueprint(course: dict[str, str]) -> dict[str, str]:
 
 
 def set_course_as_blueprint(course: dict[str, str]) -> dict[str, str]:
+    """
+
+    Args:
+        course(dict[str, str]): The course to set as blueprint
+
+    Returns:
+        dict[str, str]: The course
+
+
+    """
+
+    assert course, "Course does not exist"
+
     url = f"{api_url}/courses/{course['id']}"
     payload = {
         'course[blueprint]': True,
@@ -442,7 +474,6 @@ def set_course_as_blueprint(course: dict[str, str]) -> dict[str, str]:
 
 
 def reset_course(course: dict[str, str]):
-    assert course, "Course does not exist"
     """Summary
         Resets the course and returns the reset version of the course
     Args:
@@ -451,6 +482,8 @@ def reset_course(course: dict[str, str]):
     Returns:
         TYPE: The new shiny, empty course
     """
+
+    assert course, "Course does not exist"
 
     # ask for confirmation if we're not running this imported from another module
     if __name__ != "__main__" or messagebox.askyesno(
@@ -472,6 +505,7 @@ def import_dev_course(bp_course: dict, progress_bar=None):
 
     Args:
         bp_course: the bp course to import into
+        progress_bar: an optional progress bar to update with progress
     """
     match = re.search(course_code_regex, bp_course["course_code"])
     assert match, "This is not a course code "+ bp_course["course_code"]
@@ -496,6 +530,7 @@ def import_course(dest_course: dict, source_course: dict, progress_bar = None) -
     Args:
         dest_course: The course to copy into
         source_course: The course to copy from
+        progress_bar: An optional progress bar to update
 
     Returns:
 
@@ -526,8 +561,8 @@ def generate_email(
         courses (list): A list of all the courses we've operated on
         emails (list): A list of all the emails to bcc
         window (object): Description
-        I may change this to example_course_data
     """
+
     template = ""
     custom_email_path = "email_template.custom.html"
     email_path = custom_email_path if os.path.exists(custom_email_path) else "email_template.html"
@@ -630,11 +665,23 @@ def begin_course_sync(
 
 def poll_migration(
         migration: dict,
-        migration_url: str = None,
-        progress_bar: ttk.Progressbar = None,
-        status_label: tk.Label = None,
+        migration_url: str | None = None,
+        progress_bar: ttk.Progressbar | None = None,
+        status_label: tk.Label | None = None,
         poll_interval: float = 2.0):
+    """
 
+    Args:
+        migration(dict): a migration dict from canvas API
+        migration_url(str): the url to poll, if different from that in the migration object
+        progress_bar(ttk.Progressbar): an optional progress bar to update
+        status_label(tk.Label): an optional status label to update
+        poll_interval: the interval between polls, default 2 secs
+
+    Returns:
+        The migration dict
+
+    """
     if migration_url is None:
         migration_url = migration['progress_url']
     response = requests.get(migration_url, headers=headers)
@@ -657,7 +704,8 @@ def poll_migration(
         if response.ok:
             migration = response.json()
 
-    update_progress_bar(progress_bar, 100)
+    if progress_bar is not None:
+        update_progress_bar(progress_bar, 100)
     print(response)
     print(response.content)
     return migration
@@ -683,70 +731,122 @@ def publish_courses(*, courses: list):
         print(response.content)
 
 
-def lock_module_items(course: dict, progress_bar = None):
+def lock_module_items(course: dict, progress_bar: ttk.Progressbar | None = None, synchronous=False):
     """Summary
         Locks all module items in a blueprint course
 
     Args:
+        synchronous: specifies whether to force synchronous behavior for testing
+        progress_bar (ttk.ProgressBar, optional): A progress bar object to update
         course (dict): The course to lock items on
     """
+    if aiohttp and not synchronous:
+        asyncio.run(lock_module_items_async(course, progress_bar))
+        return
+
     course_id = course['id']
     modules = get_modules(course_id)
+
     total = 0
     for module in modules:
         total = total + len(module['items'])
     i = 0
+    successes = 0
+    failures = 0
     update_progress_bar(progress_bar, 0)
     for module in modules:
         for item in module['items']:
             url = f"{api_url}/courses/{course_id}/" \
                   + "blueprint_templates/default/restrict_item"
-            id_ = ""
             i = i + 1
-            type_ = item["type"]
-            if type_ == "Assignment":
-                type_ = "assignment"
-                id_ = item["content_id"]
-            elif type_ == "Discussion":
-                type_ = "discussion_topic"
-                id_ = item["content_id"]
-            elif type_ == "Quiz":
-                type_ = "quiz"
-                id_ = item["content_id"]
-            elif type_ == "Attachment":
-                type_ = "attachment"
-                id_ = item["content_id"]
-            elif type_ == "External Tool":
-                type_ = "external_tool"
-                id_ = item["content_id"]
-            elif type_ == "Page":
-                type_ = "wiki_page"
-                page_url = item["url"]
-                response = requests.get(page_url, headers=headers)
-                if response.ok and response.status_code == 200:
-                    id_ = response.json()["page_id"]
-            elif type_ == "File":
-                type_ = "file"
-                id_ = item["content_id"]
-            else:
-                continue
 
-            response = requests.put(url, headers=headers, data={
-                "content_type": type_,
-                "content_id": id_,
-                "restricted": True,
-            })
-            if response.ok:
-                print(response.json())
-            else:
-                print(response)
-                print(response.text)
-                print(json.dumps(item, indent=2))
+            type_, id_ = get_item_type_and_id(item)
+            if type_:
+                response = requests.put(url, headers=headers, data={
+                    "content_type": type_,
+                    "content_id": id_,
+                    "restricted": True,
+                })
+                if response.ok:
+                    successes = successes + 1
+                    print(response.json())
+                else:
+                    failures = failures + 1
+                    print(response)
+                    print(response.text)
+                    print(json.dumps(item, indent=2))
 
-            update_progress_bar(progress_bar, i, total)
+                update_progress_bar(progress_bar, i, total)
 
     update_progress_bar(progress_bar, 100, 100)
+    return successes > 0 and failures == 0
 
+
+async def lock_module_items_async(course, progress_bar):
+    # Get modules using asynchronous API call
+    modules = get_modules(course['id'])
+
+    # Iterate over modules and items asynchronously
+
+    total = 0
+    for module in modules:
+        total = total + len(module['items'])
+
+    i = 0
+    async with asyncio.TaskGroup() as tg:
+        for module in modules:
+            for item in module['items']:
+                async def lock(item):
+                    nonlocal i
+                    await lock_module_item_async(course, item, progress_bar)
+                    i = i + 1
+                    update_progress_bar(progress_bar, i, total)
+                tg.create_task(lock(item))
+
+
+async def lock_module_item_async(course, item, progress_bar=None):
+    assert aiohttp
+    url = f"{api_url}/courses/{course['id']}/blueprint_templates/default/restrict_item"
+
+    type_, id_ = get_item_type_and_id(item)
+    print(item)
+
+    data = {
+        "content_type": type_,
+        "content_id": id_,
+        "restricted": True,
+    }
+    # Make asynchronous HTTP request to fetch page ID
+    async with aiohttp.ClientSession() as session:
+        async with session.put(url, headers=headers, data=data) as response:
+            response = await response.text()
+
+
+def get_item_type_and_id(item: dict) -> tuple[Any, Any | None] | tuple[None, None]:
+    type_lut = {
+        'Assignment': 'assignment',
+        'Discussion': 'discussion_topic',
+        'Quiz': 'quiz',
+        'Attachment': 'attachment',
+        'External Tool': 'external_tool',
+        'File': 'file',
+        'Page': 'wiki_page'
+    }
+
+    if item['type'] in type_lut:
+        id_ = None
+        type_ = type_lut[item["type"]]
+        if type_ == "wiki_page":
+            page_url = item["url"]
+            response = requests.get(page_url, headers=headers)
+            if response.ok and response.status_code == 200:
+                id_ = response.json()["page_id"]
+        else:
+            id_ = item["content_id"]
+
+        return type_, id_
+    else:
+        return None, None
 
 def get_source_course_id(course_id: int) -> int:
     """Summary
@@ -950,6 +1050,8 @@ def update_progress_bar(
         maximum (float, optional): the max value the bar is at
     """
     # update loading UI value after processing
+    if not progress_bar:
+        return False
     ui_root = progress_bar.winfo_toplevel()
     ui_root.update_idletasks()
     ui_root.update()

@@ -37,6 +37,9 @@ test_course_code: str = 'TEST000'
 print(publish_script.api_url)
 assert('test' in publish_script.api_url)
 
+def get_test_course():
+    return publish_script.get_course_by_code(f'BP_{test_course_code}')
+
 
 def get_item_names(items):
     # also work for modules
@@ -75,6 +78,7 @@ class TestContentFixes(unittest.TestCase):
     def test_fix_intro_header(self):
         course = publish_script.get_course_by_code(f'BP_{test_course_code}')
         self.assertIsNotNone(course, "Can't Find Test Course by code")
+
 
 
 class TestCourseResetAndImport(unittest.TestCase):
@@ -129,4 +133,13 @@ class TestCourseResetAndImport(unittest.TestCase):
             },
             "Restrictions not properly set on course")
 
+    def test_lock(self):
+        course = get_test_course()
+        self.assertIsNotNone(course, "Can't Find Test Course by code")
+        self.assertTrue(publish_script.lock_module_items(course), "locking did not succeed")
+
+    def test_lock_sync(self):
+        course = get_test_course()
+        self.assertIsNotNone(course, "Can't Find Test Course by code")
+        self.assertTrue(publish_script.lock_module_items(course, synchronous=True), "locking did not succeed")
 
