@@ -58,6 +58,7 @@ def main():
       print(response.status_code)
       print(response.text)
 
+
 def get_paged_data(url, headers=headers):
   response = requests.get(url, headers=headers)
   out = response.json()

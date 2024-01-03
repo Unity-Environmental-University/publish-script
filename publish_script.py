@@ -1496,10 +1496,10 @@ def overwrite_home_page(profile: dict, course: dict) -> str:
 
 def get_instructor_profile_from_pages(user, pages):
     """Summary
-
+    Gets an instructor profile from the faculty bios pages, or any similar page objects passed in
     Args:
-        user (TYPE): Description
-        pages (TYPE): Description
+        user (TYPE): camva
+        pages (TYPE): A list of canvas api page dicts
 
     Returns:
         TYPE: Description
@@ -1597,7 +1597,7 @@ def get_instructor_profile_submission(user):
     """Summary
 
     Args:
-        user (TYPE): Description
+        user (dict): The instructor response dict from the canvas api
 
     Returns:
         dict: returns a dictionary containing the user, bio, image url, and a local path to the downloaded profile pic
@@ -1658,7 +1658,6 @@ def get_instructor_profile_submission(user):
         pic_path = resize_image(pic_path, max_profile_image_size)
         img_upload_url = "" # upload_image(pic_path, instructor_course_id)
 
-
     img_src = img_upload_url if\
         img_upload_url and len(img_upload_url) > 0 \
         else default_profile_url
@@ -1668,13 +1667,14 @@ def get_instructor_profile_submission(user):
 
 def resize_image(path, max_width):
     """Summary
+    Resizes an image to a maximum width
 
     Args:
-        path (TYPE): Description
-        max_width (TYPE): Description
+        path: Path to the original image
+        max_width: the maximum width to scale the image to
 
     Returns:
-        TYPE: Description
+        The path to the resized image on disk
     """
     input_path = path
     output_path = path
@@ -1878,7 +1878,7 @@ def get_course_id_from_string(course_string: str):
         return None
 
 
-def get_course_by_code(code: str, params: dict={}, return_list=False) -> dict[str, str] | None:
+def get_course_by_code(code: str, params=None, return_list=False) -> dict | None:
     """Summary
         attempts to find a course by course code,
         inclusive of starting component
@@ -1894,12 +1894,14 @@ def get_course_by_code(code: str, params: dict={}, return_list=False) -> dict[st
         dict: A dictionary representing the first course found
         or None if no match
     """
+    if params is None:
+        params = {}
     url = f"{api_url}/accounts/{ROOT_ACCOUNT_ID}/courses?"
     print(url)
     courses = get_paged_data(
         url,
         headers=headers,
-        params={"search_term": f"{code}", **params})
+        params={"search_term": code, **params})
     if courses and len(courses) > 1:
         courses.sort(reverse=True, key=lambda course: course['id'])
 
