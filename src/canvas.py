@@ -14,7 +14,7 @@ class CanvasLink:
       self.api_url = constants["apiUrl"]
       self.html_url = re.sub('\/api\/v1', '', constants["apiUrl"])
 
-  def get_paged_data(self, url, headers=self.headers):
+  def get_paged_data(self, url, headers=self.HEADERS):
     response = requests.get(url, headers)
     out = response.json()
     next_page_link = "!"
@@ -55,7 +55,7 @@ class CourseLink:
       self.__data = data
 
     def fetch_data(self, params={}):
-      requests.put(f'{self.link.api_url}/courses/{self.course_id}',headers=self.link.headers, data=params)
+      requests.put(f'{self.link.API_URL}/courses/{self.course_id}', headers=self.link.HEADERS, data=params)
       if not response.ok:
         raise Exception(f"Problem getting course data for {self.course_id}")
       self.data = requests.json()
@@ -63,5 +63,5 @@ class CourseLink:
 
     # naive implementation will likely not work
     def save_data(self, params={}):
-      requests.put(f'{self.link.api_url}/courses/{self.course_id}',headers=self.link.headers, data=params.update(self.data))
+      requests.put(f'{self.link.API_URL}/courses/{self.course_id}', headers=self.link.HEADERS, data=params.update(self.data))
 

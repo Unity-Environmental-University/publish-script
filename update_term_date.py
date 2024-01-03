@@ -17,7 +17,7 @@ with open(CONSTANTS_FILE, 'r') as f:
 
 # save the api key
 api_token = constants["apiToken"]
-api_url = constants["apiUrl"]
+API_URL = constants["apiUrl"]
 
 
 # Authorize the request.
@@ -35,22 +35,22 @@ def main():
   else:
    offset = tk.simpledialog.askinteger("How Many Days", "Enter the number of days to offset all assignment dates")
 
-  assignments = get_paged_data(f"{api_url}/courses/{course_id}/assignments?include=due_at")
+  assignments = get_paged_data(f"{API_URL}/courses/{course_id}/assignments?include=due_at")
   update_date_data = []
   for assignment in assignments:
     print(assignment["due_at"])
     due_at = datetime.datetime.fromisoformat(assignment["due_at"])
     due_at = due_at + datetime.timedelta(days=offset)
-    response = requests.put(f"{api_url}/courses/{course_id}/assignments/{assignment['id']}",
-      headers = headers,
-      json = {
+    response = requests.put(f"{API_URL}/courses/{course_id}/assignments/{assignment['id']}",
+                            headers = headers,
+                            json = {
           
           "assignment" : {
             "id" : assignment["id"],
             "due_at" : due_at.isoformat()
         }
       }
-    )
+                            )
     if response.status_code == 200:
       print(f"Changed date of {assignment['name']} to {due_at}")
     else:

@@ -72,7 +72,8 @@ course_code_regex = re.compile(r'([\-.\w]+)_(\w{4}\d{3})', re.IGNORECASE)
 
 syllabus_replacements = [{
     'find': r'<p>The instructor will conduct [^.]*\(48 hours during weekends\)\.',
-    'replace': r'<p>The instructor will conduct all correspondence with students related to the class in Canvas, and you should expect to receive a response to emails within 24 hours.'
+    'replace': r'<p>The instructor will conduct all correspondence with students related to the class in Canvas,'
+               + ' and you should expect to receive a response to emails within 24 hours.'
 }]
 
 lm_replacements = [
@@ -98,30 +99,30 @@ lm_replacements = [
 ]
 
 CONSTANTS_FILE: str = 'constants.json'
-max_profile_image_size: int = 400
+MAX_PROFILE_IMAGE_SIZE: int = 400
 # Open the file and read the contents
 with open(CONSTANTS_FILE, 'r') as f:
-    constants = json.load(f)
+    CONSTANTS = json.load(f)
 
 # save the api key
-api_token: str = constants["apiToken"]
-api_url: str = constants["apiUrl"]
-html_url: str = re.sub('/api/v1', '', constants["apiUrl"])
+API_TOKEN: str = CONSTANTS["apiToken"]
+API_URL: str = CONSTANTS["apiUrl"]
+HTML_URL: str = re.sub('/api/v1', '', CONSTANTS["apiUrl"])
 
-instructor_course_id: int = constants["instructorCourseId"]
-profile_assignment_id: int = constants["profileAssignmentId"]
-profile_pages_course_id: int = constants["profilePagesCourseId"]
+INSTRUCTOR_COURSE_ID: int = CONSTANTS["instructorCourseId"]
+PROFILE_ASSIGNMENT_ID: int = CONSTANTS["profileAssignmentId"]
+PROFILE_PAGES_COURSE_ID: int = CONSTANTS["profilePagesCourseId"]
 
-default_profile_url: str = f"{html_url}/users/9230846/files/156109264/preview"
-live_url: str = constants["liveUrl"]
+DEFAULT_PROFILE_URL: str = f"{HTML_URL}/users/9230846/files/156109264/preview"
+LIVE_URL: str = CONSTANTS["liveUrl"]
 
 # Authorize the request.
-headers: dict[str, str] = {"Authorization": f"Bearer {api_token}"}
-live_headers: dict[str, str] = {"Authorization": f'Bearer {constants["liveApiToken"]}'}
+HEADERS: dict[str, str] = {"Authorization": f"Bearer {API_TOKEN}"}
+LIVE_HEADERS: dict[str, str] = {"Authorization": f'Bearer {CONSTANTS["liveApiToken"]}'}
 
-accounts: list = requests.get(f'{api_url}/accounts', headers=headers).json()
+ACCOUNTS: list = requests.get(f'{API_URL}/accounts', headers=HEADERS).json()
 account_ids: dict = dict()
-for account in accounts:
+for account in ACCOUNTS:
     account_ids[account['name']] = account['id']
 
 ACCOUNT_ID: int = account_ids['Distance Education']
@@ -216,9 +217,9 @@ def course_entry_callback(
 
 
 def set_api_url(_api_url: str):
-    global api_url
-    api_url = _api_url
-    return api_url
+    global API_URL
+    API_URL = _api_url
+    return API_URL
 
 
 def setup_main_ui(
@@ -302,7 +303,7 @@ def setup_main_ui(
             'message' : "THIS STEP DOES NOTHING\n"
             + "Associate courses by hand on Canvas site.\n"
             + "This step only opens the page for you to do it.",
-            'func': lambda: open_browser_func([f"{html_url}/courses/{bp_course['id']}/settings"]),
+            'func': lambda: open_browser_func([f"{HTML_URL}/courses/{bp_course['id']}/settings"]),
             'hide': True,
 
         },
@@ -440,11 +441,11 @@ def unset_course_as_blueprint(course: dict[str, str]) -> dict[str, str]:
     """
     assert course, "Course does not exist"
 
-    url = f"{api_url}/courses/{course['id']}"
+    url = f"{API_URL}/courses/{course['id']}"
     payload = {
         'course[blueprint]': False,
     }
-    response = requests.put(url, data=payload, headers=headers)
+    response = requests.put(url, data=payload, headers=HEADERS)
     print(response)
     return response.json()
 
@@ -463,7 +464,7 @@ def set_course_as_blueprint(course: dict[str, str]) -> dict[str, str]:
 
     assert course, "Course does not exist"
 
-    url = f"{api_url}/courses/{course['id']}"
+    url = f"{API_URL}/courses/{course['id']}"
     payload = {
         'course[blueprint]': True,
         'course[use_blueprint_restrictions_by_object_type]': 0,
@@ -472,7 +473,7 @@ def set_course_as_blueprint(course: dict[str, str]) -> dict[str, str]:
         'course[blueprint_restrictions][due_dates]': 1,
         'course[blueprint_restrictions][availability_dates]': 1,
     }
-    response = requests.put(url, data=payload, headers=headers)
+    response = requests.put(url, data=payload, headers=HEADERS)
     print(response)
     return response.json()
 
@@ -494,12 +495,14 @@ def reset_course(course: dict[str, str]):
             title="Do You Want To Reset",
             message=f"Are you sure you want to reset {course['name']}?'"):
 
-        url = f'{api_url}/courses/{course["id"]}/reset_content'
-        response = requests.post(url, headers=headers)
+        url = f'{API_URL}/courses/{course["id"]}/reset_content'
+        response = requests.post(url, headers=HEADERS)
         print(response)
         if response.ok:
             course['id'] = response.json()['id']
             return response.json()
+        else:
+            raise Exception(response.json())
     return False
 
 
@@ -543,8 +546,8 @@ def import_course(dest_course: dict, source_course: dict, progress_bar = None) -
         "migration_type" : "course_copy_importer",
         "settings[source_course_id]" : source_course["id"]}
 
-    url = f"{api_url}/courses/{dest_course['id']}/content_migrations"
-    response = requests.post(url, data=payload, headers=headers)
+    url = f"{API_URL}/courses/{dest_course['id']}/content_migrations"
+    response = requests.post(url, data=payload, headers=HEADERS)
     print(response)
     if response.ok:
         return poll_migration(migration=response.json(), progress_bar=progress_bar)
@@ -649,9 +652,9 @@ def begin_course_sync(
 
     }
     response = requests.post(
-        f'{api_url}/courses/{course["id"]}'
+        f'{API_URL}/courses/{course["id"]}'
         + '/blueprint_templates/default/migrations',
-        headers=headers,
+        headers=HEADERS,
         data=payload)
 
     if not response.ok:
@@ -662,7 +665,7 @@ def begin_course_sync(
     migration = response.json()
     poll_migration(
         migration,
-        f'{api_url}/courses/{course["id"]}'
+        f'{API_URL}/courses/{course["id"]}'
         + '/blueprint_templates/default/'
         + f'migrations/{migration["id"]}')
 
@@ -688,7 +691,7 @@ def poll_migration(
     """
     if migration_url is None:
         migration_url = migration['progress_url']
-    response = requests.get(migration_url, headers=headers)
+    response = requests.get(migration_url, headers=HEADERS)
     # poll the migration object until it is done
     while response.ok and migration['workflow_state'] in [
             'queued',
@@ -704,7 +707,7 @@ def poll_migration(
         if progress_bar is not None and 'completion' in migration:
             update_progress_bar(progress_bar, migration['completion'])
         time.sleep(poll_interval)
-        response = requests.get(migration_url, headers=headers)
+        response = requests.get(migration_url, headers=HEADERS)
         if response.ok:
             migration = response.json()
 
@@ -722,8 +725,8 @@ def publish_courses(*, courses: list):
     Args:
         courses (list): A list of course dicts
     """
-    url = f'{api_url}/accounts/{ACCOUNT_ID}/courses'
-    response = requests.put(url, headers=headers, data={
+    url = f'{API_URL}/accounts/{ACCOUNT_ID}/courses'
+    response = requests.put(url, headers=HEADERS, data={
         'event': 'offer',
 
         # list of course ids
@@ -757,13 +760,13 @@ def lock_module_items(course: dict, progress_bar: ttk.Progressbar | None = None,
     update_progress_bar(progress_bar, 0)
     for module in modules:
         for item in module['items']:
-            url = f"{api_url}/courses/{course_id}/" \
+            url = f"{API_URL}/courses/{course_id}/" \
                   + "blueprint_templates/default/restrict_item"
             i = i + 1
 
             type_, id_ = get_item_type_and_id(item)
             if type_:
-                response = requests.put(url, headers=headers, data={
+                response = requests.put(url, headers=HEADERS, data={
                     "content_type": type_,
                     "content_id": id_,
                     "restricted": True,
@@ -819,7 +822,7 @@ async def lock_module_items_async(course, progress_bar=None):
 
 async def lock_module_item_async(course, item, progress_bar=None):
     assert aiohttp
-    url = f"{api_url}/courses/{course['id']}/blueprint_templates/default/restrict_item"
+    url = f"{API_URL}/courses/{course['id']}/blueprint_templates/default/restrict_item"
 
     type_, id_ = get_item_type_and_id(item)
     print(item)
@@ -833,7 +836,7 @@ async def lock_module_item_async(course, item, progress_bar=None):
     if type_:
         # Make asynchronous HTTP request to fetch page ID
         async with aiohttp.ClientSession() as session:
-            async with session.put(url, headers=headers, data=data) as response:
+            async with session.put(url, headers=HEADERS, data=data) as response:
                 text = await response.text()
                 if response.ok:
                     return True
@@ -859,7 +862,7 @@ def get_item_type_and_id(item: dict) -> tuple[Any, Any | None] | tuple[None, Non
         type_ = type_lut[item["type"]]
         if type_ == "wiki_page":
             page_url = item["url"]
-            response = requests.get(page_url, headers=headers)
+            response = requests.get(page_url, headers=HEADERS)
             if response.ok and response.status_code == 200:
                 id_ = response.json()["page_id"]
         else:
@@ -868,6 +871,7 @@ def get_item_type_and_id(item: dict) -> tuple[Any, Any | None] | tuple[None, Non
         return type_, id_
     else:
         return None, None
+
 
 def get_source_course_id(course_id: int) -> int:
     """Summary
@@ -880,8 +884,8 @@ def get_source_course_id(course_id: int) -> int:
         int: The course id of the source course
     """
     response = requests.get(
-        f'{api_url}/courses/{course_id}/content_migrations',
-        headers=headers)
+        f'{API_URL}/courses/{course_id}/content_migrations',
+        headers=HEADERS)
     if not response.ok:
         return False
     migrations = response.json()
@@ -917,8 +921,8 @@ def remove_lm_annotations_from_course(course):
         # find an item in the module called "Week ? Learning Materials"
         lm_page = single_filter(lm_page_filter, module['items'])
         if lm_page:
-            url = f"{api_url}/courses/{course['id']}/pages/{lm_page['page_url']}"
-            full_page = requests.get(url, headers=headers).json()
+            url = f"{API_URL}/courses/{course['id']}/pages/{lm_page['page_url']}"
+            full_page = requests.get(url, headers=HEADERS).json()
             body = remove_lm_annotations(full_page['body'])
             print(lm_page['url'])
             data = {
@@ -926,7 +930,7 @@ def remove_lm_annotations_from_course(course):
             }
             requests.put(
                 lm_page['url'],
-                headers=headers,
+                headers=HEADERS,
                 data=data)
 
 
@@ -954,16 +958,16 @@ def update_syllabus(course_id: int):
     Args:
         course_id (int): The id of the course to operate on
     """
-    url = f"{api_url}/courses/{course_id}?include[]=syllabus_body"
-    response = requests.get(url, headers=headers)
+    url = f"{API_URL}/courses/{course_id}?include[]=syllabus_body"
+    response = requests.get(url, headers=HEADERS)
     content = response.json()
     if not response.ok:
         return False
     print(content)
     syllabus = update_syllabus_text(content["syllabus_body"])
     response = requests.put(
-        f'{api_url}/courses/{course_id}',
-        headers=headers,
+        f'{API_URL}/courses/{course_id}',
+        headers=HEADERS,
         data={
             "course[syllabus_body]": syllabus})
 
@@ -1050,7 +1054,7 @@ def get_modules(course_id: int | str) -> list:
     Returns:
         list: A list of module dicts
     """
-    url: str = f"{api_url}/courses/{course_id}/modules?" \
+    url: str = f"{API_URL}/courses/{course_id}/modules?" \
                + "include[]=items&include[]=content_details"
     print(url)
     return get_paged_data(url)
@@ -1234,9 +1238,9 @@ def get_faculty_pages(force=False):
             print(len(pages))
     else:
         pages = get_paged_data(
-            f"{live_url}/courses/{profile_pages_course_id}"
+            f"{LIVE_URL}/courses/{PROFILE_PAGES_COURSE_ID}"
             "/pages?per_page=50&include=body",
-            live_headers)
+            LIVE_HEADERS)
         save_bios(pages)
     return pages
 
@@ -1251,9 +1255,9 @@ def get_course(course_id: int) -> dict:
     Returns:
         dict: A dictionary containing the json parsed course
     """
-    url = f'{api_url}/courses/{course_id}' \
+    url = f'{API_URL}/courses/{course_id}' \
           + '?include[]=term&include[]=grading_periods'
-    response = requests.get(url, headers=headers)
+    response = requests.get(url, headers=HEADERS)
     print(url)
     print(response)
     return response.json()
@@ -1376,8 +1380,8 @@ def get_course_profile_from_pages(course, pages):
                        "of the person you would like to find")
 
             result = requests.get(
-                f"{api_url}/accounts/self/users?search_term={name}",
-                headers=headers)
+                f"{API_URL}/accounts/self/users?search_term={name}",
+                headers=HEADERS)
             if result.ok and len(result.json()) > 0:
                 for user in result.json():
                     if tk.messagebox.askyesno(
@@ -1433,7 +1437,7 @@ def get_blueprint_courses(bp_id):
     Returns:
         TYPE: A list of courses associated with this blueprint
     """
-    url = f"{api_url}/courses/{bp_id}/" \
+    url = f"{API_URL}/courses/{bp_id}/" \
           "blueprint_templates/default/associated_courses?per_page=50"
     courses = get_paged_data(url)
 
@@ -1465,10 +1469,10 @@ def overwrite_home_page(profile: dict, course: dict) -> str:
         ValueError: Couldn't access home page of course
     """
 
-    url = f'{api_url}/courses/{course["id"]}/front_page'
-    page_url = f'{html_url}/courses/{course["id"]}/'
+    url = f'{API_URL}/courses/{course["id"]}/front_page'
+    page_url = f'{HTML_URL}/courses/{course["id"]}/'
     print(page_url)
-    response = requests.get(url, headers=headers)
+    response = requests.get(url, headers=HEADERS)
 
     if response.status_code != 200:
         raise Exception(
@@ -1486,7 +1490,7 @@ def overwrite_home_page(profile: dict, course: dict) -> str:
         data = {'wiki_page[body]': format_profile_page(
             profile, course, homepage)}
 
-        response = requests.put(url, headers=headers, data=data)
+        response = requests.put(url, headers=HEADERS, data=data)
         print(response)
     else:
         print("instructor not found for this course; skipping")
@@ -1602,9 +1606,9 @@ def get_instructor_profile_submission(user):
     Returns:
         dict: returns a dictionary containing the user, bio, image url, and a local path to the downloaded profile pic
     """
-    url = f"{api_url}/courses/{instructor_course_id}" \
-          f"/assignments/{profile_assignment_id}/submissions/{user['id']}"
-    response = requests.get(url, headers=headers)
+    url = f"{API_URL}/courses/{INSTRUCTOR_COURSE_ID}" \
+          f"/assignments/{PROFILE_ASSIGNMENT_ID}/submissions/{user['id']}"
+    response = requests.get(url, headers=HEADERS)
     submission = response.json()
     print(submission)
     bio = submission["body"] if (
@@ -1613,7 +1617,7 @@ def get_instructor_profile_submission(user):
     if "attachments" in submission:
         for attachment in submission["attachments"]:
             url = attachment["url"]
-            attachmentData = requests.get(url, headers=headers)
+            attachmentData = requests.get(url, headers=HEADERS)
 
             filename = attachment["filename"]
             with open(filename, 'wb') as f:
@@ -1655,12 +1659,12 @@ def get_instructor_profile_submission(user):
         # todo: upload resized profile pic and populate upload_url
     img_upload_url = ""
     if len(pic_path) > 0:
-        pic_path = resize_image(pic_path, max_profile_image_size)
+        pic_path = resize_image(pic_path, MAX_PROFILE_IMAGE_SIZE)
         img_upload_url = "" # upload_image(pic_path, instructor_course_id)
 
     img_src = img_upload_url if\
         img_upload_url and len(img_upload_url) > 0 \
-        else default_profile_url
+        else DEFAULT_PROFILE_URL
 
     return dict(user=user, bio=bio, img_src=img_src, local_image_path=pic_path)
 
@@ -1705,13 +1709,13 @@ def upload_image(pic_path: str, course_id: int) -> dict[str, str] | None:
     # Process and upload user image
     modules = get_modules(course_id)
     # get the correct folder id
-    url = f"{api_url}/courses/{course_id}/folders/by_path/Images/"
-    response = requests.get(url, headers=headers)
+    url = f"{API_URL}/courses/{course_id}/folders/by_path/Images/"
+    response = requests.get(url, headers=HEADERS)
     folders = response.json()
     upload_folder = folders[-1]
 
     # upload the file
-    file_url = f"{api_url}/courses/{course_id}/files"
+    file_url = f"{API_URL}/courses/{course_id}/files"
     print(f"uploading {pic_path} to {file_url}")
     data = {
         "name": os.path.basename(pic_path),
@@ -1720,7 +1724,7 @@ def upload_image(pic_path: str, course_id: int) -> dict[str, str] | None:
         "on_duplicate": "overwrite"
     }
 
-    response = requests.post(file_url, data=data, headers=headers)
+    response = requests.post(file_url, data=data, headers=HEADERS)
 
     if response.ok:
         response_data = response.json()
@@ -1738,77 +1742,50 @@ def upload_image(pic_path: str, course_id: int) -> dict[str, str] | None:
         return response.json()
 
 
-def get_instructor_page(user):
-    """Summary
+def get_instructor_page(user: dict):
+    """Gets the page in Faculty Bios course that matches this instructor
 
     Args:
-        user (TYPE): Description
+        user(dict): A dictionary containing the json user response from canvas
 
     Returns:
-        TYPE: Description
+        dict: A dictionary containing the canvas api instructor user
     """
-    url = f"{api_url}/courses/{profile_pages_course_id}/pages" \
+    url = f"{API_URL}/courses/{PROFILE_PAGES_COURSE_ID}/pages" \
           + f"?per_page=999&search={urllib.parse.quote(user['name'])}"
-    response = requests.get(url, headers=headers)
-    if response.status_code != 200:
-        return None
-    pages = response.json()
 
-    pagination_links = response.headers["Link"].split(",")
-    next_page_link = pagination_links[1].split(";")[0].split("<")[
-        1].split(">")[0]
-    first_time = True
-    while len(pagination_links) > 4 or first_time:
-        first_time = False
-        print(len(pagination_links))
-        # Make a request to the next page
-        response = requests.get(next_page_link, headers=headers)
-
-        # Check if the request was successful
-        if response.status_code == 200:
-
-            # Iterate over the results on the next page
-            for page in response.json():
-                pages.append(page)
-
-            # Get the next page link from the response headers
-            pagination_links = response.headers["Link"].split(",")
-            print(pagination_links)
-            next_page_link = pagination_links[1].split(";")[0] \
-                .split("<")[1].split(">")[0]
-            print(next_page_link)
-
+    pages = get_paged_data(url)
     for page in pages:
         print(page["title"])
 
 
-def get_canvas_course_home_page(course_id):
-    """Summary
+def get_canvas_course_home_page(course_id: int):
+    """Gets the home page for a course based on id
 
     Args:
-        course_id (TYPE): Description
+        course_id (int): The id of the course
 
     Returns:
-        TYPE: Description
+        dict: The home page of the course from canvas api
     """
     # Make the request to the Canvas LMS course home page.
     url = f"https://unity.instructure.com/courses/{course_id}"
-    response = requests.get(url, headers=headers)
+    response = requests.get(url, headers=HEADERS)
     return response.content
 
 
-def get_canvas_instructor(course_id):
-    """Summary
+def get_canvas_instructor(course_id: int) -> dict| None:
+    """Gets the instructor for a given canvas course based on id
 
     Args:
-        course_id (TYPE): Description
+        course_id (int): The id of the course
 
     Returns:
         TYPE: Description
     """
-    url = f"{api_url}/courses/{course_id}/users?" + \
+    url = f"{API_URL}/courses/{course_id}/users?" + \
           "enrollment_type=teacher"
-    response = requests.get(url, headers=headers)
+    response = requests.get(url, headers=HEADERS)
     if response.status_code != 200:
         return None
 
@@ -1819,12 +1796,13 @@ def get_canvas_instructor(course_id):
     return None
 
 
-def get_paged_data(url: str, headers = headers, params = {}) -> list | None:
+def get_paged_data(url: str, headers= HEADERS, params= None) -> list | None:
     """Summary
         returns a list of data from a get request, going through
         multiple pages of data requests as necessary
 
     Args:
+        params(dict): Any additional parameters to pass to the query
         url (str): The url to query
         headers (dict, optional): Headers for the request
 
@@ -1896,11 +1874,11 @@ def get_course_by_code(code: str, params=None, return_list=False) -> dict | None
     """
     if params is None:
         params = {}
-    url = f"{api_url}/accounts/{ROOT_ACCOUNT_ID}/courses?"
+    url = f"{API_URL}/accounts/{ROOT_ACCOUNT_ID}/courses?"
     print(url)
     courses = get_paged_data(
         url,
-        headers=headers,
+        headers=HEADERS,
         params={"search_term": code, **params})
     if courses and len(courses) > 1:
         courses.sort(reverse=True, key=lambda course: course['id'])
@@ -1909,11 +1887,12 @@ def get_course_by_code(code: str, params=None, return_list=False) -> dict | None
 
 
 def get_sections(course):
-    url = f'{api_url}/courses/{course["id"]}/sections?include[]=students&include[]=enrollments'
-    sections = requests.get(url, headers=headers, data={
+    url = f'{API_URL}/courses/{course["id"]}/sections?include[]=students&include[]=enrollments'
+    sections = requests.get(url, headers=HEADERS, data={
         "include[]": "enrollments"
     }).json()
     return(sections)
+
 
 def ensure_directory_exists(directory_path):
     # Ensure the directory exists; create if not

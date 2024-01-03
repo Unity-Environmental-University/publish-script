@@ -36,8 +36,8 @@ except Exception as e:
 # save the api key
 try:
   api_token = constants["apiToken"]
-  api_url = constants["apiUrl"]
-  html_url = re.sub(r'/api/v1', '', api_url)
+  API_URL = constants["apiUrl"]
+  html_url = re.sub(r'/api/v1', '', API_URL)
   drive_url = None
   if "driveUrl" in constants:
     drive_url = constants["driveUrl"]
@@ -59,7 +59,7 @@ img_headers = {
 }
 
 
-url = f'{api_url}/accounts'
+url = f'{API_URL}/accounts'
 accounts = requests.get(url, headers=headers).json()
 account_ids = dict()
 for account in accounts:
@@ -84,7 +84,7 @@ def main():
    course_id = str(tk.simpledialog.askinteger("What Course?", "Enter the course_id of the new course (cut the number out of the url and paste here)"))
 
 
-  url = f"{api_url}/courses/{course_id}"
+  url = f"{API_URL}/courses/{course_id}"
   print(url)
   response = requests.get(url, headers=headers)
   print(response)
@@ -98,16 +98,16 @@ def main():
     print("Code", code)
     # look for dep or deprecated first
 
-    response = requests.get(f"{api_url}/accounts/{account_id}/courses", headers=headers, params = {"search_term" : f"DEPRECATED_{code}"} )
+    response = requests.get(f"{API_URL}/accounts/{account_id}/courses", headers=headers, params = {"search_term" : f"DEPRECATED_{code}"})
     courses = response.json()
     print(courses)
     if len(courses) == 0:
-      response = requests.get(f"{api_url}/accounts/{account_id}/courses", headers=headers, params = {"search_term" : f"DEP_{code}"} )
+      response = requests.get(f"{API_URL}/accounts/{account_id}/courses", headers=headers, params = {"search_term" : f"DEP_{code}"})
       courses = response.json()
       print(courses)
       # if that's not there, look for DEV assuming DEP has not been made
     if len(courses) == 0:
-      response = requests.get(f"{api_url}/accounts/{account_id}/courses", headers=headers, params = {"search_term" : f"DEV_{code}"} )
+      response = requests.get(f"{API_URL}/accounts/{account_id}/courses", headers=headers, params = {"search_term" : f"DEV_{code}"})
       courses = response.json()
       print(courses)
 
@@ -251,8 +251,8 @@ def execute_option(win, course_id, source_course_id, option):
   win.destroy()
 
 def revert_assignments(course_id, source_course_id):
-  assignments = get_paged_data(f"{api_url}/courses/{course_id}/assignments")
-  discussions = get_paged_data(f"{api_url}/courses/{course_id}/discussion_topics")
+  assignments = get_paged_data(f"{API_URL}/courses/{course_id}/assignments")
+  discussions = get_paged_data(f"{API_URL}/courses/{course_id}/discussion_topics")
   
   win = tk.Tk()
 
@@ -310,7 +310,7 @@ def revert_assignment(course_id, assignment_id):
   if not backup:
     print("no backup found for " + str(assignment_id))
     return False
-  url = f"{api_url}/courses/{course_id}/assignments/{assignment_id}"
+  url = f"{API_URL}/courses/{course_id}/assignments/{assignment_id}"
   response = requests.put(url, headers=headers, data={
     'assignment[name]' : backup['name'],
     'assignment[description]' : backup['description']
@@ -324,7 +324,7 @@ def revert_discussion(course_id, discussion_id):
   if not backup:
     print("no backup found for " + str(discussion_id))
     return False
-  url = f"{api_url}/courses/{course_id}/discussion_topics/{discussion_id}"
+  url = f"{API_URL}/courses/{course_id}/discussion_topics/{discussion_id}"
   response = requests.put(url, headers=headers, data={
     'title' : backup['title'],
     'message' : backup['message']
@@ -353,18 +353,18 @@ def confirm_dialog(message):
   return out
 
 def update_assignment_categories(course_id, source_course_id):
-  url = f"{api_url}/courses/{source_course_id}/assignment_groups"
+  url = f"{API_URL}/courses/{source_course_id}/assignment_groups"
   response = requests.get(url, headers=headers)
   source_groups = response.json()
   
-  url = f"{api_url}/courses/{course_id}/assignment_groups"
+  url = f"{API_URL}/courses/{course_id}/assignment_groups"
   response = requests.get(url, headers=headers)
   destination_groups = response.json()
 
   for group in source_groups:
     dest_group = next( filter( lambda x: x['name'] == group['name'], destination_groups), None)
     if dest_group:
-      url = f"{api_url}/courses/{course_id}/assignment_groups/{dest_group['id']}"
+      url = f"{API_URL}/courses/{course_id}/assignment_groups/{dest_group['id']}"
       response = requests.put(url, headers=headers, data={
         'group_weight' : group['group_weight'],
         'position' : group['position'],
@@ -372,7 +372,7 @@ def update_assignment_categories(course_id, source_course_id):
       print (response)
       assert response.ok, "There was a problem updating assignment groups"
     else:
-      url = f"{api_url}/courses/{course_id}/assignment_groups/"
+      url = f"{API_URL}/courses/{course_id}/assignment_groups/"
       response = requests.post(url, headers=headers, data={
         'name' : group['name'],
         'group_weight' : group['group_weight'],
@@ -383,7 +383,7 @@ def update_assignment_categories(course_id, source_course_id):
 
 def set_hometiles(course_id, source_course_id=None):
     # Retrieve the home page content
-    home_page_url = f"{api_url}/courses/{course_id}/pages/home"
+    home_page_url = f"{API_URL}/courses/{course_id}/pages/home"
     response = requests.get(home_page_url, headers=headers)
     page = response.json()
     soup = BeautifulSoup(page["body"], 'lxml')
@@ -415,7 +415,7 @@ def process_and_upload_overview_tiles(course_id, image_source_course_id, image_p
     # Process and upload hometiles
     modules = get_modules(course_id)
     for i, module in enumerate(modules, start=1):
-      overview_url = f"{api_url}/courses/{course_id}/pages/week_{i}_overview"
+      overview_url = f"{API_URL}/courses/{course_id}/pages/week_{i}_overview"
       response = requests.get(overview_url, headers=headers)
       
       if response.ok:
@@ -444,13 +444,13 @@ def ensure_directory_exists(directory_path):
 
 def upload_hometile(course_id, local_path):
   #get the correcy folder id
-  url = f"{api_url}/courses/{course_id}/folders/by_path/Images/hometile"
+  url = f"{API_URL}/courses/{course_id}/folders/by_path/Images/hometile"
   response = requests.get(url, headers=headers)
   folders = response.json()
   hometile_folder = folders[-1]
 
   #upload the file
-  file_url = f"{api_url}/courses/{course_id}/files"
+  file_url = f"{API_URL}/courses/{course_id}/files"
   print(f"uploading {local_path} to {file_url}")
   data = {
     "name" : os.path.basename(local_path),
@@ -501,7 +501,7 @@ def save_hometile(img_data, data_folder, filename):
 
 
 def get_modules(course_id):
-  url = f"{api_url}/courses/{course_id}/modules?include[]=items&include[]=content_details&per_page=100"
+  url = f"{API_URL}/courses/{course_id}/modules?include[]=items&include[]=content_details&per_page=100"
   return get_paged_data(url)
   
 def create_missing_assignments(modules, source_modules, course_id, source_course_id):
@@ -547,7 +547,7 @@ def remove_module(course_id, module, delete_contents):
       print(f"Deleting {url}")
       result = requests.delete(url, headers=headers)
 
-  url = f"{api_url}/courses/{course_id}/modules/{module['id']}"
+  url = f"{API_URL}/courses/{course_id}/modules/{module['id']}"
   result = requests.delete(url, headers=headers)
 
 
@@ -568,7 +568,7 @@ def add_quizzes(module, source_module, course_id, source_course_id):
   if difference > 0:
   #we're looking for imported quizzes now
 
-    url = f"{api_url}/courses/{course_id}/quizzes"
+    url = f"{API_URL}/courses/{course_id}/quizzes"
     all_quizzes_in_course = get_paged_data(url)
     for source_quiz in source_quizzes:
       #if the quiz is there, we're good
@@ -580,7 +580,7 @@ def add_quizzes(module, source_module, course_id, source_course_id):
         print( list(map( lambda quiz: f"{quiz['title']} // {source_quiz['title']}  // {quiz['title'] in source_quiz['title']}", all_quizzes_in_course)))
         new_quiz = next( filter(lambda item: item["title"].lower() in source_quiz["title"].lower(), all_quizzes_in_course), None)
         assert new_quiz, f"Quiz not found:{source_quiz['title']}"
-        url = f"{api_url}/courses/{course_id}/modules/{module['id']}/items"
+        url = f"{API_URL}/courses/{course_id}/modules/{module['id']}/items"
         result = requests.post(url, headers=headers, data={
           "module_item[type]" : "Quiz",
           "module_item[content_id]" : new_quiz["id"],
@@ -658,8 +658,8 @@ def get_files_lookup_table(course_id, source_course_id, force=False):
           files_lut_cache = json.load(f)
           return files_lut_cache
 
-  files = get_paged_data(f"{api_url}/courses/{course_id}/files?per_page=100")
-  source_files = get_paged_data(f"{api_url}/courses/{source_course_id}/files?per_page=100")
+  files = get_paged_data(f"{API_URL}/courses/{course_id}/files?per_page=100")
+  source_files = get_paged_data(f"{API_URL}/courses/{source_course_id}/files?per_page=100")
 
 
   files_lut = dict()
@@ -677,7 +677,7 @@ def get_files_lookup_table(course_id, source_course_id, force=False):
   return files_lut 
 
 def get_course(course_id):
-  url = f'{api_url}/courses/{course_id}'
+  url = f'{API_URL}/courses/{course_id}'
   response = requests.get(url, headers=headers)
   return response.json()
 
@@ -742,8 +742,8 @@ def get_assignments_lookup_table(course_id, source_course_id, force=False):
 
 
   #We also want to associate discussions with their corresponding assignment ID
-  discussions = get_paged_data(f"{api_url}/courses/{course_id}/discussion_topics")
-  source_discussions = get_paged_data(f"{api_url}/courses/{source_course_id}/discussion_topics")
+  discussions = get_paged_data(f"{API_URL}/courses/{course_id}/discussion_topics")
+  source_discussions = get_paged_data(f"{API_URL}/courses/{source_course_id}/discussion_topics")
 
   discussions_by_ids = dict()
   for discussion in discussions:
@@ -780,8 +780,8 @@ def get_rubrics_lookup_table(rubrics, source_rubrics ):
 
 def align_rubrics(course_id, source_course_id):
   assignments_lut = get_assignments_lookup_table(course_id, source_course_id)
-  source_rubric_url = f"{api_url}/courses/{source_course_id}/rubrics?per_page=100"
-  rubric_url = f"{api_url}/courses/{course_id}/rubrics?per_page=100"
+  source_rubric_url = f"{API_URL}/courses/{source_course_id}/rubrics?per_page=100"
+  rubric_url = f"{API_URL}/courses/{course_id}/rubrics?per_page=100"
 
   source_rubric_response = requests.post(source_rubric_url, headers=headers)
   rubric_response = requests.post(rubric_url, headers=headers)
@@ -794,7 +794,7 @@ def align_rubrics(course_id, source_course_id):
   for source_rubric in source_rubrics:
     try:
 
-      response = requests.get(f"{api_url}/courses/{source_course_id}/rubrics/{source_rubric['id']}", headers=headers, data={ "include[]" : "associations"} )
+      response = requests.get(f"{API_URL}/courses/{source_course_id}/rubrics/{source_rubric['id']}", headers=headers, data={"include[]" : "associations"})
       assert response.ok, f"problem getting rubric {source_rubric['id']} : {source_rubric['description']}"
       source_rubric_data = response.json()
       for association in source_rubric_data["associations"]:
@@ -821,12 +821,12 @@ def align_rubrics(course_id, source_course_id):
           }
 
 
-          site_url = re.sub(r"/api/v1", "", api_url)
-          url = f"{api_url}/courses/{course_id}/rubric_associations"
+          site_url = re.sub(r"/api/v1", "", API_URL)
+          url = f"{API_URL}/courses/{course_id}/rubric_associations"
           response = requests.post(url, headers=headers, data = payload)
 
           assert response.ok
-          url = f"{api_url}/courses/{course_id}/rubrics/{rubric['id']}"
+          url = f"{API_URL}/courses/{course_id}/rubrics/{rubric['id']}"
 
 
 
@@ -916,7 +916,7 @@ def get_new_file_url(src, course_id, source_course_id):
       url = re.sub('verifier(.*)&?', '', url)  
       if "wrap" in src:
         url = url + "wrap=1"
-      data_url = re.sub(html_url, api_url, new_file['url'])
+      data_url = re.sub(html_url, API_URL, new_file['url'])
       return url, data_url
 
   return None, None
@@ -1014,7 +1014,7 @@ def handle_items(course_id, source_course_id, module, items, source_items, handl
   for source_item in source_items:
     item = items[i]
     handled.append(item)
-    course_id_regex = re.compile(f'{api_url}/courses/(\d+)/(assignments|discussion_topics)/(\d+)')
+    course_id_regex = re.compile(f'{API_URL}/courses/(\d+)/(assignments|discussion_topics)/(\d+)')
     match = course_id_regex.match(items[0]["url"])
     source_match = course_id_regex.match(source_item["url"])
 
@@ -1045,7 +1045,7 @@ def handle_items(course_id, source_course_id, module, items, source_items, handl
       remove_item_from_module(item, module, course_id)
 
 def remove_item_from_module(item, module, course_id):
-  url = f"{api_url}/courses/{course_id}/modules/{item['module_id']}/items/{item['id']}"
+  url = f"{API_URL}/courses/{course_id}/modules/{item['module_id']}/items/{item['id']}"
   print(url)
   response = requests.delete(url, headers=headers)
   print("DELETING")
@@ -1202,7 +1202,7 @@ def add_to_payload_if_exists_in_source(key, wrapper, source, payload):
     payload[wrapper.format(key=key)] = source[key]
 
 def get_assignment(course_id, assignment_id):
-  url = f"{api_url}/courses/{course_id}/assignments/{assignment_id}"
+  url = f"{API_URL}/courses/{course_id}/assignments/{assignment_id}"
   response = requests.get(url, headers=headers)
   if response.ok:
     return response.json()
@@ -1255,7 +1255,7 @@ def remove_assignments_and_discussions_not_in_modules(course_id, source_course_i
         print(item['content_id'])
         assignments_in_modules.append(item['content_id'])
 
-  url = f"{api_url}/courses/{course_id}/assignments"
+  url = f"{API_URL}/courses/{course_id}/assignments"
   assignments = get_paged_data(url)
 
 
@@ -1279,7 +1279,7 @@ def remove_assignments_and_discussions_not_in_modules(course_id, source_course_i
   assignments_string = '\n'.join( list( map( lambda item: item["name"], assignments_to_delete)))
   if len(assignments_to_delete) > 0 and tk.messagebox.askyesno(message=f"Do you want to delete the following assignments?\n{assignments_string}"):
     for assignment in assignments_to_delete:
-      result = requests.delete(f"{api_url}/courses/{course_id}/assignments/{assignment['id']}", headers=headers) 
+      result = requests.delete(f"{API_URL}/courses/{course_id}/assignments/{assignment['id']}", headers=headers)
       print(result)
 
 
@@ -1287,7 +1287,7 @@ def remove_assignments_and_discussions_not_in_modules(course_id, source_course_i
   print(discussions_to_delete)
   if len(discussions_to_delete) > 0 and tk.messagebox.askyesno(message=f"Do you want to delete the following discussions?\n{discussions_string}"):
     for discussion in discussions_to_delete:
-      result = requests.delete(f"{api_url}/courses/{course_id}/discussion_topics/{discussion['id']}", headers=headers) 
+      result = requests.delete(f"{API_URL}/courses/{course_id}/discussion_topics/{discussion['id']}", headers=headers)
       print(result)
 
 def remove_gallery_discussions(discussions, remove_introduction = True):
@@ -1317,9 +1317,9 @@ def duplicate_item(course_id, item, module=None):
   print(f"Duplicating assignment {item_id}")
 
   if type_ == "Assignment":
-    url = f"{api_url}/courses/{course_id}/assignments/{item_id}/duplicate"
+    url = f"{API_URL}/courses/{course_id}/assignments/{item_id}/duplicate"
   elif type_ == "Discussion":
-    url = f"{api_url}/courses/{course_id}/discussion_topics/{item_id}/duplicate"
+    url = f"{API_URL}/courses/{course_id}/discussion_topics/{item_id}/duplicate"
 
   print(url)
   response = requests.post(url, headers=headers)
@@ -1333,7 +1333,7 @@ def duplicate_item(course_id, item, module=None):
   elif 'name' in item:
     item_name = item['name']
   print(f"Adding {type_} {item_name} to module {module['name']}")
-  url = f"{api_url}/courses/{course_id}/modules/{module['id']}/items"
+  url = f"{API_URL}/courses/{course_id}/modules/{module['id']}/items"
   print(url)
   payload = {
     "module_item[title]" : item_name,
@@ -1398,7 +1398,7 @@ def update_weekly_overviews(course_id, source_course_id):
 
       source_overview_page = get_page_by_url (source_overview_page_info["url"])
       source_lo_page = get_page_by_url (source_lo_page_info["url"])
-      overview_page = get_page_by_url (f"{api_url}/courses/{course_id}/pages/week-{i}-overview")
+      overview_page = get_page_by_url (f"{API_URL}/courses/{course_id}/pages/week-{i}-overview")
 
       source_overview_soup = BeautifulSoup( preprocess_html(source_overview_page["body"]), 'lxml')
       source_lo_soup = BeautifulSoup( preprocess_html(source_lo_page["body"]), 'lxml')
@@ -1425,15 +1425,15 @@ def update_weekly_overviews(course_id, source_course_id):
 
       new_page_body = new_overview_page_html(course_id, source_course_id, overview_page["body"], module_name, description, learning_objectives)
 
-      response = requests.put(f'{api_url}/courses/{course_id}/pages/{overview_page["url"]}', 
-        headers = headers,
-        data = {
+      response = requests.put(f'{API_URL}/courses/{course_id}/pages/{overview_page["url"]}',
+                              headers = headers,
+                              data = {
           "wiki_page[body]" : new_page_body
         }
-      )  
+                              )
      
 def set_module_title(course_id, module_id, title ):
-  url = f"{api_url}/courses/{course_id}/modules/{module_id}"
+  url = f"{API_URL}/courses/{course_id}/modules/{module_id}"
   print(url)
   response = requests.put(url, 
     headers = headers,
@@ -1463,7 +1463,7 @@ def get_page_by_url(url):
   return page
 
 def get_file_url_by_name(course_id, file_search):
-  url = f"{api_url}/courses/{course_id}/files"
+  url = f"{API_URL}/courses/{course_id}/files"
   response = requests.get(url, headers=headers, params={"search_term" : file_search})
   files = response.json()
   if len(files) > 0:
@@ -1513,16 +1513,16 @@ def set_course_grad(course_id):
 
   print("Setting grad course grading standards")
 
-  url = f"{api_url}/accounts/{ACCOUNT_ID}"
+  url = f"{API_URL}/accounts/{ACCOUNT_ID}"
   account = requests.get(url, headers=headers).json()
 
 
-  url = f"{api_url}/accounts/{account['root_account_id']}/grading_standards"
+  url = f"{API_URL}/accounts/{account['root_account_id']}/grading_standards"
   grading_standards = get_paged_data(url)
   print(grading_standards)
   grad_standard = next( filter( lambda scheme: GRAD_SCHEME_NAME.lower() in scheme['title'].lower(), grading_standards), None)
   assert grad_standard, f"Cannot find {GRAD_SCHEME_NAME}"
-  response = requests.put(f"{api_url}/course/{course_id}", headers=headers, data={
+  response = requests.put(f"{API_URL}/course/{course_id}", headers=headers, data={
     "course[grading_standard_id]" : grad_standard['id']
 
     })
@@ -1571,12 +1571,12 @@ def update_syllabus(course_id, syllabus_banner_url, term, dates, learning_object
     for el in list ( submit_soup.find_all("div", class_ = "grad") ):
       el.decompose()
 
-  response = requests.put(f'{api_url}/courses/{course_id}', 
-    headers = headers,
-    data = {
+  response = requests.put(f'{API_URL}/courses/{course_id}',
+                          headers = headers,
+                          data = {
       "course[syllabus_body]" : str(submit_soup)
     }
-  )
+                          )
   print(response.status_code)
 
 
@@ -1587,7 +1587,7 @@ def update_course_overview(course_id, source_course_id, learning_objectives_sect
 
   overview_module = next(filter(lambda module: module["position"] == 1, modules))
   page_id  = overview_module['items'][0]['page_url']
-  url = f"{api_url}/courses/{course_id}/pages/{page_id}"
+  url = f"{API_URL}/courses/{course_id}/pages/{page_id}"
 
   response = requests.get(url, headers=headers)
   print(response.status_code)
@@ -1599,7 +1599,7 @@ def update_course_overview(course_id, source_course_id, learning_objectives_sect
   overview_banner_url = overview_banner_img["src"]
 
   #get assignment groups
-  url = f"{api_url}/courses/{source_course_id}/assignment_groups"
+  url = f"{API_URL}/courses/{source_course_id}/assignment_groups"
   response = requests.get(url, headers=headers)
   groups = response.json()
   assignment_categories = groups
@@ -1640,12 +1640,12 @@ def update_course_overview(course_id, source_course_id, learning_objectives_sect
     exit()
 
   submit_soup = BeautifulSoup(text, "lxml")
-  response = requests.put(f'{api_url}/courses/{course_id}/pages/course-overview', 
-    headers = headers,
-    data = {
+  response = requests.put(f'{API_URL}/courses/{course_id}/pages/course-overview',
+                          headers = headers,
+                          data = {
       "wiki_page[body]" : str(submit_soup)
     }
-  )  
+                          )
 
 def update_home_page(course_id, source_course_id, course_code, course_title):
   #set to template defaults in case we don't find them so we don't break the templating
@@ -1657,7 +1657,7 @@ def update_home_page(course_id, source_course_id, course_code, course_title):
 
   print(f'updating {course_code} : {course_title}')
 
-  source_url = f"{api_url}/courses/{source_course_id}/pages/course-introduction"
+  source_url = f"{API_URL}/courses/{source_course_id}/pages/course-introduction"
   response = requests.get(source_url, headers=headers)
   if not response.ok:
     raise Exception("There was a problem getting course introduction from source course")
@@ -1673,7 +1673,7 @@ def update_home_page(course_id, source_course_id, course_code, course_title):
     if divs:
       description = '\n'.join( list( map(lambda x: str(x), divs) ) )
 
-  dest_url = f"{api_url}/courses/{course_id}/pages/home"
+  dest_url = f"{API_URL}/courses/{course_id}/pages/home"
   response = requests.get(dest_url, headers = headers)
   if not response.ok:
     raise Exception("There was a problem finding destination home page")
@@ -1688,7 +1688,7 @@ def update_home_page(course_id, source_course_id, course_code, course_title):
 
   print(dest_text)
 
-  response = requests.put(f"{api_url}/courses/{course_id}/pages/{dest_page['page_id']}", headers=headers, data={
+  response = requests.put(f"{API_URL}/courses/{course_id}/pages/{dest_page['page_id']}", headers=headers, data={
     "wiki_page[body]" : dest_text
   })
   print(response.json())
@@ -1702,7 +1702,7 @@ def stringify_section(section):
   return "<p style='background-color: red; color: white'>Not Found</p>"
 
 def get_syllabus(course_id):
-  url = f"{api_url}/courses/{course_id}?include[]=syllabus_body"
+  url = f"{API_URL}/courses/{course_id}?include[]=syllabus_body"
   response = requests.get(url, headers=headers)
   content = response.json()
   return BeautifulSoup(preprocess_html(content["syllabus_body"]), "lxml")
@@ -1823,7 +1823,7 @@ def convert_to_watch_url(embed_url: str) -> str:
 
 def get_week_1_preview(course_id, source_course_id):
 
-    source_lm_url = f"{api_url}/courses/{source_course_id}/pages/week_1_learning_materials"
+    source_lm_url = f"{API_URL}/courses/{source_course_id}/pages/week_1_learning_materials"
     lm_response = requests.get(source_lm_url, headers=headers)
 
     print(lm_response)
@@ -1879,7 +1879,7 @@ def get_week_1_preview(course_id, source_course_id):
 
 
 def get_latest_lm_backup(course_id, week_num):
-  url = f"{api_url}/courses/{course_id}/pages/"
+  url = f"{API_URL}/courses/{course_id}/pages/"
   print(url)
   response = requests.get(
     url,
@@ -1919,8 +1919,8 @@ def update_learning_materials(course_id : str, source_course_id : str, start_ind
 
   print("Updating Learning Materials")
   for i in range(start_index, end_index + 1):
-    source_url = f"{api_url}/courses/{source_course_id}/pages/week_{i}_learning_materials"
-    new_url = f"{api_url}/courses/{course_id}/pages/week_{i}_learning_materials"
+    source_url = f"{API_URL}/courses/{source_course_id}/pages/week_{i}_learning_materials"
+    new_url = f"{API_URL}/courses/{course_id}/pages/week_{i}_learning_materials"
     #source_url = get_latest_lm_backup(course_id, i)
 
     print(f"copying from {source_url} to {new_url}")
@@ -2014,12 +2014,12 @@ def update_learning_materials(course_id : str, source_course_id : str, start_ind
     update_links(new_soup, course_id, source_course_id)
 
     #save changes
-    response = requests.put(f'{api_url}/courses/{course_id}/pages/{new_page["page_id"]}', 
-      headers = headers,
-      data = {
+    response = requests.put(f'{API_URL}/courses/{course_id}/pages/{new_page["page_id"]}',
+                            headers = headers,
+                            data = {
         "wiki_page[body]" : postprocess_soup(new_soup)
       }
-    )
+                            )
     print(new_page["title"], response.status_code)
 
 def get_secondary_media_boxes(soup):

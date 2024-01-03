@@ -11,32 +11,32 @@ CONSTANTS_FILE = 'constants.json'
 with open(CONSTANTS_FILE) as f:
     constants = json.load(f)
 
-publish_script.api_token = constants["apiToken"]
-publish_script.api_url = constants["apiUrl"]
-publish_script.html_url = re.sub('/api/v1', '', constants["apiUrl"])
+publish_script.API_TOKEN = constants["apiToken"]
+publish_script.API_URL = constants["apiUrl"]
+publish_script.HTML_URL = re.sub('/api/v1', '', constants["apiUrl"])
 
 instructor_course_id = constants["instructorCourseId"]
 profile_assignment_id = constants["profileAssignmentId"]
 profile_pages_course_id = constants["profilePagesCourseId"]
 
-default_profile_url = f"{publish_script.html_url}/users/9230846/files/156109264/preview"
-publish_script.live_url = constants["liveUrl"]
+default_profile_url = f"{publish_script.HTML_URL}/users/9230846/files/156109264/preview"
+publish_script.LIVE_URL = constants["liveUrl"]
 
 # Authorize the request.
-publish_script.headers = {"Authorization": f"Bearer {publish_script.api_token}"}
-publish_script.live_headers = {"Authorization": f'Bearer {constants["liveApiToken"]}'}
+publish_script.HEADERS = {"Authorization": f"Bearer {publish_script.API_TOKEN}"}
+publish_script.LIVE_HEADERS = {"Authorization": f'Bearer {constants["liveApiToken"]}'}
 
-accounts = requests.get(f'{publish_script.api_url}/accounts', headers=publish_script.headers).json()
+accounts = requests.get(f'{publish_script.API_URL}/accounts', headers=publish_script.HEADERS).json()
 account_ids = dict()
 for account in accounts:
     account_ids[account['name']] = account['id']
 
 ACCOUNT_ID = account_ids['Distance Education']
 ROOT_ACCOUNT_ID = account_ids['Unity College']
-api_url = publish_script.api_url
+API_URL = publish_script.API_URL
 test_course_code: str = 'TEST000'
 
-print(publish_script.api_url)
+print(publish_script.API_URL)
 
 
 def is_section_setup(course):
@@ -52,8 +52,8 @@ def is_section_setup(course):
         assert section['end_at'] == '2023-12-31T05:00:00Z' or section['end_at'] == '2024-01-01T05:00:00Z'
         assert section['restrict_enrollments_to_section_dates']
         enrollments = requests.get(
-            f'{api_url}/sections/{section["id"]}/enrollments',
-            headers=publish_script.headers).json()
+            f'{API_URL}/sections/{section["id"]}/enrollments',
+            headers=publish_script.HEADERS).json()
         assert len(enrollments) == 1
         enrollment = enrollments[0]
         print(enrollment)
@@ -64,8 +64,8 @@ def is_section_setup(course):
 
 class TestInsertSection(unittest.TestCase):
     def test_get_terms(self):
-        url = f'{publish_script.api_url}/accounts/{publish_script.ROOT_ACCOUNT_ID}/terms'
-        terms = requests.get(url, headers=publish_script.headers).json()
+        url = f'{publish_script.API_URL}/accounts/{publish_script.ROOT_ACCOUNT_ID}/terms'
+        terms = requests.get(url, headers=publish_script.HEADERS).json()
         print(json.dumps(terms, indent=2))
 
     def test_get_course(self):

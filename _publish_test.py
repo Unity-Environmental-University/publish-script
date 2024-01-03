@@ -11,33 +11,34 @@ CONSTANTS_FILE = 'constants_test.json'
 with open(CONSTANTS_FILE) as f:
     constants = json.load(f)
 
-publish_script.api_token = constants["apiToken"]
-publish_script.api_url = constants["apiUrl"]
-publish_script.html_url = re.sub('/api/v1', '', constants["apiUrl"])
+publish_script.API_TOKEN = constants["apiToken"]
+publish_script.API_URL = constants["apiUrl"]
+publish_script.HTML_URL = re.sub('/api/v1', '', constants["apiUrl"])
 
 instructor_course_id = constants["instructorCourseId"]
 profile_assignment_id = constants["profileAssignmentId"]
 profile_pages_course_id = constants["profilePagesCourseId"]
 
-default_profile_url = f"{publish_script.html_url}/users/9230846/files/156109264/preview"
-publish_script.live_url = constants["liveUrl"]
+default_profile_url = f"{publish_script.HTML_URL}/users/9230846/files/156109264/preview"
+publish_script.LIVE_URL = constants["liveUrl"]
 
 # Authorize the request.
-publish_script.headers = {"Authorization": f"Bearer {publish_script.api_token}"}
-publish_script.live_headers = {"Authorization": f'Bearer {constants["liveApiToken"]}'}
+publish_script.HEADERS = {"Authorization": f"Bearer {publish_script.API_TOKEN}"}
+publish_script.LIVE_HEADERS = {"Authorization": f'Bearer {constants["liveApiToken"]}'}
 
-accounts = requests.get(f'{publish_script.api_url}/accounts', headers=publish_script.headers).json()
+accounts = requests.get(f'{publish_script.API_URL}/accounts', headers=publish_script.HEADERS).json()
 account_ids = dict()
 for account in accounts:
     account_ids[account['name']] = account['id']
 
 ACCOUNT_ID = account_ids['Distance Education']
 ROOT_ACCOUNT_ID = account_ids['Unity College']
-api_url = publish_script.api_url
+API_URL = publish_script.API_URL
 test_course_code: str = 'TEST000'
 
-print(publish_script.api_url)
-assert('test' in publish_script.api_url)
+print(publish_script.API_URL)
+assert('test' in publish_script.API_URL)
+
 
 def get_test_course():
     return publish_script.get_course_by_code(f'BP_{test_course_code}')
@@ -80,7 +81,6 @@ class TestContentFixes(unittest.TestCase):
     def test_fix_intro_header(self):
         course = publish_script.get_course_by_code(f'BP_{test_course_code}')
         self.assertIsNotNone(course, "Can't Find Test Course by code")
-
 
 
 class TestCourseResetAndImport(unittest.TestCase):
@@ -136,14 +136,36 @@ class TestCourseResetAndImport(unittest.TestCase):
             "Restrictions not properly set on course")
 
 
+class TestProfilePages(unittest.TestCase):
+    def setUp(self):
+        pass
+
+    def test_download_faculty_pages(self):
+        course = get_test_course()
+        bios = publish_script.get_faculty_pages(True)
+        self.assertGreater(len(bios), 10, "No Bios Found")
+        self.assertListEqual(bios, publish_script.get_faculty_pages(), msg="Bios not returning properly")
+
+    def tearDown(self):
+        pass
+
+
 class TestLocking(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        course = get_test_course()
+        modules = publish_script.get_modules(course['id'])
+        if len(modules) == 0:
+            publish_script.import_dev_course(course)
+
     async def test_lock(self):
         course = get_test_course()
+        publish_script.set_course_as_blueprint(course)
         self.assertIsNotNone(course, "Can't Find Test Course by code")
         self.assertTrue(await publish_script.lock_module_items_async(course), "locking did not succeed")
 
     def test_lock_sync(self):
         course = get_test_course()
+        publish_script.set_course_as_blueprint(course)
         self.assertIsNotNone(course, "Can't Find Test Course by code")
         self.assertTrue(publish_script.lock_module_items(course, synchronous=True), "locking did not succeed")
 
