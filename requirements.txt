@@ -1,4 +1,4 @@
-aiohttp
+aiohttp==3.9.1
 beautifulsoup4==4.12.2
 docx==0.2.4
 Pillow==10.1.0
