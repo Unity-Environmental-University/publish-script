@@ -1,34 +1,59 @@
-import webbrowser
-from http.server import HTTPServer, SimpleHTTPRequestHandler
-from ssl import PROTOCOL_TLS_SERVER, SSLContext
-
-import tempfile
-from pathlib import Path
-
-from OpenSSL.crypto import (
-    FILETYPE_PEM,
-    TYPE_RSA,
-    X509,
-    PKey,
-    dump_certificate,
-    dump_privatekey
-)
-
-
-# credit: https://realpython.com/python-http-server/
-class SelfSignedCertificate:
-    host: str = "0.0.0.0"
-    bits: int = 2048
-    country: str = "US"
-    state: str = "Maine"
-    locality: str = "New Gloucester"
-    organization: str = "Unity Environmental University"
-    organizational_unit: str = "LXD"
-    serial_number: int = 1
-    expires_on: int = 365 * 24 * 60 * 60
-
+from http.server import HTTPServer, BaseHTTPRequestHandler, ThreadingHTTPServer, SimpleHTTPRequestHandler
+import threading
+from socketserver import BaseServer
 
 class Authenticator:
-    def __init__(self, self_url="http://localhost:8000"):
-        self.self_url = self_url
+    local_url: str = "localhost"
+    local_port: int = 8000
+    remote_url: str = None
+    server_thread: threading.Thread = None
+    server: HTTPServer = None
 
+    def __init__(
+            self,
+            local_url: str,
+            remote_url: str) -> None:
+        self.local_url = local_url
+        self.remote_url = remote_url
+
+    def start(self):
+        def get_auth_request_handler(socket, client_address, server) -> BaseHTTPRequestHandler:
+            request_handler = BaseAuthenticatorRequestHandler(self, socket, client_address, server)
+            request_handler.authenticator = self
+            return request_handler
+
+        server_address = (self.local_url, self.local_port)
+        self.server = ThreadingHTTPServer(server_address, get_auth_request_handler)
+        print('starting')
+        self.server_thread = threading.Thread(target=self.server.serve_forever)
+        self.server_thread.start()
+        print('server thread started')
+        print(self.server_thread)
+
+    def end(self):
+        self.server.shutdown()
+        self.server_thread.join()
+
+
+class BaseAuthenticatorRequestHandler(BaseHTTPRequestHandler):
+
+    authenticator: Authenticator = None
+
+    def __init__(self,
+                 authenticator: Authenticator,
+                 request,
+                 client_address,
+                 server: BaseServer):
+        self.authenticator = authenticator
+        super().__init__(request, client_address, server)
+
+    def do_GET(self):
+        self.authenticate()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write("RESPONSE".encode("utf-8"))
+
+    def authenticate(self):
+        print(self.authenticator.remote_url)
+        pass
