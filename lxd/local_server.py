@@ -1,6 +1,9 @@
 from http.server import HTTPServer, BaseHTTPRequestHandler, ThreadingHTTPServer, SimpleHTTPRequestHandler
 import threading
 from socketserver import BaseServer
+import json
+import urllib.parse as urlparse
+
 
 class Authenticator:
     local_url: str = "localhost"
@@ -18,7 +21,8 @@ class Authenticator:
 
     def start(self):
         def get_auth_request_handler(socket, client_address, server) -> BaseHTTPRequestHandler:
-            request_handler = BaseAuthenticatorRequestHandler(self, socket, client_address, server)
+            print(client_address, server)
+            request_handler = AuthenticatorRequestHandler(self, socket, client_address, server)
             request_handler.authenticator = self
             return request_handler
 
@@ -35,7 +39,7 @@ class Authenticator:
         self.server_thread.join()
 
 
-class BaseAuthenticatorRequestHandler(BaseHTTPRequestHandler):
+class AuthenticatorRequestHandler(BaseHTTPRequestHandler):
 
     authenticator: Authenticator = None
 
@@ -48,12 +52,16 @@ class BaseAuthenticatorRequestHandler(BaseHTTPRequestHandler):
         super().__init__(request, client_address, server)
 
     def do_GET(self):
-        self.authenticate()
+        print(json.dumps(json.load(self.rfile)))
+
+        parsed_path = urlparse.urlparse(self.path)
+        self.start_authentication()
         self.send_response(200)
+
         self.send_header("Content-Type", "application/json")
         self.end_headers()
         self.wfile.write("RESPONSE".encode("utf-8"))
 
-    def authenticate(self):
+    def start_authentication(self):
         print(self.authenticator.remote_url)
         pass
