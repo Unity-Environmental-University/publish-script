@@ -102,4 +102,3 @@ class AuthenticatorRequestHandler(BaseHTTPRequestHandler):
         self.authenticator.finish_authentication(query)
         self.send_header("Content-Type", "text/html")
         self.end_headers()
-        self.wfile.write(b'<html><head><title>TITLE</title></head><body>BODY</body></html>')

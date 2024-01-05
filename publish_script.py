@@ -28,15 +28,35 @@ import win32com.client as win32
 from PIL import Image
 from bs4 import BeautifulSoup
 
-course_code_regex = re.compile(r'([\-.\w]+)_(\w{4}\d{3})', re.IGNORECASE)
+COURSE_CODE_REGEX: re = re.compile(r'([\-.\w]+)_(\w{4}\d{3})', re.IGNORECASE)
+API_TOKEN: str
+API_URL: str
+HTML_URL: str
 
-syllabus_replacements = [{
+INSTRUCTOR_COURSE_ID: int
+PROFILE_ASSIGNMENT_ID: int
+PROFILE_PAGES_COURSE_ID: int
+
+DEFAULT_PROFILE_URL: str
+LIVE_URL: str
+HEADERS: dict
+LIVE_HEADERS: dict
+ACCOUNTS: list
+ACCOUNT_IDS_BY_NAME: dict
+ACCOUNT_ID: int
+ROOT_ACCOUNT_ID: int
+CONSTANTS: dict
+CONSTANTS_FILE: str = 'constants.json'
+MAX_PROFILE_IMAGE_SIZE: int = 400
+
+
+SYLLABUS_REPLACEMENTS = [{
     'find': r'<p>The instructor will conduct [^.]*\(48 hours during weekends\)\.',
     'replace': r'<p>The instructor will conduct all correspondence with students related to the class in Canvas,'
                + ' and you should expect to receive a response to emails within 24 hours.'
 }]
 
-lm_replacements = [
+LEARNING_MATERIALS_REPLACEMENTS = [
     {
         'find': r'<p>\[Text[^\]]*by SME[^\]]*\]</p>',
         'replace': '',
@@ -58,41 +78,47 @@ lm_replacements = [
     },
 ]
 
-CONSTANTS_FILE: str = 'constants.json'
-MAX_PROFILE_IMAGE_SIZE: int = 400
-# Open the file and read the contents
-with open(CONSTANTS_FILE, 'r') as f:
-    CONSTANTS = json.load(f)
 
-# save the api key
-API_TOKEN: str = CONSTANTS["apiToken"]
-API_URL: str = CONSTANTS["apiUrl"]
-HTML_URL: str = re.sub('/api/v1', '', CONSTANTS["apiUrl"])
+def load_constants(path=CONSTANTS_FILE, context=None):
+    with open(path, 'r') as file:
+        constants = json.load(file)
 
-INSTRUCTOR_COURSE_ID: int = CONSTANTS["instructorCourseId"]
-PROFILE_ASSIGNMENT_ID: int = CONSTANTS["profileAssignmentId"]
-PROFILE_PAGES_COURSE_ID: int = CONSTANTS["profilePagesCourseId"]
+    if context is None:
+        context = sys.modules[__name__]
 
-DEFAULT_PROFILE_URL: str = f"{HTML_URL}/users/9230846/files/156109264/preview"
-LIVE_URL: str = CONSTANTS["liveUrl"]
-HEADERS: dict[str, str] = {"Authorization": f"Bearer {API_TOKEN}"}
-LIVE_HEADERS: dict[str, str] = {"Authorization": f'Bearer {CONSTANTS["liveApiToken"]}'}
-ACCOUNTS: list = requests.get(f'{API_URL}/accounts', headers=HEADERS).json()
+    context.API_TOKEN = constants["apiToken"]
+    context.API_URL = constants["apiUrl"]
+    context.HTML_URL = re.sub('/api/v1', '', constants["apiUrl"])
 
-account_ids: dict = dict()
-for account in ACCOUNTS:
-    account_ids[account['name']] = account['id']
+    context.instructor_course_id = constants["instructorCourseId"]
+    context.profile_assignment_id = constants["profileAssignmentId"]
+    context.profile_pages_course_id = constants["profilePagesCourseId"]
 
-ACCOUNT_ID: int = account_ids['Distance Education']
-ROOT_ACCOUNT_ID: int = account_ids['Unity College']
+    context.default_profile_url = f"{context.HTML_URL}/users/9230846/files/156109264/preview"
+    context.LIVE_URL = constants["liveUrl"]
 
+    # Authorize the request.
+    context.HEADERS = {"Authorization": f"Bearer {context.API_TOKEN}"}
+    context.LIVE_HEADERS = {"Authorization": f'Bearer {constants["liveApiToken"]}'}
+
+    context.ACCOUNT_IDS_BY_NAME = dict()
+    context.ACCOUNTS = requests.get(f'{API_URL}/accounts', headers=context.HEADERS).json()
+
+    for account in context.ACCOUNTS:
+        context.ACCOUNT_IDS_BY_NAME[account['name']] = account['id']
+
+    context.ROOT_ACCOUNT_ID = context.ACCOUNT_IDS_BY_NAME['Unity College']
+    context.ACCOUNT_ID = context.ACCOUNT_IDS_BY_NAME['Distance Education']
+    context.CONSTANTS = constants
+
+    return constants
 
 def main():
     """Summary
         Main loop. Opens an interface you can perform various
         course publishing operations with.
     """
-
+    load_constants(CONSTANTS_FILE, sys.modules[__name__])
     window = tk.Tk()
     window.geometry("600x400")
     initial_value = None
@@ -139,7 +165,7 @@ def main():
         command=callback)
     button.pack()
 
-    if(initial_value != None):
+    if initial_value is not None:
         callback()
     window.mainloop()
 
@@ -472,7 +498,7 @@ def import_dev_course(bp_course: dict, progress_bar=None):
         bp_course: the bp course to import into
         progress_bar: an optional progress bar to update with progress
     """
-    match = re.search(course_code_regex, bp_course["course_code"])
+    match = re.search(COURSE_CODE_REGEX, bp_course["course_code"])
     assert match, "This is not a course code "+ bp_course["course_code"]
     prefix = match.group(1)
     course_code = match.group(2)
@@ -903,8 +929,8 @@ def update_syllabus_text(text: str):
         TYPE: The syllabus with all operations performed
     """
 
-    global syllabus_replacements
-    for replacement in syllabus_replacements:
+    global SYLLABUS_REPLACEMENTS
+    for replacement in SYLLABUS_REPLACEMENTS:
         text = re.sub(replacement['find'], replacement['replace'], text)
     return text
 
@@ -959,9 +985,9 @@ def remove_lm_annotations(text: str) -> str:
         str: An html string with the regexs run on it
     """
     # one liners to replace
-    global lm_replacements
+    global LEARNING_MATERIALS_REPLACEMENTS
 
-    for replace in lm_replacements:
+    for replace in LEARNING_MATERIALS_REPLACEMENTS:
         find = re.compile(replace['find'], flags=re.MULTILINE)
         print(replace['find'])
         match = re.search(find, text)
@@ -1263,7 +1289,7 @@ def clean_up_bio(html):
     """Summary
     Strips out empty html tags
     Args:
-        html (TYPE): The html of the faculty bio
+        html (str): The html of the faculty bio
 
     Returns:
         TYPE: Description
@@ -1700,21 +1726,24 @@ def upload_image(pic_path: str, course_id: int) -> dict[str, str] | None:
         return response.json()
 
 
-def get_instructor_page(user: dict):
+def get_instructor_page(user: dict | str):
     """Gets the page in Faculty Bios course that matches this instructor
 
     Args:
-        user(dict): A dictionary containing the json user response from canvas
+        user(dict | str): A dictionary containing the json user response from canvas or the instructor's name as a str
 
     Returns:
-        dict: A dictionary containing the canvas api instructor user
+        list: A list of all matches
     """
+    search_string = user if type(user) is str else user['name']
+
     url = f"{API_URL}/courses/{PROFILE_PAGES_COURSE_ID}/pages" \
-          + f"?per_page=999&search={urllib.parse.quote(user['name'])}"
+          + f"?per_page=999&search_term={urllib.parse.quote(search_string)}"
 
     pages = get_paged_data(url)
     for page in pages:
         print(page["title"])
+    return pages
 
 
 def get_canvas_course_home_page(course_id: int):
@@ -1754,7 +1783,7 @@ def get_canvas_instructor(course_id: int) -> dict| None:
     return None
 
 
-def get_paged_data(url: str, headers= HEADERS, params= None) -> list | None:
+def get_paged_data(url: str, headers=None, params= None) -> list | None:
     """Summary
         returns a list of data from a get request, going through
         multiple pages of data requests as necessary
@@ -1767,6 +1796,8 @@ def get_paged_data(url: str, headers= HEADERS, params= None) -> list | None:
     Returns:
         list: Description
     """
+    if headers is None:
+        headers = HEADERS
     response = requests.get(url, headers=headers, params=params)
     out = response.json()
     if not response.ok:

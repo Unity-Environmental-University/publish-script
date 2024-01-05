@@ -8,23 +8,12 @@ import json
 import csv
 from functools import reduce
 CONSTANTS_FILE = 'constants_test.json'
-with open(CONSTANTS_FILE) as f:
-    constants = json.load(f)
 
-publish_script.API_TOKEN = constants["apiToken"]
-publish_script.API_URL = constants["apiUrl"]
-publish_script.HTML_URL = re.sub('/api/v1', '', constants["apiUrl"])
 
-instructor_course_id = constants["instructorCourseId"]
-profile_assignment_id = constants["profileAssignmentId"]
-profile_pages_course_id = constants["profilePagesCourseId"]
 
-default_profile_url = f"{publish_script.HTML_URL}/users/9230846/files/156109264/preview"
-publish_script.LIVE_URL = constants["liveUrl"]
 
-# Authorize the request.
-publish_script.HEADERS = {"Authorization": f"Bearer {publish_script.API_TOKEN}"}
-publish_script.LIVE_HEADERS = {"Authorization": f'Bearer {constants["liveApiToken"]}'}
+
+CONSTANTS = publish_script.load_constants(CONSTANTS_FILE, publish_script)
 
 accounts = requests.get(f'{publish_script.API_URL}/accounts', headers=publish_script.HEADERS).json()
 account_ids = dict()
@@ -42,6 +31,10 @@ assert('test' in publish_script.API_URL)
 
 def get_test_course():
     return publish_script.get_course_by_code(f'BP_{test_course_code}')
+
+
+def get_test_section():
+    return publish_script.get_course_by_code(f'24-Jan_{test_course_code}')
 
 
 def get_item_names(items):
@@ -140,14 +133,22 @@ class TestProfilePages(unittest.TestCase):
     def setUp(self):
         pass
 
+    def tearDown(self):
+        pass
+
     def test_download_faculty_pages(self):
         course = get_test_course()
         bios = publish_script.get_faculty_pages(True)
         self.assertGreater(len(bios), 10, "No Bios Found")
         self.assertListEqual(bios, publish_script.get_faculty_pages(), msg="Bios not returning properly")
 
-    def tearDown(self):
-        pass
+    def test_get_instructor_page(self):
+        section = get_test_section()
+        user = publish_script.get_canvas_instructor(section['id'])
+        pages = publish_script.get_instructor_page(user)
+        pages_from_name = publish_script.get_instructor_page(user['name'])
+        self.assertEqual(len(pages), 1, msg="Returned more than one instructor page")
+        self.assertListEqual(pages, pages_from_name, msg="Returned different pages for instructor pages")
 
 
 class TestLocking(unittest.IsolatedAsyncioTestCase):
