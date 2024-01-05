@@ -1,16 +1,25 @@
+import asyncio
 import unittest
 
 import requests
 
-from _publish_test import API_URL
 from lxd.local_server import *
 
 
-class TestStartServer(unittest.TestCase):
+constants = json.load(open('constants_test.json'))
+
+
+class TestStartServer(unittest.IsolatedAsyncioTestCase):
     authenticator: Authenticator = None
 
     def setUp(self):
-        self.authenticator = Authenticator('localhost', API_URL)
+        client_id = constants['client_id']
+        self.assertIsNotNone(client_id)
+        self.authenticator = Authenticator(
+            client_id=client_id,
+            local_url='localhost',
+            remote_url='https://unity.test.instructure.com'
+        )
         self.authenticator.start()
 
     def tearDown(self):
@@ -23,11 +32,18 @@ class TestStartServer(unittest.TestCase):
         print(response)
         self.assertEqual(response.status_code, 200)
 
-    def test_authenticate(self):
+    async def test_authenticate(self):
         print("test_authenticate")
-        response = requests.post(
-            self.authenticator.remote_url,
-            data={
-                'username': 'test',
-                'password': '<PASSWORD>'
-            })
+        loop = asyncio.get_event_loop()
+        future = loop.create_future()
+
+        def callback(userdata=None):
+            loop.call_soon_threadsafe(future.set_result, userdata)
+
+        self.authenticator.redirect(callback)
+
+        await future
+
+
+
+

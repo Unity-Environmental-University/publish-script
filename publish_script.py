@@ -1,42 +1,3 @@
-
-"""Summary
-
-Attributes:
-    lm_replacements (TYPE): A list of {find, replace} dicts
-        to re.sub to perform on learning materials
-    syllabus_replacements (list): A list of {find, replace} dicts
-        with paired regexes to run on syllabi of both the blueprint
-        and the DEV_ course
-
-Deleted Attributes:
-    log_filename (str): A file to log logs to. Not currently used.
-    log_string (str): The opening string of the log
-    CONSTANTS_FILE (str): The path to the constants file
-    url (TYPE): Description
-    max_profile_image_size (int): The max width of profile images to scale
-        downloaded profile images to
-    api_token (str): A global variable holding the api access token
-    api_url (str): A global variable holding the api url
-    html_url (str): A base url for the site
-    instructor_course_id (int): A link to the course ID for instructors
-    profile_assignment_id (TYPE): The ID of the assignment
-        where user profiles are kept
-    profile_pages_course_id (TYPE): The course ID of
-        the course with all the faculty pages
-    ACCOUNT_ID (int): The main account ID of the
-        unity account where student courses are places
-    accounts (list): A list of all accounts
-    default_profile_url (str): A url to the default profile image
-    headers (dict): a global variable holding the header used in requests
-    live_headers (dict): headers for the live site.
-        Only used to read relevant data when testing
-    live_url (str): A url to the live site even when testing
-    ROOT_ACCOUNT_ID (TYPE): The account ID for the rootmost unity Account
-    account_ids (dict): A dictionary of account ids by account name
-    browser_button (bool): A button that opens several browser windows
-    email_button (bool): A button that tries to email professors
-        associated with courses
-"""
 import inspect
 
 try:
@@ -60,8 +21,7 @@ import webbrowser
 import zipfile
 from tkinter import messagebox, StringVar, simpledialog
 from tkinter import ttk
-from typing import Tuple, Any
-
+from typing import *
 import docx
 import requests
 import win32com.client as win32
@@ -115,12 +75,10 @@ PROFILE_PAGES_COURSE_ID: int = CONSTANTS["profilePagesCourseId"]
 
 DEFAULT_PROFILE_URL: str = f"{HTML_URL}/users/9230846/files/156109264/preview"
 LIVE_URL: str = CONSTANTS["liveUrl"]
-
-# Authorize the request.
 HEADERS: dict[str, str] = {"Authorization": f"Bearer {API_TOKEN}"}
 LIVE_HEADERS: dict[str, str] = {"Authorization": f'Bearer {CONSTANTS["liveApiToken"]}'}
-
 ACCOUNTS: list = requests.get(f'{API_URL}/accounts', headers=HEADERS).json()
+
 account_ids: dict = dict()
 for account in ACCOUNTS:
     account_ids[account['name']] = account['id']
