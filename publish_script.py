@@ -80,6 +80,15 @@ LEARNING_MATERIALS_REPLACEMENTS = [
 
 
 def load_constants(path=CONSTANTS_FILE, context=None):
+    """
+
+    Args:
+        path: path to the constants file
+        context: the context to set the constants in. Usually just this script. Will probably always be?
+
+    Returns:
+        a dict containing the loaded constants file
+    """
     with open(path, 'r') as file:
         constants = json.load(file)
 
