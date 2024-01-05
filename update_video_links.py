@@ -1961,7 +1961,9 @@ def update_learning_materials(course_id : str, source_course_id : str, start_ind
       learning_materials = list(source_header.next_siblings)
     else:
       learning_materials = get_section(source_soup, re.compile("Please read (and watch )?the following materials:", re.IGNORECASE))
-    
+      if not learning_materials:
+        learning_materials = []
+
     cols = source_soup.find_all("div", {'class':"column"})
 
 
@@ -2007,7 +2009,7 @@ def update_learning_materials(course_id : str, source_course_id : str, start_ind
 
     handle_lm_secondary_media_boxes(new_soup, source_iframes, transcripts, slides, transcript_buttons, slides_buttons)
 
-    #make a new accordion and put all the learning materials into it IF this accordion is a template
+    # make a new accordion and put all the learning materials into it IF this accordion is a template
     add_lm_import_accordion(new_soup, transcripts, slides, learning_materials)
 
     #update links
