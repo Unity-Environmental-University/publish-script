@@ -1,28 +1,18 @@
-import csv
-import functools
+
 import unittest
 import publish_script
-import re
+
 import requests
-import json
-import csv
-from functools import reduce
+
 CONSTANTS_FILE = 'constants_test.json'
-
-
-
-
 
 CONSTANTS = publish_script.load_constants(CONSTANTS_FILE, publish_script)
 
 accounts = requests.get(f'{publish_script.API_URL}/accounts', headers=publish_script.HEADERS).json()
-account_ids = dict()
-for account in accounts:
-    account_ids[account['name']] = account['id']
 
-ACCOUNT_ID = account_ids['Distance Education']
-ROOT_ACCOUNT_ID = account_ids['Unity College']
 API_URL = publish_script.API_URL
+ACCOUNT_ID = publish_script.ACCOUNT_ID
+ROOT_ACCOUNT_ID = publish_script.ROOT_ACCOUNT_ID
 test_course_code: str = 'TEST000'
 
 print(publish_script.API_URL)
@@ -137,7 +127,6 @@ class TestProfilePages(unittest.TestCase):
         pass
 
     def test_download_faculty_pages(self):
-        course = get_test_course()
         bios = publish_script.get_faculty_pages(True)
         self.assertGreater(len(bios), 10, "No Bios Found")
         self.assertListEqual(bios, publish_script.get_faculty_pages(), msg="Bios not returning properly")
@@ -149,6 +138,14 @@ class TestProfilePages(unittest.TestCase):
         pages_from_name = publish_script.get_instructor_page(user['name'])
         self.assertEqual(len(pages), 1, msg="Returned more than one instructor page")
         self.assertListEqual(pages, pages_from_name, msg="Returned different pages for instructor pages")
+
+    def test_get_course_profile(self):
+        section = get_test_section()
+        pages = publish_script.get_faculty_pages()
+        profile = publish_script.get_course_profile(section, pages)
+        user = publish_script.get_canvas_instructor(section['id'])
+
+        self.assertEqual(profile.user['name'], user['name'], msg="Profile names do not match")
 
 
 class TestLocking(unittest.IsolatedAsyncioTestCase):
@@ -168,5 +165,5 @@ class TestLocking(unittest.IsolatedAsyncioTestCase):
         course = get_test_course()
         publish_script.set_course_as_blueprint(course)
         self.assertIsNotNone(course, "Can't Find Test Course by code")
-        self.assertTrue(publish_script.lock_module_items(course, synchronous=True), "locking did not succeed")
+        self.assertTrue(publish_script.lock_module_items(course), "locking did not succeed")
 
