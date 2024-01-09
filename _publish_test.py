@@ -1,47 +1,34 @@
-import csv
-import functools
-import unittest
-import publish_script
-import re
-import requests
 import json
-import csv
-from functools import reduce
+import unittest
+from typing import List
+
+import publish_script
+from publish_script import Term, Course, Profile
+import requests
+
 CONSTANTS_FILE = 'constants_test.json'
-with open(CONSTANTS_FILE) as f:
-    constants = json.load(f)
 
-publish_script.API_TOKEN = constants["apiToken"]
-publish_script.API_URL = constants["apiUrl"]
-publish_script.HTML_URL = re.sub('/api/v1', '', constants["apiUrl"])
+CONSTANTS = publish_script.load_constants(CONSTANTS_FILE, publish_script)
 
-instructor_course_id = constants["instructorCourseId"]
-profile_assignment_id = constants["profileAssignmentId"]
-profile_pages_course_id = constants["profilePagesCourseId"]
-
-default_profile_url = f"{publish_script.HTML_URL}/users/9230846/files/156109264/preview"
-publish_script.LIVE_URL = constants["liveUrl"]
-
-# Authorize the request.
-publish_script.HEADERS = {"Authorization": f"Bearer {publish_script.API_TOKEN}"}
-publish_script.LIVE_HEADERS = {"Authorization": f'Bearer {constants["liveApiToken"]}'}
 
 accounts = requests.get(f'{publish_script.API_URL}/accounts', headers=publish_script.HEADERS).json()
-account_ids = dict()
-for account in accounts:
-    account_ids[account['name']] = account['id']
 
-ACCOUNT_ID = account_ids['Distance Education']
-ROOT_ACCOUNT_ID = account_ids['Unity College']
 API_URL = publish_script.API_URL
-test_course_code: str = 'TEST000'
+ACCOUNT_ID = publish_script.ACCOUNT_ID
+ROOT_ACCOUNT_ID = publish_script.ROOT_ACCOUNT_ID
+TEST_COURSE_CODE: str = 'TEST000'
+TEST_TERM_CODE = 'DE/HL-24-Jan'
 
 print(publish_script.API_URL)
 assert('test' in publish_script.API_URL)
 
 
 def get_test_course():
-    return publish_script.get_course_by_code(f'BP_{test_course_code}')
+    return publish_script.get_course_by_code(f'BP_{TEST_COURSE_CODE}')
+
+
+def get_test_section():
+    return publish_script.get_course_by_code(f'24-Jan_{TEST_COURSE_CODE}')
 
 
 def get_item_names(items):
@@ -58,7 +45,7 @@ def flatten_modules(modules: list):
 
 class TestMisc(unittest.TestCase):
     def test_flatten_module(self):
-        course = publish_script.get_course_by_code('DEV_' + test_course_code)
+        course = publish_script.get_course_by_code('DEV_' + TEST_COURSE_CODE)
         modules = publish_script.get_modules(course['id'])
         flattened_modules = flatten_modules(modules)
         print(flattened_modules)
@@ -77,51 +64,51 @@ class TestMisc(unittest.TestCase):
             f'flattened_modules={flattened_modules}')
 
 
-class TestContentFixes(unittest.TestCase):
-    def test_fix_intro_header(self):
-        course = publish_script.get_course_by_code(f'BP_{test_course_code}')
-        self.assertIsNotNone(course, "Can't Find Test Course by code")
-
-
 class TestCourseResetAndImport(unittest.TestCase):
+    """
+    Tests for getting course reset and importing
+    Can take a long time to run
+    """
+
     def test_reset(self):
-        course = publish_script.get_course_by_code(f'BP_{test_course_code}')
+        course = publish_script.get_course_by_code(f'BP_{TEST_COURSE_CODE}')
         self.assertIsNotNone(course, "Can't Find Test Course by code")
 
         original_course_id = course['id']
+        publish_script.unset_course_as_blueprint(course)
         reply_course = publish_script.reset_course(course)
         self.assertNotEqual(original_course_id, reply_course['id'], "Course id has not been changed on reset")
 
-        course = publish_script.get_course_by_code(f'BP_{test_course_code}')
+        course = publish_script.get_course_by_code(f'BP_{TEST_COURSE_CODE}')
         self.assertIsNotNone(course, "Course does not exist")
         self.assertFalse(publish_script.get_modules(int(course['id'])), "Course contains modules after reset")
 
-        self.assertEqual(reply_course, course, f"Reset course is not the same as searched for course - {reply_course['id']}, {course['id']}")
+        self.assertEqual(reply_course.canvas_data, course.canvas_data, f"Reset course is not the same as searched for course - {reply_course['id']}, {course['id']}")
 
     def test_import_dev(self):
         self.maxDiff = None
-        bp_course = publish_script.get_course_by_code(f'BP_{test_course_code}')
+        bp_course = publish_script.get_course_by_code(f'BP_{TEST_COURSE_CODE}')
         publish_script.import_dev_course(bp_course)
-        bp_course = publish_script.get_course_by_code(f'BP_{test_course_code}', params={'include[]': 'syllabus_body'})
-        dev_course = publish_script.get_course_by_code(f'DEV_{test_course_code}', params={'include[]': 'syllabus_body'})
+        bp_course = publish_script.get_course_by_code(f'BP_{TEST_COURSE_CODE}', params={'include[]': 'syllabus_body'})
+        dev_course = publish_script.get_course_by_code(f'DEV_{TEST_COURSE_CODE}', params={'include[]': 'syllabus_body'})
         self.assertEqual(
             len(bp_course['syllabus_body']), len(dev_course['syllabus_body']), "Course syllabi do not mach")
 
-        bp_modules = publish_script.get_modules(int(bp_course['id']))
-        dev_modules = publish_script.get_modules(int(bp_course['id']))
+        bp_modules = publish_script.get_modules(int(bp_course.id))
+        dev_modules = publish_script.get_modules(int(bp_course.id))
         self.assertEqual(
             get_item_names(flatten_modules(bp_modules)),
             get_item_names(flatten_modules(dev_modules)),
             f"BP modules do not match dev modules.")
 
     def test_unset_blueprint(self):
-        course = publish_script.get_course_by_code(f'BP_{test_course_code}')
+        course = publish_script.get_course_by_code(f'BP_{TEST_COURSE_CODE}')
         self.assertIsNotNone(course, "Can't Find Test Course by code")
         response_course = publish_script.unset_course_as_blueprint(course)
         self.assertFalse(response_course['blueprint'], "Course isn't a blueprint")
 
     def test_set_blueprint(self):
-        course = publish_script.get_course_by_code(f'BP_{test_course_code}')
+        course = publish_script.get_course_by_code(f'BP_{TEST_COURSE_CODE}')
         self.assertIsNotNone(course, "Can't Find Test Course by code")
         response_course = publish_script.set_course_as_blueprint(course)
         print(response_course['blueprint_restrictions'])
@@ -140,14 +127,29 @@ class TestProfilePages(unittest.TestCase):
     def setUp(self):
         pass
 
+    def tearDown(self):
+        pass
+
     def test_download_faculty_pages(self):
-        course = get_test_course()
         bios = publish_script.get_faculty_pages(True)
         self.assertGreater(len(bios), 10, "No Bios Found")
         self.assertListEqual(bios, publish_script.get_faculty_pages(), msg="Bios not returning properly")
 
-    def tearDown(self):
-        pass
+    def test_get_instructor_page(self):
+        section = get_test_section()
+        user = publish_script.get_canvas_instructor(section['id'])
+        pages = publish_script.get_instructor_page(user)
+        pages_from_name = publish_script.get_instructor_page(user['name'])
+        self.assertEqual(len(pages), 1, msg="Returned more than one instructor page")
+        self.assertListEqual(pages, pages_from_name, msg="Returned different pages for instructor pages")
+
+    def test_get_course_profile(self):
+        section = get_test_section()
+        pages = publish_script.get_faculty_pages()
+        profile = publish_script.get_course_profile(section, pages)
+        user = publish_script.get_canvas_instructor(section['id'])
+
+        self.assertEqual(profile.user['name'], user['name'], msg="Profile names do not match")
 
 
 class TestLocking(unittest.IsolatedAsyncioTestCase):
@@ -167,5 +169,39 @@ class TestLocking(unittest.IsolatedAsyncioTestCase):
         course = get_test_course()
         publish_script.set_course_as_blueprint(course)
         self.assertIsNotNone(course, "Can't Find Test Course by code")
-        self.assertTrue(publish_script.lock_module_items(course, synchronous=True), "locking did not succeed")
+        self.assertTrue(publish_script.lock_module_items(course), "locking did not succeed")
+
+
+class TestCourse(unittest.TestCase):
+
+    def test_course_properties(self):
+        code = f"BP_{TEST_COURSE_CODE}"
+        course: Course = Course.get_by_code(code)
+        self.assertEqual(course['name'], course.canvas_data['name'], "course['name'] does not match its data")
+
+    def test_get_course(self):
+        code = f"BP_{TEST_COURSE_CODE}"
+        course: Course = Course.get_by_code(code)
+        course_by_id: Course = Course.get_by_id(course.id)
+        # The test course code is a stub; we should be able to get all the prefix matching versions:
+        # BP, DEV, and any Sections
+        courses: List[Course] = Course.get_by_code(TEST_COURSE_CODE, return_list=True)
+        self.assertIsNotNone(course)
+        self.assertEqual(course.course_code, code, "course codes by id and code do not match")
+        self.assertEqual(course_by_id.id, course.id, "ids of course by id and by code do not match")
+        self.assertEqual(course_by_id['name'], course['name'], "names of course by id and by code do not match")
+        self.assertGreater(len(courses), 2, "Not enough courses found")
+
+
+class TestTerm(unittest.TestCase):
+    def setUp(self):
+        pass
+
+    def tearDown(self) -> None:
+        pass
+
+    def test_load_by_code(self):
+        term = Term.get_by_code(TEST_TERM_CODE)
+        self.assertIsNotNone(term, "Term not found for code{}".format(TEST_TERM_CODE))
+        self.assertEqual(term['name'], TEST_TERM_CODE, "Term code doesn't match")
 

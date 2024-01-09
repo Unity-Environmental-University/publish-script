@@ -1,53 +1,15 @@
-
-"""Summary
-
-Attributes:
-    lm_replacements (TYPE): A list of {find, replace} dicts
-        to re.sub to perform on learning materials
-    syllabus_replacements (list): A list of {find, replace} dicts
-        with paired regexes to run on syllabi of both the blueprint
-        and the DEV_ course
-
-Deleted Attributes:
-    log_filename (str): A file to log logs to. Not currently used.
-    log_string (str): The opening string of the log
-    CONSTANTS_FILE (str): The path to the constants file
-    url (TYPE): Description
-    max_profile_image_size (int): The max width of profile images to scale
-        downloaded profile images to
-    api_token (str): A global variable holding the api access token
-    api_url (str): A global variable holding the api url
-    html_url (str): A base url for the site
-    instructor_course_id (int): A link to the course ID for instructors
-    profile_assignment_id (TYPE): The ID of the assignment
-        where user profiles are kept
-    profile_pages_course_id (TYPE): The course ID of
-        the course with all the faculty pages
-    ACCOUNT_ID (int): The main account ID of the
-        unity account where student courses are places
-    accounts (list): A list of all accounts
-    default_profile_url (str): A url to the default profile image
-    headers (dict): a global variable holding the header used in requests
-    live_headers (dict): headers for the live site.
-        Only used to read relevant data when testing
-    live_url (str): A url to the live site even when testing
-    ROOT_ACCOUNT_ID (TYPE): The account ID for the rootmost unity Account
-    account_ids (dict): A dictionary of account ids by account name
-    browser_button (bool): A button that opens several browser windows
-    email_button (bool): A button that tries to email professors
-        associated with courses
-"""
 import inspect
+import warnings
 
 try:
     import aiohttp
-except ImportError:
+except ImportError as e:
     aiohttp = None
+    warnings.warn(e.msg)
     print("aiohttp not loaded, no async operations")
 
 import asyncio
 import datetime
-from typing import *
 import json
 import os
 import re
@@ -60,23 +22,41 @@ import webbrowser
 import zipfile
 from tkinter import messagebox, StringVar, simpledialog
 from tkinter import ttk
-from typing import Tuple, Any
-
+from typing import *
 import docx
 import requests
 import win32com.client as win32
 from PIL import Image
 from bs4 import BeautifulSoup
 
-course_code_regex = re.compile(r'([\-.\w]+)_(\w{4}\d{3})', re.IGNORECASE)
+COURSE_CODE_REGEX: re = re.compile(r'([\-.\w]+)_(\w{4}\d{3})', re.IGNORECASE)
+API_TOKEN: str
+API_URL: str
+HTML_URL: str
 
-syllabus_replacements = [{
+INSTRUCTOR_COURSE_ID: int
+PROFILE_ASSIGNMENT_ID: int
+PROFILE_PAGES_COURSE_ID: int
+
+DEFAULT_PROFILE_URL: str
+LIVE_URL: str
+HEADERS: dict
+LIVE_HEADERS: dict
+ACCOUNTS: list
+ACCOUNT_IDS_BY_NAME: dict
+ACCOUNT_ID: int
+ROOT_ACCOUNT_ID: int
+CONSTANTS: dict
+CONSTANTS_FILE: str = 'constants.json'
+MAX_PROFILE_IMAGE_SIZE: int = 400
+
+SYLLABUS_REPLACEMENTS = [{
     'find': r'<p>The instructor will conduct [^.]*\(48 hours during weekends\)\.',
     'replace': r'<p>The instructor will conduct all correspondence with students related to the class in Canvas,'
                + ' and you should expect to receive a response to emails within 24 hours.'
 }]
 
-lm_replacements = [
+LEARNING_MATERIALS_REPLACEMENTS = [
     {
         'find': r'<p>\[Text[^\]]*by SME[^\]]*\]</p>',
         'replace': '',
@@ -98,117 +78,280 @@ lm_replacements = [
     },
 ]
 
-CONSTANTS_FILE: str = 'constants.json'
-MAX_PROFILE_IMAGE_SIZE: int = 400
-# Open the file and read the contents
-with open(CONSTANTS_FILE, 'r') as f:
-    CONSTANTS = json.load(f)
 
-# save the api key
-API_TOKEN: str = CONSTANTS["apiToken"]
-API_URL: str = CONSTANTS["apiUrl"]
-HTML_URL: str = re.sub('/api/v1', '', CONSTANTS["apiUrl"])
+class CanvasTalker:
+    headers: dict
+    api_url: str
 
-INSTRUCTOR_COURSE_ID: int = CONSTANTS["instructorCourseId"]
-PROFILE_ASSIGNMENT_ID: int = CONSTANTS["profileAssignmentId"]
-PROFILE_PAGES_COURSE_ID: int = CONSTANTS["profilePagesCourseId"]
+    def __init__(
+            self,
+            headers: dict = None,
+            api_url: str = None,
+            account_id: int = None
+    ) -> None:
+        self.headers = headers if headers else HEADERS
+        self.api_url = api_url if api_url else API_URL
+        self.account_id = account_id if account_id else ACCOUNT_ID
 
-DEFAULT_PROFILE_URL: str = f"{HTML_URL}/users/9230846/files/156109264/preview"
-LIVE_URL: str = CONSTANTS["liveUrl"]
+    def get(self, url: str, params: dict = None, **args):
+        url = f'{self.api_url}/{url}'
+        response = requests.get(
+            url,
+            headers=args['headers'] if 'headers' in args else self.headers,
+            params=params,
+            **args)
+        assert response.ok, response.text
+        return response.json()
 
-# Authorize the request.
-HEADERS: dict[str, str] = {"Authorization": f"Bearer {API_TOKEN}"}
-LIVE_HEADERS: dict[str, str] = {"Authorization": f'Bearer {CONSTANTS["liveApiToken"]}'}
+    def get_paged_data(self, url: str, headers: dict = None, params: dict = None) -> list | None:
+        """Summary
+            returns a list of data from a get request, going through
+            multiple pages of data requests as necessary
 
-ACCOUNTS: list = requests.get(f'{API_URL}/accounts', headers=HEADERS).json()
-account_ids: dict = dict()
-for account in ACCOUNTS:
-    account_ids[account['name']] = account['id']
+        Args:
+            params: Any additional parameters to pass to the query
+            url: The url path to query, not including the api_url
+            headers: Headers for the request
 
-ACCOUNT_ID: int = account_ids['Distance Education']
-ROOT_ACCOUNT_ID: int = account_ids['Unity College']
+        Returns:
+            list: The paged data
+        """
+        headers = headers if headers else self.headers
+        response = requests.get(f'{self.api_url}/{url}', headers=headers, params=params)
+        out = response.json()
+        if not response.ok:
+            return None
+        next_page_link = "!"
+        while len(next_page_link) != 0 \
+                and 'link' in response.headers \
+                and response.ok:
+            pagination_links = response.headers["Link"].split(",")
+            for link in pagination_links:
+                if 'next' in link:
+                    next_page_link = link.split(";")[0].split("<")[1].split(">")[0]
+                    response = requests.get(next_page_link, headers=headers, params=params)
+                    out = out + response.json()
+                    break
+                else:
+                    next_page_link = ""
+
+        return out
 
 
-def main():
-    """Summary
-        Main loop. Opens an interface you can perform various
-        course publishing operations with.
+# A wrapper for canvas api dict return course object
+class Course:
+    canvas_data: dict
+    canvas_talker: CanvasTalker
+
+    def __init__(self, data: dict) -> None:
+        self.canvas_talker = CanvasTalker(HEADERS, API_URL)
+        self.canvas_data = data if data is not None else {}
+        pass
+
+    def __getitem__(self, item):
+        if item not in self.canvas_data:
+            return None
+        return self.canvas_data[item]
+
+    def __setitem__(self, item, value):
+        self.canvas_data[item] = value
+
+    @classmethod
+    def get_by_id(cls, id_: int) -> Self:
+        canvas_talker = CanvasTalker()
+        data = canvas_talker.get(f'courses/{id_}')
+        return Course(data)
+
+    @classmethod
+    def get_by_code(cls, code: str, return_list: bool = False, params: dict = None) -> Self | List[Self]:
+        """
+        Gets a course, or list of courses, by a course code
+        Args:
+            code: A course code of the forma TERMCODE_DEPT1234
+            return_list: returns a list of all matching courses if true
+            **params: passes all additional params on to 'requests.get(params=)'
+
+        Returns:
+        A course or list of courses if return_list is true, matching the code
+        """
+        url = f"accounts/{ROOT_ACCOUNT_ID}/courses"
+        params = params if params is not None else {}
+        talker = CanvasTalker()
+        courses = talker.get_paged_data(
+            url,
+            params={"search_term": code, **params})
+
+        # if there are multiple courses, return by the most recently assigned a new ID
+        if courses and len(courses) > 1:
+            courses.sort(reverse=True, key=lambda course: course['id'])
+
+        return list(map(lambda a: Course(a), courses)) if return_list else Course(courses[0])
+
+    @property
+    def id(self) -> int:
+        return self.canvas_data['id']
+
+    @id.setter
+    def id(self, value: int) -> None:
+        self.canvas_data['id'] = value
+
+    @property
+    def course_code(self):
+        match = re.search(COURSE_CODE_REGEX, self.canvas_data["course_code"])
+        if not match:
+            return None
+        prefix = match.group(1)
+        course_code = match.group(2)
+        return prefix + '_' + course_code
+
+    @course_code.setter
+    def course_code(self, value):
+        self.canvas_data["course_code"] = re.sub(COURSE_CODE_REGEX, self.canvas_data['course_code'], value)
+        self.canvas_data["name"] = re.sub(COURSE_CODE_REGEX, self.canvas_data['name'], value)
+
+    @property
+    def associated_courses(self):
+        return get_blueprint_courses(self.id)
+
+    @property
+    def is_blueprint(self):
+        return 'blueprint' in self.canvas_data and self.canvas_data['blueprint']
+
+
+class Profile:
+    """
+    Class holding information needed to make a faculty pic and bio profile on course homepage
+    """
+    user: dict = None
+    bio: str = None
+
+    def __init__(
+            self,
+            user: dict,
+            bio: str,
+            img_src: str,
+            display_name: str = None,
+            local_img_path: str = None) -> None:
+        """
+        Args:
+            user: The canvas api user
+            bio: The biography of the user
+            img_src: URL to the image
+            local_img_path: Local path of the image, if saved
+        """
+        self.display_name = display_name
+        self.user = user
+        self.bio = bio
+        self.img_src = img_src
+        self.local_img_path = local_img_path
+
+
+class Term:
+    canvas_data: dict = None
+
+    def __init__(self, canvas_data: dict):
+        self.canvas_data = canvas_data if canvas_data else {}
+
+    def __getitem__(self, item):
+        if item not in self.canvas_data:
+            return None
+        return self.canvas_data[item]
+
+    def __setitem__(self, item, value):
+        self.canvas_data[item] = value
+
+    @classmethod
+    def get_by_code(
+            cls,
+            code: str,
+            return_list: bool = False,
+            workflow_state: str = 'all'
+    ) -> Self | List[Self]:
+        ct = CanvasTalker(account_id=ROOT_ACCOUNT_ID)
+        data = ct.get(f'accounts/{ROOT_ACCOUNT_ID}/terms', params={
+            'workflow_state[]': workflow_state,
+            'term_name': code
+        })
+        print(json.dumps(data))
+        if 'enrollment_terms' not in data:
+            warnings.warn(f'No enrollment terms found for {code}')
+        terms = data['enrollment_terms']
+        if not terms or len(terms) == 0:
+            return None
+        return Term(terms[0]) if not return_list else list(map(lambda a: Term(a), terms))
+
+    @property
+    def code(self) -> str:
+        return self.canvas_data['name']
+
+
+def load_constants(path=CONSTANTS_FILE, context=None):
     """
 
-    window = tk.Tk()
-    window.geometry("600x400")
-    initial_value = None
-    if len(sys.argv) > 1:
-        initial_value = sys.argv[1]
-    else:
-        try:
-            initial_value = get_course_id_from_string(window.clipboard_get())
-        except tk.TclError:
-            print("Clipboard empty")
+    Args:
+        path: path to the constants file
+        context: the context to set the constants in. Usually just this script. Will probably always be?
 
-    label = tk.Label(
-        window,
-        text="Enter the course code (e.g. BP_ANIM305) or id\n"
-             + "(if you are seeing auto-text, you already had a course code "
-             + "or id copied)")
-    label.pack()
+    Returns:
+        a dict containing the loaded constants file
+    """
+    with open(path, 'r') as file:
+        constants = json.load(file)
 
-    course_string_var: StringVar = tk.StringVar(
-        master=window,
-        value=initial_value)
+    if context is None:
+        context = sys.modules[__name__]
 
-    text_entry = tk.Entry(
-        window,
-        textvariable=course_string_var)
-    text_entry.pack()
+    context.API_TOKEN = constants["apiToken"]
+    context.API_URL = constants["apiUrl"]
+    context.HTML_URL = re.sub('/api/v1', '', constants["apiUrl"])
 
-    enter_binding_id = None
+    context.INSTRUCTOR_COURSE_ID = constants["instructorCourseId"]
+    context.PROFILE_ASSIGNMENT_ID = constants["profileAssignmentId"]
+    context.PROFILE_PAGES_COURSE_ID = constants["profilePagesCourseId"]
 
-    def callback(event=None):
-        success = course_entry_callback(
-            window=window,
-            status_label=label,
-            to_remove=[button, text_entry],
-            course_string=course_string_var.get())
-        if success:
-            window.unbind('<Return>', enter_binding_id)
+    context.DEFAULT_PROFILE_URL = f"{context.HTML_URL}/users/9230846/files/156109264/preview"
+    context.LIVE_URL = constants["liveUrl"]
 
-    window.bind('<Return>', callback)
+    # Authorize the request.
+    context.HEADERS = {"Authorization": f"Bearer {context.API_TOKEN}"}
+    context.LIVE_HEADERS = {"Authorization": f'Bearer {constants["liveApiToken"]}'}
 
-    button = tk.Button(
-        master=window,
-        text="Get Course",
-        command=callback)
-    button.pack()
+    context.ACCOUNT_IDS_BY_NAME = dict()
+    context.ACCOUNTS = requests.get(f'{API_URL}/accounts', headers=context.HEADERS).json()
 
-    if(initial_value != None):
-        callback()
-    window.mainloop()
+    for account in context.ACCOUNTS:
+        context.ACCOUNT_IDS_BY_NAME[account['name']] = account['id']
+
+    context.ROOT_ACCOUNT_ID = context.ACCOUNT_IDS_BY_NAME['Unity College']
+    context.ACCOUNT_ID = context.ACCOUNT_IDS_BY_NAME['Distance Education']
+    context.CONSTANTS = constants
+
+    return constants
 
 
 def course_entry_callback(
         *,
         to_remove: list,
         course_string: str,
-        window: object,
+        window: tk.Tk,
         status_label: tk.Label):
     """Summary
         Callback to search for the course.
     Args:
-        to_remove (list): A list of widgets to destroy on execution
-        course_string (str): the string of the course to use
-        window (object): the window we're working in
-        status_label (tk.Label): Place to display
+        to_remove: A list of widgets to destroy on execution
+        course_string: the string of the course to use
+        window: the window we're working in
+        status_label: Place to display
     """
     course_id = get_course_id_from_string(course_string)
-    course = get_course(course_id)
+    course = get_course_by_id(course_id)
     if not course_id:
         status_label.configure(text="Course Not Found")
         return False
     else:
         status_label.configure(text=f"Course Found\n{course['name']}")
         setup_main_ui(
-            bp_course=get_course(course_id),
+            bp_course=get_course_by_id(course_id),
             window=window,
             status_label=status_label)
         for widget in to_remove:
@@ -224,18 +367,17 @@ def set_api_url(_api_url: str):
 
 def setup_main_ui(
         *,
-        bp_course,
-        window,
-        status_label):
+        bp_course: Course,
+        window: tk.Tk,
+        status_label: tk.Label):
     """Summary
         Sets up the main workflow UI
 
     Args:
-        bp_course (TYPE): the course we're working with
-        window (TYPE): The widow to create UI in
-        status_label (TYPE): Description
+        bp_course (dict): the course we're working with
+        window: The widow to create UI in
+        status_label (Widget): Description
     """
-    print(bp_course)
     # source_course_id = get_source_course_id(bp_id)
     # Create a progress bar
     progress_bar = ttk.Progressbar(
@@ -246,26 +388,15 @@ def setup_main_ui(
     progress_bar.pack()
 
     def reset_and_import():
-        unset_course_as_blueprint(bp_course),
-        reset_course(bp_course),
+        course = bp_course
+        unset_course_as_blueprint(course),
+        reset_course(course),
         # ID changes on reset so ge the new one
-        bp_course['id'] = get_course_by_code(bp_course['course_code'])['id']
+        course.id = get_course_by_code(course.course_code).id
 
-        import_dev_course(bp_course, progress_bar=progress_bar),
-        set_course_as_blueprint(bp_course)
+        import_dev_course(course, progress_bar=progress_bar),
+        set_course_as_blueprint(course)
 
-    unused_updates = [
-        {
-            'name': 'sync',
-            'message': 'Do you want sync associated courses? \n'
-                       + 'NOTE: You must associate courses by hand before doing this',
-            'error': 'There was a problem syncing\n{e}',
-            'func': lambda: begin_course_sync(
-                course=bp_course,
-                progress_bar=progress_bar,
-                status_label=status_label),
-        },
-    ]
     updates = [
         {
             'name': 'reset_and_import',
@@ -299,19 +430,30 @@ def setup_main_ui(
             lambda: lock_module_items(bp_course, progress_bar)
         },
         {
-            'name' : 'associate',
-            'message' : "THIS STEP DOES NOTHING\n"
-            + "Associate courses by hand on Canvas site.\n"
-            + "This step only opens the page for you to do it.",
+            'name': 'associate',
+            'message': "THIS STEP DOES NOTHING\n"
+                       + "Associate courses by hand on Canvas site.\n"
+                       + "This step only opens the page for you to do it.",
             'func': lambda: open_browser_func([f"{HTML_URL}/courses/{bp_course['id']}/settings"]),
-            'hide': True,
 
         },
+        {
+            'name': 'sync',
+            'hide': True,
+            'message': 'Do you want sync associated courses? \n'
+                       + 'NOTE: You must associate courses by hand before doing this',
+            'error': 'There was a problem syncing\n{e}',
+            'func': lambda: begin_course_sync(
+                bp_course=bp_course,
+                progress_bar=progress_bar,
+                status_label=status_label),
+        },
+
         {
             'name': 'download_profiles',
             'argument': 'download',
             'message': 'Do you want to '
-            + ' redownload the latest faculty profiles?',
+                       + ' redownload the latest faculty profiles?',
             'func': lambda: get_faculty_pages(force=True)
         },
 
@@ -337,53 +479,53 @@ def setup_main_ui(
     ]
 
     asyncio.run(opening_dialog(
-        course=bp_course,
         updates=updates,
         window=window,
         status_label=status_label))
 
 
-async def opening_dialog(*,
-                   course: dict,
-                   window: tk.Tk,
-                   updates: list,
-                   status_label: tk.Label):
+async def opening_dialog(
+        *,
+        window: tk.Tk,
+        updates: list,
+        status_label: tk.Label):
     """Summary
         Starts the process of creating an opening dialog window for the
         application
 
     Args:
         window (object): The base program window to render into
-        course (dict): The blueprint course we are working with
         updates (list): The Updates to run
         status_label (object): Description
     """
     ran_command_line = False
+    value: Any = None
     for update in updates:
         if update['name'] in sys.argv \
                 or 'argument' in update \
                 and update['argument'] in sys.argv:
-            value = await update['func']
+            value = await update['func']() if inspect.isawaitable(update['func']) else update['func']()
             ran_command_line = True
     if ran_command_line:
-        return
+        return value
     else:
         checkboxes = []
         for update in updates:
-            boolVar = tk.BooleanVar()
-            update['run'] = boolVar
-            if 'hide' in update and update['hide'] and not "hidden" in sys.argv:
+            bool_var = tk.BooleanVar()
+            update['run'] = bool_var
+            if 'hide' in update and update['hide'] and "hidden" not in sys.argv:
                 continue
             button = tk.Checkbutton(
                 window,
                 text=update['message'],
                 onvalue=True,
                 offvalue=False,
-                variable=boolVar)
+                variable=bool_var)
             checkboxes.append(button)
             button.pack()
 
         def callback(event=None):
+            print(event)
             asyncio.run(handle_run(
                 updates=updates,
                 status_label=status_label))
@@ -421,16 +563,16 @@ async def handle_run(updates: list, status_label: tk.Label):
                     await update['func']
                 else:
                     update['func']()
-        except Exception as e:
+        except Exception as exception:
             messagebox.showerror(message=update['error'].format(
-                e=str(e)) + "\n" + traceback.format_exc())
+                e=str(exception)) + "\n" + traceback.format_exc())
             print(traceback.format_exc())
-            raise e
+            raise exception
 
     status_label.config(text=f'Finished!')
 
 
-def unset_course_as_blueprint(course: dict[str, str]) -> dict[str, str]:
+def unset_course_as_blueprint(course: Course) -> Course:
     """
     Removes a blueprint designation from a course
     Args:
@@ -447,10 +589,10 @@ def unset_course_as_blueprint(course: dict[str, str]) -> dict[str, str]:
     }
     response = requests.put(url, data=payload, headers=HEADERS)
     print(response)
-    return response.json()
+    return Course(response.json())
 
 
-def set_course_as_blueprint(course: dict[str, str]) -> dict[str, str]:
+def set_course_as_blueprint(course: Course) -> Course:
     """
 
     Args:
@@ -475,14 +617,14 @@ def set_course_as_blueprint(course: dict[str, str]) -> dict[str, str]:
     }
     response = requests.put(url, data=payload, headers=HEADERS)
     print(response)
-    return response.json()
+    return Course(response.json())
 
 
-def reset_course(course: dict[str, str]):
+def reset_course(course: Course):
     """Summary
         Resets the course and returns the reset version of the course
     Args:
-        course (dict): The course to reset
+        course: The course to reset
 
     Returns:
         TYPE: The new shiny, empty course
@@ -500,13 +642,14 @@ def reset_course(course: dict[str, str]):
         print(response)
         if response.ok:
             course['id'] = response.json()['id']
-            return response.json()
+            return Course(response.json())
+
         else:
             raise Exception(response.json())
     return False
 
 
-def import_dev_course(bp_course: dict, progress_bar=None):
+def import_dev_course(bp_course: Course, progress_bar=None):
     """
     Imports the dev version of a BP course into the BP course
 
@@ -514,8 +657,8 @@ def import_dev_course(bp_course: dict, progress_bar=None):
         bp_course: the bp course to import into
         progress_bar: an optional progress bar to update with progress
     """
-    match = re.search(course_code_regex, bp_course["course_code"])
-    assert match, "This is not a course code "+ bp_course["course_code"]
+    match = re.search(COURSE_CODE_REGEX, bp_course["course_code"])
+    assert match, "This is not a course code " + bp_course["course_code"]
     prefix = match.group(1)
     course_code = match.group(2)
     assert prefix.upper() == 'BP', "Course code is not a blueprint"
@@ -530,7 +673,7 @@ def import_dev_course(bp_course: dict, progress_bar=None):
     return import_course(bp_course, dev_course, progress_bar=progress_bar)
 
 
-def import_course(dest_course: dict, source_course: dict, progress_bar = None) -> dict:
+def import_course(dest_course: Course, source_course: Course, progress_bar=None) -> dict:
     """
         Copies source course into destination course. Returns the migration object
         once the migration is finished.
@@ -543,8 +686,8 @@ def import_course(dest_course: dict, source_course: dict, progress_bar = None) -
 
     """
     payload = {
-        "migration_type" : "course_copy_importer",
-        "settings[source_course_id]" : source_course["id"]}
+        "migration_type": "course_copy_importer",
+        "settings[source_course_id]": source_course["id"]}
 
     url = f"{API_URL}/courses/{dest_course['id']}/content_migrations"
     response = requests.post(url, data=payload, headers=HEADERS)
@@ -555,22 +698,19 @@ def import_course(dest_course: dict, source_course: dict, progress_bar = None) -
 
 def generate_email(
         *,
-        course: dict,
+        course: Course,
         courses: list,
-        emails: list,
-        window: object):
+        emails: list):
     """Summary
-        Generates an an email to a list of recipients and attempts to open
+        Generates an email to a list of recipients and attempts to open
         outlook. On failure, copies to clipboard.
 
     Args:
         course (dict): The BP_ course we're operating on
         courses (list): A list of all the courses we've operated on
         emails (list): A list of all the emails to bcc
-        window (object): Description
     """
 
-    template = ""
     custom_email_path = "email_template.custom.html"
     email_path = custom_email_path if os.path.exists(custom_email_path) else "email_template.html"
     with open(email_path, 'r') as f:
@@ -578,7 +718,7 @@ def generate_email(
 
     code = course["course_code"][3:]
 
-    example_course_data = get_course(
+    example_course_data = get_course_by_id(
         courses[0]['id'] if courses
         else course['id'])
     print(json.dumps(example_course_data, indent=2))
@@ -612,7 +752,7 @@ def generate_email(
         mail.HtmlBody = email_body
         mail.Display()
 
-    except Exception:
+    except Exception as e:
         email_body = f"<p>bcc:{', '.join(emails)}</p>\n{email_body}"
         with open("email.htm", "w") as file:
             file.write(email_body)
@@ -629,16 +769,16 @@ def generate_email(
 
 def begin_course_sync(
         *,
-        course: dict,
+        bp_course: Course,
         progress_bar: ttk.Progressbar,
         status_label: tk.Label) -> dict | None:
     """Summary
         Begins the sync process of the blueprint to its member course
 
     Args:
-        course (dict): The blueprint course
-        progress_bar (object): The progress bar to update. Not sure if we
-        status_label (object): The status label to update with info
+        bp_course: The blueprint course
+        progress_bar: The progress bar to update. Not sure if we
+        status_label: The status label to update with info
         have enough info to use this though
 
     Returns:
@@ -652,7 +792,7 @@ def begin_course_sync(
 
     }
     response = requests.post(
-        f'{API_URL}/courses/{course["id"]}'
+        f'{API_URL}/courses/{bp_course["id"]}'
         + '/blueprint_templates/default/migrations',
         headers=HEADERS,
         data=payload)
@@ -665,9 +805,12 @@ def begin_course_sync(
     migration = response.json()
     poll_migration(
         migration,
-        f'{API_URL}/courses/{course["id"]}'
+        f'{API_URL}/courses/{bp_course["id"]}'
         + '/blueprint_templates/default/'
-        + f'migrations/{migration["id"]}')
+        + f'migrations/{migration["id"]}',
+        status_label=status_label,
+        progress_bar=progress_bar
+    )
 
 
 def poll_migration(
@@ -698,6 +841,7 @@ def poll_migration(
             'exporting',
             'imports_queued',
             'running']:
+
         print(response)
         print(migration)
 
@@ -726,29 +870,27 @@ def publish_courses(*, courses: list):
         courses (list): A list of course dicts
     """
     url = f'{API_URL}/accounts/{ACCOUNT_ID}/courses'
-    response = requests.put(url, headers=HEADERS, data={
+    data = {
         'event': 'offer',
-
         # list of course ids
-        'course_ids[]': map(lambda a: a['id'], courses)
-
-    })
+        'course_ids[]': list(map(lambda a: a['id'], courses))
+    }
+    response = requests.put(url, headers=HEADERS, data=data)
     if not response.ok:
         print(response)
         print(response.content)
 
 
-def lock_module_items(course: dict, progress_bar: ttk.Progressbar | None = None, synchronous=False):
+def lock_module_items(course: Course, progress_bar: ttk.Progressbar | None = None):
     """Summary
         Locks all module items in a blueprint course
 
     Args:
-        synchronous: specifies whether to force synchronous behavior for testing
-        progress_bar (ttk.ProgressBar, optional): A progress bar object to update
-        course (dict): The course to lock items on
+        progress_bar: A progress bar object to update
+        course: The course to lock items on
     """
 
-    course_id = course['id']
+    course_id = course.id
     modules = get_modules(course_id)
 
     total = 0
@@ -802,17 +944,18 @@ async def lock_module_items_async(course, progress_bar=None):
     async with asyncio.TaskGroup() as tg:
         for module in modules:
             for item in module['items']:
-                async def lock(item):
+                async def lock(to_lock):
                     nonlocal successes
                     nonlocal failures
                     nonlocal i
-                    success = await lock_module_item_async(course, item, progress_bar)
+                    success = await lock_module_item_async(course, to_lock)
                     if success:
                         successes = successes + 1
                     elif success is not None:
                         failures = failures + 1
                     i = i + 1
                     update_progress_bar(progress_bar, i, total)
+
                 tg.create_task(lock(item))
         if failures > 0:
             return False
@@ -820,7 +963,7 @@ async def lock_module_items_async(course, progress_bar=None):
             return True
 
 
-async def lock_module_item_async(course, item, progress_bar=None):
+async def lock_module_item_async(course, item):
     assert aiohttp
     url = f"{API_URL}/courses/{course['id']}/blueprint_templates/default/restrict_item"
 
@@ -837,7 +980,7 @@ async def lock_module_item_async(course, item, progress_bar=None):
         # Make asynchronous HTTP request to fetch page ID
         async with aiohttp.ClientSession() as session:
             async with session.put(url, headers=HEADERS, data=data) as response:
-                text = await response.text()
+                await response.text()
                 if response.ok:
                     return True
                 else:
@@ -882,6 +1025,7 @@ def get_source_course_id(course_id: int) -> int:
 
     Returns:
         int: The course id of the source course
+
     """
     response = requests.get(
         f'{API_URL}/courses/{course_id}/content_migrations',
@@ -901,7 +1045,7 @@ def get_source_course_id(course_id: int) -> int:
 
 def remove_lm_annotations_from_course(course):
     """Summary
-        Removes placeholder text for annotators from a course'
+        Removes placeholder text for annotators from a course
         learning materials
 
     Args:
@@ -945,8 +1089,8 @@ def update_syllabus_text(text: str):
         TYPE: The syllabus with all operations performed
     """
 
-    global syllabus_replacements
-    for replacement in syllabus_replacements:
+    global SYLLABUS_REPLACEMENTS
+    for replacement in SYLLABUS_REPLACEMENTS:
         text = re.sub(replacement['find'], replacement['replace'], text)
     return text
 
@@ -970,6 +1114,7 @@ def update_syllabus(course_id: int):
         headers=HEADERS,
         data={
             "course[syllabus_body]": syllabus})
+    print(response)
 
 
 class LmFilters:
@@ -998,12 +1143,12 @@ def remove_lm_annotations(text: str) -> str:
         the body of a learning materials page
 
     Returns:
-        str: An html string with the regexs run on it
+        str: An html string with the regexes run on it
     """
     # one liners to replace
-    global lm_replacements
+    global LEARNING_MATERIALS_REPLACEMENTS
 
-    for replace in lm_replacements:
+    for replace in LEARNING_MATERIALS_REPLACEMENTS:
         find = re.compile(replace['find'], flags=re.MULTILINE)
         print(replace['find'])
         match = re.search(find, text)
@@ -1031,18 +1176,18 @@ def remove_lm_annotations(text: str) -> str:
     return out
 
 
-def single_filter(func, set, default=None):
+def single_filter(func, to_filter, default=None):
     """Summary
-
+    Applies a filter and returns a single result
     Args:
-        func (TYPE): Description
-        set (TYPE): Description
-        default (None, optional): Description
+        func (Any): The function passed to the filter() call
+        to_filter (Any): Description
+        default (None, optional): The default value to return if there are no elements
 
     Returns:
-        TYPE: Description
+        Any: the filtered value
     """
-    return next(filter(func, set), None)
+    return next(filter(func, to_filter), default)
 
 
 def get_modules(course_id: int | str) -> list:
@@ -1091,7 +1236,7 @@ email_button: tk.Button | None = None
 
 def replace_faculty_profiles(
         *,
-        bp_course: dict,
+        bp_course: Course,
         courses: list,
         window: tk.Tk,
         progress_bar: ttk.Progressbar) -> list:
@@ -1129,8 +1274,8 @@ def replace_faculty_profiles(
     profiles = []
     home_page_urls = []
     i = 1
+
     for course in courses:
-        print(json.dumps(course))
         profile = get_course_profile(course, pages)
         profiles.append(profile)
 
@@ -1153,16 +1298,16 @@ def replace_faculty_profiles(
             error_text = error_text
             "A course does not have a user associated"
             continue
-        if len(profile["bio"]) < 5:
+        if len(profile.bio) < 5:
             error_text = error_text + \
-                         f'{profile["user"]["name"]} does NOT have a bio we can find\n'
+                         f'{profile.user["name"]} does NOT have a bio we can find\n'
         else:
             bio_count = bio_count + 1
-            if "email" in profile["user"]:
-                emails.append(profile["user"]["email"])
+            if "email" in profile.user:
+                emails.append(profile.user["email"])
             else:
                 error_text = error_text + \
-                             ("\nNo Email Found for " + profile["user"]["name"])
+                             ("\nNo Email Found for " + profile.user["name"])
 
     dialog_text = f"Finished, {bio_count} " \
                   + f" records updated successfully\n{error_text}"
@@ -1184,7 +1329,6 @@ def replace_faculty_profiles(
         generate_email(
             course=bp_course,
             courses=courses,
-            window=window,
             emails=emails)
 
     if email_button:
@@ -1212,10 +1356,11 @@ def open_browser_func(urls):
 
 
 def save_bios(bios, path="bios.json"):
-    """Summary
+    """
+    Saves faculty page api responses to a json file
 
     Args:
-        bios (TYPE): Description
+        bios (list): Description
         path (str, optional): Description
     """
     with open(path, 'w') as f:
@@ -1223,10 +1368,11 @@ def save_bios(bios, path="bios.json"):
 
 
 def get_faculty_pages(force=False):
-    """Summary
+    """
+    Gets all pages from the "faculty pages" course
 
     Args:
-        force (bool, optional): Description
+        force (bool, optional): Forces a redownload. Otherwise just returns bios file.
 
     Returns:
         TYPE: Description
@@ -1245,39 +1391,43 @@ def get_faculty_pages(force=False):
     return pages
 
 
-def get_course(course_id: int) -> dict:
+def get_course_by_id(course_id: int) -> Course:
     """Summary
         Gets a course by ID
 
     Args:
-        course_id (int): Id of the course to get
+        course_id: ID of the course to get
 
     Returns:
-        dict: A dictionary containing the json parsed course
+        The course
+
+    DeprecationWarning: Use Course.get_by_id(course_id) instead
     """
+
     url = f'{API_URL}/courses/{course_id}' \
           + '?include[]=term&include[]=grading_periods'
     response = requests.get(url, headers=HEADERS)
-    print(url)
-    print(response)
-    return response.json()
+    assert response.ok
+    return Course(response.json())
 
 
-def format_profile_page(profile, course, homepage):
+def format_homepage(profile: Profile, course: Course, homepage: dict):
     """Summary
-
+        Takes a faculty profile page, the course, and the homepage and returns
+        the homepage filled in with faculty info and pic if able
     Args:
-        profile (TYPE): Description
-        course (TYPE): Description
-        homepage (TYPE): Description
+        profile: The profile dict for the user
+        course: The course dict from canvas api
+        homepage: The homepage dict from canvas api
 
     Returns:
-        TYPE: Description
+        str: html string of the front page
     """
-    text = ""
+
     # if it's cbt theme, run the new formatter
+    text: str
     if "cbt-banner-header" in homepage['body']:
-        text = format_profile_page_newdev(profile, course, homepage)
+        text = format_homepage_curio(profile, homepage)
     else:
         with open("template.html", 'r') as f:
             template = f.read()
@@ -1285,16 +1435,13 @@ def format_profile_page(profile, course, homepage):
             course_title=homepage["title"] if "title" in homepage
             else f' Welcome to {course["name"]}',
 
-            instructor_name=profile["display_name"] if
-            "display_name" in profile
-            else profile["user"]["name"],
-
-            img_src=profile["img_src"],
-            bio=profile["bio"])
+            instructor_name=profile.display_name if profile.display_name else profile.user["name"],
+            img_src=profile.img_src,
+            bio=profile.bio)
         text = clean_up_bio(text)
 
     ensure_directory_exists('profiles')
-    profile_path = f'profiles/{profile["user"]["id"]}_{course["id"]}.htm'
+    profile_path = f'profiles/{profile.user["id"]}_{course["id"]}.htm'
     with open(profile_path, 'wb') as f:
         f.write(text.encode("utf-8", "replace"))
 
@@ -1305,30 +1452,29 @@ def clean_up_bio(html):
     """Summary
     Strips out empty html tags
     Args:
-        html (TYPE): The html of the faculty bio
+        html (str): The html of the faculty bio
 
     Returns:
-        TYPE: Description
+        str: the html without empty paragraphs
     """
-    #html = re.sub(r'<p>\w*(&nbsp;)?\w*</p>', '', html)
+    html = re.sub(r'<p>\w*(&nbsp;)?\w*</p>', '', html)
     return html
 
 
-def format_profile_page_newdev(profile, course, homepage):
+def format_homepage_curio(profile: Profile, homepage: dict):
     """Summary
-
+        Formats course home pages in the curio style, rather than the old style.
     Args:
-        profile (TYPE): Description
-        course (TYPE): Description
-        homepage (TYPE): Description
+        profile: Profile information for the instructor
+        homepage: Canvas api home page for the course
 
     Returns:
-        TYPE: Description
+        str: The formatted homepage content with instructor pic and bio
     """
     body = homepage['body']
-    bio_body = profile["bio"]
+    bio_body = profile.bio
     # change to api instead of site url
-    img_data_url = re.sub('.com/', '.com/ap1/v1/', profile['img_src'])
+    img_data_url = re.sub('.com/', '.com/ap1/v1/', profile.img_src)
     body = re.sub(
         r'<p>\w*<span>\w*Instructor bio coming soon!\w*</span>\w*</p>',
         bio_body,
@@ -1336,36 +1482,24 @@ def format_profile_page_newdev(profile, course, homepage):
     # replace image
     find_profile_image = r'src="[^"]*"([^>]*) alt="male-profile-image-placeholder.png" data-api-endpoint="[^"]*"'
     print(re.search(find_profile_image, body))
+    print("img src..." + profile.img_src)
     homepage = re.sub(
         find_profile_image,
-        f'src="{profile["img_src"]}"\1data-api-endpoint="{img_data_url}"',
+        f'src="{profile.img_src}"\1data-api-endpoint="{img_data_url}"',
         body)
 
     return homepage
 
 
-def get_course_profile(course, pages):
-    """Summary
-
-    Args:
-        course (TYPE): Description
-        pages (TYPE): Description
-
-    Returns:
-        TYPE: Description
+def get_course_profile(course: Course, pages: list[dict]):
     """
-    return get_course_profile_from_pages(course, pages)
-
-
-def get_course_profile_from_pages(course, pages):
-    """Summary
-
+    Gets the instructor profile associated with a given course
     Args:
-        course (TYPE): Description
-        pages (TYPE): Description
+        course: The course to get the profile for
+        pages: A list of faculty profile pages to search
 
     Returns:
-        TYPE: Description
+        Profile: The profile information for the given course
     """
     instructor = get_canvas_instructor(course["id"])
 
@@ -1391,8 +1525,6 @@ def get_course_profile_from_pages(course, pages):
                 if instructor:
                     break
             else:
-                print(result)
-                print(result.json())
                 prompt = f"No results found for {name}. " \
                          + "Do you want to search for another instructor?"
         if not instructor:
@@ -1400,7 +1532,7 @@ def get_course_profile_from_pages(course, pages):
 
     profile = get_instructor_profile_from_pages(instructor, pages)
 
-    if not profile or len(profile["bio"]) == 0:
+    if not profile or len(profile.bio) == 0:
         profile = get_instructor_profile_submission(instructor)
 
     return profile
@@ -1427,12 +1559,12 @@ def get_course_profile_from_assignment(course):
     return get_instructor_profile_submission(instructor)
 
 
-def get_blueprint_courses(bp_id):
+def get_blueprint_courses(bp_id: int) -> list[Course]:
     """Summary
         Gets a list of courses associated with a blueprint course id
 
     Args:
-        bp_id (TYPE): The blueprint course ID
+        bp_id: The blueprint course ID
 
     Returns:
         TYPE: A list of courses associated with this blueprint
@@ -1441,32 +1573,19 @@ def get_blueprint_courses(bp_id):
           "blueprint_templates/default/associated_courses?per_page=50"
     courses = get_paged_data(url)
 
-    return courses
+    return list(map(lambda a: Course(a), courses))
 
 
-def overwrite_home_page(profile: dict, course: dict) -> str:
+def overwrite_home_page(profile: Profile, course: Course) -> str:
     """Summary
         Replaces the picture and bio element, if able
         of a course home page
      Args:
-        profile (dict): The faculty profile dictionary
-        course (dict): The course dictionary
+        profile: The faculty profile dictionary
+        course: The course dictionary
 
      Returns:
-        TYPE: The url of the changed page
-
-    Raises:
-        Exception: Description
-
-    Args:
-        profile (dict): Description
-        course (dict): Description
-
-    Returns:
-        str: Description
-
-    No Longer Raises:
-        ValueError: Couldn't access home page of course
+        The url of the changed page
     """
 
     url = f'{API_URL}/courses/{course["id"]}/front_page'
@@ -1482,12 +1601,12 @@ def overwrite_home_page(profile: dict, course: dict) -> str:
     homepage_html = response.json()['body']
     homepage = {"course_title": None, "body": homepage_html}
     soup = BeautifulSoup(homepage_html, 'html.parser')
-    h2Tags = soup.find_all('h2')
-    if len(h2Tags) > 0:
-        homepage["title"] = h2Tags[0].text
+    h2_tags = soup.find_all('h2')
+    if len(h2_tags) > 0:
+        homepage["title"] = h2_tags[0].text
 
     if profile:
-        data = {'wiki_page[body]': format_profile_page(
+        data = {'wiki_page[body]': format_homepage(
             profile, course, homepage)}
 
         response = requests.put(url, headers=HEADERS, data=data)
@@ -1498,15 +1617,15 @@ def overwrite_home_page(profile: dict, course: dict) -> str:
     return page_url
 
 
-def get_instructor_profile_from_pages(user, pages):
+def get_instructor_profile_from_pages(user: dict, pages: list[dict]) -> Profile | None:
     """Summary
     Gets an instructor profile from the faculty bios pages, or any similar page objects passed in
     Args:
-        user (TYPE): camva
-        pages (TYPE): A list of canvas api page dicts
+        user: canvas api user object
+        pages: A list of canvas api pages with titles that could be the use name
 
     Returns:
-        TYPE: Description
+        Profile: Profile object
     """
     first_name = user["name"].split(" ")[0]
     last_name = user["name"].split(" ")[-1]
@@ -1530,7 +1649,6 @@ def get_instructor_profile_from_pages(user, pages):
             break
         iterations = iterations + 1
 
-    out = dict(user=user, bio="", img="", img_src="")
     page = None
 
     # alert the user if there are no results
@@ -1538,7 +1656,7 @@ def get_instructor_profile_from_pages(user, pages):
         print("Potentials ")
         messagebox.showinfo(
             message=f"No profile found matching {user['name']}")
-        return False
+        return None
 
     # if we are more than two filters deep,
     # or there are more than one potential user,
@@ -1555,6 +1673,7 @@ def get_instructor_profile_from_pages(user, pages):
                     message=f"No direct match found for {user['name']}."
                             f"Do you want to use {potential['title']}?"):
                 page = potential
+                break
 
     # otherwise pick the first result
     else:
@@ -1568,10 +1687,12 @@ def get_instructor_profile_from_pages(user, pages):
 
     # Iterate over the h4 tags and find the next sibling paragraph tag
     paragraphs = []
-    bio = ""
+    bio = ''
     for h4_tag in h4_tags:
         if "instructor" in h4_tag.text.lower():
             next_sibling = h4_tag.find_next_sibling('p')
+            if not next_sibling:
+                next_sibling = h4_tag.find_next_sibling('div')
             while next_sibling is not None:
                 paragraphs.append(next_sibling.text)
                 next_sibling = next_sibling.find_next_sibling('p')
@@ -1579,25 +1700,30 @@ def get_instructor_profile_from_pages(user, pages):
     # Create the bio output
     for paragraph in paragraphs:
         bio = f"{bio}\n<p>{paragraph}</p>"
-    out["bio"] = bio
 
     # get display name just in case
-    out["display_name"] = False
+    display_name: str | None = None
     for p in soup.find_all('p'):
         previous_p = p.find_previous_sibling('p')
         if "instructor" in p.text.lower() and previous_p is not None:
             print(previous_p.text)
-            out["display_name"] = previous_p.text
+            display_name = previous_p.text
 
     # get image output
     imgs = soup.find_all("img")
-    for img in imgs:
-        out["img_src"] = img["src"]
+    img_src = None
+    if imgs:
+        img_src = imgs[-1]['src']
+    print(img_src)
+    return Profile(
+        user=user,
+        bio=bio,
+        img_src=img_src,
+        display_name=display_name
+    )
 
-    return out
 
-
-def get_instructor_profile_submission(user):
+def get_instructor_profile_submission(user) -> Profile:
     """Summary
 
     Args:
@@ -1617,11 +1743,11 @@ def get_instructor_profile_submission(user):
     if "attachments" in submission:
         for attachment in submission["attachments"]:
             url = attachment["url"]
-            attachmentData = requests.get(url, headers=HEADERS)
+            attachment_data = requests.get(url, headers=HEADERS)
 
             filename = attachment["filename"]
             with open(filename, 'wb') as f:
-                f.write(attachmentData.content)
+                f.write(attachment_data.content)
             filename = attachment["filename"]
 
             # handle doc
@@ -1629,22 +1755,22 @@ def get_instructor_profile_submission(user):
                     or os.path.splitext(filename)[1] == ".zip":
                 doc = docx.Document(filename)
                 with open(filename, 'rb') as f:
-                    zip = zipfile.ZipFile(f)
+                    zip_file = zipfile.ZipFile(f)
 
-                    for info in zip.infolist():
+                    for info in zip_file.infolist():
                         is_image = (
                                 "jpg" in info.filename
                                 or "png" in info.filename
                                 or "jpeg" in info.filename)
                         if is_image:
-                            pic_path = zip.extract(
+                            pic_path = zip_file.extract(
                                 info,
                                 f"/{user['name']}{user['id']}"
                                 + f"profile{os.path.splitext(info.filename)[1]}")
 
                 for para in doc.paragraphs:
                     if len(para.text) > 10:
-                        bio = bio + (f"<p>{para.text}</p>\n")
+                        bio = bio + f"<p>{para.text}</p>\n"
 
             # if it's an attached image
             elif os.path.splitext(filename)[1] in ['.jpg', '.jpeg', '.png']:
@@ -1653,20 +1779,20 @@ def get_instructor_profile_submission(user):
                         + f"{user['id']}profile"
                         + f"{os.path.splitext(filename)[1]}",
                         "wb") as f:
-                    f.write(attachmentData.content)
+                    f.write(attachment_data.content)
                     pic_path = os.path.realpath(f.name)
 
         # todo: upload resized profile pic and populate upload_url
     img_upload_url = ""
     if len(pic_path) > 0:
         pic_path = resize_image(pic_path, MAX_PROFILE_IMAGE_SIZE)
-        img_upload_url = "" # upload_image(pic_path, instructor_course_id)
+        img_upload_url = ""  # upload_image(pic_path, instructor_course_id)
 
-    img_src = img_upload_url if\
+    img_src = img_upload_url if \
         img_upload_url and len(img_upload_url) > 0 \
         else DEFAULT_PROFILE_URL
 
-    return dict(user=user, bio=bio, img_src=img_src, local_image_path=pic_path)
+    return Profile(user=user, bio=bio, img_src=img_src, local_img_path=pic_path)
 
 
 def resize_image(path, max_width):
@@ -1707,7 +1833,6 @@ def resize_image(path, max_width):
 # TODO: Finish this when it's not crunch time.
 def upload_image(pic_path: str, course_id: int) -> dict[str, str] | None:
     # Process and upload user image
-    modules = get_modules(course_id)
     # get the correct folder id
     url = f"{API_URL}/courses/{course_id}/folders/by_path/Images/"
     response = requests.get(url, headers=HEADERS)
@@ -1742,21 +1867,24 @@ def upload_image(pic_path: str, course_id: int) -> dict[str, str] | None:
         return response.json()
 
 
-def get_instructor_page(user: dict):
+def get_instructor_page(user: dict | str):
     """Gets the page in Faculty Bios course that matches this instructor
 
     Args:
-        user(dict): A dictionary containing the json user response from canvas
+        user(dict | str): A dictionary containing the json user response from canvas or the instructor's name as a str
 
     Returns:
-        dict: A dictionary containing the canvas api instructor user
+        list: A list of all matches
     """
+    search_string = user if type(user) is str else user['name']
+
     url = f"{API_URL}/courses/{PROFILE_PAGES_COURSE_ID}/pages" \
-          + f"?per_page=999&search={urllib.parse.quote(user['name'])}"
+          + f"?per_page=999&search_term={urllib.parse.quote(search_string)}"
 
     pages = get_paged_data(url)
     for page in pages:
         print(page["title"])
+    return pages
 
 
 def get_canvas_course_home_page(course_id: int):
@@ -1774,7 +1902,7 @@ def get_canvas_course_home_page(course_id: int):
     return response.content
 
 
-def get_canvas_instructor(course_id: int) -> dict| None:
+def get_canvas_instructor(course_id: int) -> dict | None:
     """Gets the instructor for a given canvas course based on id
 
     Args:
@@ -1796,7 +1924,7 @@ def get_canvas_instructor(course_id: int) -> dict| None:
     return None
 
 
-def get_paged_data(url: str, headers= HEADERS, params= None) -> list | None:
+def get_paged_data(url: str, headers=None, params=None) -> list | None:
     """Summary
         returns a list of data from a get request, going through
         multiple pages of data requests as necessary
@@ -1809,6 +1937,8 @@ def get_paged_data(url: str, headers= HEADERS, params= None) -> list | None:
     Returns:
         list: Description
     """
+    if headers is None:
+        headers = HEADERS
     response = requests.get(url, headers=headers, params=params)
     out = response.json()
     if not response.ok:
@@ -1856,7 +1986,7 @@ def get_course_id_from_string(course_string: str):
         return None
 
 
-def get_course_by_code(code: str, params=None, return_list=False) -> dict | None:
+def get_course_by_code(code: str, params=None, return_list=False) -> Course | List[Course | None] | None:
     """Summary
         attempts to find a course by course code,
         inclusive of starting component
@@ -1869,8 +1999,11 @@ def get_course_by_code(code: str, params=None, return_list=False) -> dict | None
         code (str): The course code
 
     Returns:
-        dict: A dictionary representing the first course found
+        Course | List(Course): The matching course or a list of same
         or None if no match
+
+    Deprecated: Use Course.get_course_by_code() instead
+
     """
     if params is None:
         params = {}
@@ -1883,7 +2016,7 @@ def get_course_by_code(code: str, params=None, return_list=False) -> dict | None
     if courses and len(courses) > 1:
         courses.sort(reverse=True, key=lambda course: course['id'])
 
-    return courses if return_list else courses[0]
+    return list(map(lambda a: Course(a),courses)) if return_list else Course(courses[0])
 
 
 def get_sections(course):
@@ -1891,13 +2024,72 @@ def get_sections(course):
     sections = requests.get(url, headers=HEADERS, data={
         "include[]": "enrollments"
     }).json()
-    return(sections)
+    return sections
 
 
 def ensure_directory_exists(directory_path):
     # Ensure the directory exists; create if not
     if not os.path.exists(directory_path):
         os.makedirs(directory_path)
+
+
+def main():
+    """Summary
+        Main loop. Opens an interface you can perform various
+        course publishing operations with.
+    """
+    load_constants(CONSTANTS_FILE, sys.modules[__name__])
+    window = tk.Tk()
+    window.geometry("600x400")
+    initial_value = None
+    used_clipboard = False
+    if len(sys.argv) > 1:
+        initial_value = sys.argv[1]
+    else:
+        try:
+            initial_value = get_course_id_from_string(window.clipboard_get())
+            used_clipboard = True
+        except tk.TclError:
+            print("Clipboard empty")
+
+    label = tk.Label(
+        window,
+        text="Enter the course code (e.g. BP_ANIM305) or id\n"
+             + "(if you are seeing auto-text, you already had a course code "
+             + "or id copied)")
+    label.pack()
+
+    course_string_var: StringVar = tk.StringVar(
+        master=window,
+        value=initial_value)
+
+    text_entry = tk.Entry(
+        window,
+        textvariable=course_string_var)
+    text_entry.pack()
+
+    enter_binding_id = None
+
+    def callback(event=None):
+        success = course_entry_callback(
+            window=window,
+            status_label=label,
+            to_remove=[button, text_entry],
+            course_string=course_string_var.get())
+        if success:
+            window.unbind('<Return>', enter_binding_id)
+
+    window.bind('<Return>', callback)
+
+    button = tk.Button(
+        master=window,
+        text="Get Course",
+        command=callback)
+    button.pack()
+
+    if not used_clipboard and initial_value is not None:
+        callback()
+    window.mainloop()
 
 
 if __name__ == "__main__":
