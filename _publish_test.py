@@ -173,3 +173,5 @@ class TestPublish(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
         course = get_test_course()
         publish_script.set_course_as_blueprint(course)
+        term = Term.get_by_code('24-Jan')
+

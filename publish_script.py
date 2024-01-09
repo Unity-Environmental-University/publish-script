@@ -77,11 +77,68 @@ LEARNING_MATERIALS_REPLACEMENTS = [
 ]
 
 
+class CanvasTalker:
+    headers: dict
+    api_url: str
+
+    def __init__(
+            self,
+            headers: dict = None,
+            api_url: str = None,
+            account_id: int = None
+    ) -> None:
+        self.headers = headers if headers else HEADERS
+        self.api_url = api_url if api_url else API_URL
+        self.account_id = account_id if account_id else ACCOUNT_ID
+
+    def get(self, url: str, **args):
+        url = f'{self.api_url}/{url}'
+        response = requests.get(url, headers=args['headers'] if 'headers' in args else self.headers, **args)
+        assert response.ok, response.text
+        return response.json()
+
+    def get_paged_data(self, url: str, headers: dict = None, params: dict = None) -> list | None:
+        """Summary
+            returns a list of data from a get request, going through
+            multiple pages of data requests as necessary
+
+        Args:
+            params: Any additional parameters to pass to the query
+            url: The url path to query, not including the api_url
+            headers: Headers for the request
+
+        Returns:
+            list: The paged data
+        """
+        headers = headers if headers else self.headers
+        response = requests.get(f'{self.api_url}/{url}', headers=headers, params=params)
+        out = response.json()
+        if not response.ok:
+            return None
+        next_page_link = "!"
+        while len(next_page_link) != 0 \
+                and 'link' in response.headers \
+                and response.ok:
+            pagination_links = response.headers["Link"].split(",")
+            for link in pagination_links:
+                if 'next' in link:
+                    next_page_link = link.split(";")[0].split("<")[1].split(">")[0]
+                    response = requests.get(next_page_link, headers=headers, params=params)
+                    out = out + response.json()
+                    break
+                else:
+                    next_page_link = ""
+
+        return out
+
+
 # A wrapper for canvas api dict return course object
 class Course:
     canvas_data: dict
+    canvas_talker: CanvasTalker
 
     def __init__(self, data: dict) -> None:
+        self.canvas_talker = CanvasTalker(HEADERS, API_URL)
         self.canvas_data = data if data is not None else {}
         pass
 
@@ -90,6 +147,12 @@ class Course:
 
     def __setitem__(self, item, value):
         self.canvas_data[item] = value
+
+    @classmethod
+    def get_by_id(cls, id_: int):
+        canvas_talker = CanvasTalker()
+        data = canvas_talker.get(f'courses/{id_}')
+        return Course(data)
 
     @property
     def id(self) -> int:
@@ -112,6 +175,14 @@ class Course:
     def course_code(self, value):
         self.canvas_data["course_code"] = re.sub(COURSE_CODE_REGEX, self.canvas_data['course_code'], value)
         self.canvas_data["name"] = re.sub(COURSE_CODE_REGEX, self.canvas_data['name'], value)
+
+    @property
+    def associated_courses(self):
+        return get_blueprint_courses(self.id)
+
+    @property
+    def is_blueprint(self):
+        return 'blueprint' in self.canvas_data and self.canvas_data['blueprint']
 
 
 class Profile:
@@ -140,6 +211,23 @@ class Profile:
         self.bio = bio
         self.img_src = img_src
         self.local_img_path = local_img_path
+
+
+class Term:
+    canvas_data: dict = None
+
+    def __init__(self, canvas_data: dict):
+        self.canvas_data = canvas_data if canvas_data else {}
+
+    @classmethod
+    def get_by_code(cls, code: str):
+        ct = CanvasTalker(account_id=ROOT_ACCOUNT_ID)
+        data = ct.get(f'accounts/{ROOT_ACCOUNT_ID}/terms', params={
+            'workflow_state[]': 'all',
+            'term_name': code
+        })
+        return Term(data)
+
 
 
 def load_constants(path=CONSTANTS_FILE, context=None):
@@ -1892,11 +1980,13 @@ def main():
     window = tk.Tk()
     window.geometry("600x400")
     initial_value = None
+    used_clipboard = False
     if len(sys.argv) > 1:
         initial_value = sys.argv[1]
     else:
         try:
             initial_value = get_course_id_from_string(window.clipboard_get())
+            used_clipboard = True
         except tk.TclError:
             print("Clipboard empty")
 
@@ -1935,7 +2025,7 @@ def main():
         command=callback)
     button.pack()
 
-    if initial_value is not None:
+    if not used_clipboard and initial_value is not None:
         callback()
     window.mainloop()
 
