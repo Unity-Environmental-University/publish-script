@@ -83,7 +83,7 @@ class TestCourseResetAndImport(unittest.TestCase):
         self.assertIsNotNone(course, "Course does not exist")
         self.assertFalse(publish_script.get_modules(int(course['id'])), "Course contains modules after reset")
 
-        self.assertEqual(reply_course.canvas_data, course.canvas_data, f"Reset course is not the same as searched for course - {reply_course['id']}, {course['id']}")
+        self.assertEqual(reply_course._canvas_data, course._canvas_data, f"Reset course is not the same as searched for course - {reply_course['id']}, {course['id']}")
 
     def test_import_dev(self):
         self.maxDiff = None
@@ -177,7 +177,7 @@ class TestCourse(unittest.TestCase):
     def test_course_properties(self):
         code = f"BP_{TEST_COURSE_CODE}"
         course: Course = Course.get_by_code(code)
-        self.assertEqual(course['name'], course.canvas_data['name'], "course['name'] does not match its data")
+        self.assertEqual(course['name'], course._canvas_data['name'], "course['name'] does not match its data")
 
     def test_get_course(self):
         code = f"BP_{TEST_COURSE_CODE}"

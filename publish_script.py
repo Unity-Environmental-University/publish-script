@@ -1,5 +1,6 @@
 import inspect
 import warnings
+from functools import cached_property
 
 try:
     import aiohttp
@@ -79,7 +80,10 @@ LEARNING_MATERIALS_REPLACEMENTS = [
 ]
 
 
-class CanvasTalker:
+class CanvasApiLink:
+    """
+    This class handles api calls to the canvas api
+    """
     headers: dict
     api_url: str
 
@@ -94,6 +98,16 @@ class CanvasTalker:
         self.account_id = account_id if account_id else ACCOUNT_ID
 
     def get(self, url: str, params: dict = None, **args):
+        """
+        Performs a canvas api call
+        Args:
+            url: any url to use after the canvas api base
+            params: any params to pass to the requests.get call
+            **args: and other args to pass to requests.get
+        Returns:
+            A dict or list holding the response from the canvas api
+
+        """
         url = f'{self.api_url}/{url}'
         response = requests.get(
             url,
@@ -138,28 +152,54 @@ class CanvasTalker:
         return out
 
 
-# A wrapper for canvas api dict return course object
-class Course:
-    canvas_data: dict
-    canvas_talker: CanvasTalker
+class BaseCanvasObject:
+    """
+    A base class for classes that talk to and hold data from canvas API,
+    """
+    api_link: CanvasApiLink
+    _canvas_data: dict
 
-    def __init__(self, data: dict) -> None:
-        self.canvas_talker = CanvasTalker(HEADERS, API_URL)
-        self.canvas_data = data if data is not None else {}
-        pass
+    def __init__(self, data, headers=None, api_url=None, **kwargs):
+        """
+        Initialized the object
+        Args:
+            data: the canvas data this class is wrapping
+            headers: the headers to use, passed to the api_link
+            api_url: the api_url, passed to the api_link
+            **kwargs: all other args passed directly to api_link constructor
+        """
+        self._canvas_data = {}
+        self._canvas_data = data if data is not None else {}
+        self.api_link = CanvasApiLink(headers=headers, api_url=api_url, **kwargs)
 
     def __getitem__(self, item):
-        if item not in self.canvas_data:
+        if item not in self._canvas_data:
             return None
-        return self.canvas_data[item]
+        return self._canvas_data[item]
 
     def __setitem__(self, item, value):
-        self.canvas_data[item] = value
+        self._canvas_data[item] = value
 
+
+class Course(BaseCanvasObject):
+    """
+    A class to represent canvas courses and handle various canvas course based operations
+    """
+
+    # Class Methods
     @classmethod
     def get_by_id(cls, id_: int) -> Self:
-        canvas_talker = CanvasTalker()
-        data = canvas_talker.get(f'courses/{id_}')
+        """
+        Gets a new Course instance by id populated with canvas data from the api
+
+        Args:
+            id_: THe id of the course to fetch and populate this course with
+
+        Returns:
+            A new Course
+        """
+        link = CanvasApiLink()
+        data = link.get(f'courses/{id_}')
         return Course(data)
 
     @classmethod
@@ -172,12 +212,12 @@ class Course:
             **params: passes all additional params on to 'requests.get(params=)'
 
         Returns:
-        A course or list of courses if return_list is true, matching the code
+            A course or list of courses if return_list is true, matching the code
         """
         url = f"accounts/{ROOT_ACCOUNT_ID}/courses"
         params = params if params is not None else {}
-        talker = CanvasTalker()
-        courses = talker.get_paged_data(
+        link = CanvasApiLink()
+        courses = link.get_paged_data(
             url,
             params={"search_term": code, **params})
 
@@ -187,17 +227,40 @@ class Course:
 
         return list(map(lambda a: Course(a), courses)) if return_list else Course(courses[0])
 
+    @classmethod
+    def publish_all(cls, courses: List[Self]):
+        """
+        Publishes a list of courses
+        Args:
+            courses: the list of courses to publish
+        """
+        url = f'{API_URL}/accounts/{ACCOUNT_ID}/courses'
+        data = {
+            'event': 'offer',
+            # list of course ids
+            'course_ids[]': list(map(lambda a: a['id'], courses))
+        }
+        response = requests.put(url, headers=HEADERS, data=data)
+        if not response.ok:
+            print(response)
+            print(response.content)
+
+    # Properties
     @property
     def id(self) -> int:
-        return self.canvas_data['id']
+        """
+        Course id
+        Returns: canvas data course id
 
-    @id.setter
-    def id(self, value: int) -> None:
-        self.canvas_data['id'] = value
+        """
+        return self._canvas_data['id']
 
     @property
-    def course_code(self):
-        match = re.search(COURSE_CODE_REGEX, self.canvas_data["course_code"])
+    def course_code(self) -> str:
+        """
+        The course code in the form PREFIX_DEPT1234
+        """
+        match = re.search(COURSE_CODE_REGEX, self._canvas_data["course_code"])
         if not match:
             return None
         prefix = match.group(1)
@@ -205,22 +268,55 @@ class Course:
         return prefix + '_' + course_code
 
     @course_code.setter
-    def course_code(self, value):
-        self.canvas_data["course_code"] = re.sub(COURSE_CODE_REGEX, self.canvas_data['course_code'], value)
-        self.canvas_data["name"] = re.sub(COURSE_CODE_REGEX, self.canvas_data['name'], value)
+    def course_code(self, value) -> None:
+        """
+        Sets the course code to value.
+        TODO: Add error checking
+        """
+        self._canvas_data["course_code"] = re.sub(COURSE_CODE_REGEX, self._canvas_data['course_code'], value)
+        self._canvas_data["name"] = re.sub(COURSE_CODE_REGEX, self._canvas_data['name'], value)
 
     @property
-    def associated_courses(self):
-        return get_blueprint_courses(self.id)
+    def is_blueprint(self) -> bool:
+        """
+        Is this course a blueprint?
+        """
+        return 'blueprint' in self._canvas_data and self._canvas_data['blueprint']
 
-    @property
-    def is_blueprint(self):
-        return 'blueprint' in self.canvas_data and self.canvas_data['blueprint']
+    @cached_property
+    def associated_courses(self) -> List[Self]:
+        """
+        A list of associated courses if this is a blueprint. None otherwise.
+        """
+        if not self.is_blueprint:
+            return None
+
+        url = f"courses/{self.id}/blueprint_templates/default/associated_courses"
+        courses = self.api_link.get_paged_data(url, params={"per_page" : 50})
+
+        return list(map(lambda a: Course(a), courses))
+
+    @cached_property
+    def subsections(self) -> list[dict]:
+        url = f'courses/{self.id}/sections'
+        sections = self.api_link.get(url, params={
+            'include[]': 'enrollments'
+        })
+        return sections
+
+    def publish(self):
+        """
+        Publishes this course
+        """
+        Course.publish_all([self])
 
 
-class Profile:
+class Profile(BaseCanvasObject):
     """
     Class holding information needed to make a faculty pic and bio profile on course homepage
+    Properties:
+    user: The instructor user object
+    bio: the text bio in html
     """
     user: dict = None
     bio: str = None
@@ -231,7 +327,9 @@ class Profile:
             bio: str,
             img_src: str,
             display_name: str = None,
-            local_img_path: str = None) -> None:
+            local_img_path: str = None,
+            **kwargs
+    ) -> None:
         """
         Args:
             user: The canvas api user
@@ -239,6 +337,7 @@ class Profile:
             img_src: URL to the image
             local_img_path: Local path of the image, if saved
         """
+        super().__init__(**kwargs)
         self.display_name = display_name
         self.user = user
         self.bio = bio
@@ -267,7 +366,7 @@ class Term:
             return_list: bool = False,
             workflow_state: str = 'all'
     ) -> Self | List[Self]:
-        ct = CanvasTalker(account_id=ROOT_ACCOUNT_ID)
+        ct = CanvasApiLink(account_id=ROOT_ACCOUNT_ID)
         data = ct.get(f'accounts/{ROOT_ACCOUNT_ID}/terms', params={
             'workflow_state[]': workflow_state,
             'term_name': code
@@ -374,9 +473,9 @@ def setup_main_ui(
         Sets up the main workflow UI
 
     Args:
-        bp_course (dict): the course we're working with
+        bp_course: the course we're working with
         window: The widow to create UI in
-        status_label (Widget): Description
+        status_label: Description
     """
     # source_course_id = get_source_course_id(bp_id)
     # Create a progress bar
@@ -465,7 +564,7 @@ def setup_main_ui(
             'func': lambda: replace_faculty_profiles(
                 bp_course=bp_course,
                 # get course by code in case it has changed
-                courses=get_blueprint_courses(Course.get_by_code(bp_course.course_code).id),
+                courses=bp_course.associated_courses,
                 window=window,
                 progress_bar=progress_bar),
         },
@@ -473,8 +572,7 @@ def setup_main_ui(
             'name': 'publish',
             'message': 'Do you want to publish associated courses?',
             'error': 'There was a problem publishing courses\n{e}',
-            'func': lambda: publish_courses(
-                courses=get_blueprint_courses(bp_course.id)),
+            'func': lambda: Course.publish_all(bp_course.associated_courses)
         }
     ]
 
@@ -860,25 +958,6 @@ def poll_migration(
     print(response)
     print(response.content)
     return migration
-
-
-def publish_courses(*, courses: list):
-    """Summary
-    Publishes a set of courses.
-
-    Args:
-        courses (list): A list of course dicts
-    """
-    url = f'{API_URL}/accounts/{ACCOUNT_ID}/courses'
-    data = {
-        'event': 'offer',
-        # list of course ids
-        'course_ids[]': list(map(lambda a: a['id'], courses))
-    }
-    response = requests.put(url, headers=HEADERS, data=data)
-    if not response.ok:
-        print(response)
-        print(response.content)
 
 
 def lock_module_items(course: Course, progress_bar: ttk.Progressbar | None = None):
@@ -1436,7 +1515,8 @@ def format_homepage(profile: Profile, course: Course, homepage: dict):
             bio=profile.bio)
         text = clean_up_bio(text)
 
-    ensure_directory_exists('profiles')
+    if not os.path.exists('profiles'):
+        os.makedirs('profiles')
     profile_path = f'profiles/{profile.user["id"]}_{course["id"]}.htm'
     with open(profile_path, 'wb') as f:
         f.write(text.encode("utf-8", "replace"))
@@ -1553,24 +1633,6 @@ def get_course_profile_from_assignment(course):
         print("The instructor of the course {} cannot be found.".format(
             course_id))
     return get_instructor_profile_submission(instructor)
-
-
-def get_blueprint_courses(bp_id: int) -> list[Course]:
-    """Summary
-        Gets a list of courses associated with a blueprint course id
-
-    Args:
-        bp_id: The blueprint course ID
-
-    Returns:
-        TYPE: A list of courses associated with this blueprint
-    """
-    url = f"{API_URL}/courses/{bp_id}/" \
-          "blueprint_templates/default/associated_courses?per_page=50"
-    courses = get_paged_data(url)
-
-    return list(map(lambda a: Course(a), courses))
-
 
 def overwrite_home_page(profile: Profile, course: Course) -> str:
     """Summary
@@ -1980,21 +2042,6 @@ def get_course_id_from_string(course_string: str):
         return Course.get_by_code(f"BP_{course_root_name_match.group(1)}")['id']
     else:
         return None
-
-
-def get_sections(course):
-    url = f'{API_URL}/courses/{course["id"]}/sections?include[]=students&include[]=enrollments'
-    sections = requests.get(url, headers=HEADERS, data={
-        "include[]": "enrollments"
-    }).json()
-    return sections
-
-
-def ensure_directory_exists(directory_path):
-    # Ensure the directory exists; create if not
-    if not os.path.exists(directory_path):
-        os.makedirs(directory_path)
-
 
 def main():
     """Summary

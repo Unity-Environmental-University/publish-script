@@ -40,8 +40,8 @@ print(publish_script.API_URL)
 
 
 def is_section_setup(course):
-    sections = publish_script.get_sections(course)
-    grading_sections = list( filter(lambda section: section['name'].lower() == 'grading', sections))
+    sections = course.get_sections()
+    grading_sections = list(filter(lambda a: a['name'].lower() == 'grading', sections))
     if len(grading_sections) > 0:
         instructor = publish_script.get_canvas_instructor(course['id'])
         print(course['name'])
