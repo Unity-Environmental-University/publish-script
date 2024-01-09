@@ -392,7 +392,7 @@ def setup_main_ui(
         unset_course_as_blueprint(course),
         reset_course(course),
         # ID changes on reset so ge the new one
-        course.id = get_course_by_code(course.course_code).id
+        course.id = Course.get_by_code(course.course_code).id
 
         import_dev_course(course, progress_bar=progress_bar),
         set_course_as_blueprint(course)
@@ -465,7 +465,7 @@ def setup_main_ui(
             'func': lambda: replace_faculty_profiles(
                 bp_course=bp_course,
                 # get course by code in case it has changed
-                courses=get_blueprint_courses(get_course_by_code(bp_course['course_code'])['id']),
+                courses=get_blueprint_courses(Course.get_by_code(bp_course.course_code).id),
                 window=window,
                 progress_bar=progress_bar),
         },
@@ -474,7 +474,7 @@ def setup_main_ui(
             'message': 'Do you want to publish associated courses?',
             'error': 'There was a problem publishing courses\n{e}',
             'func': lambda: publish_courses(
-                courses=get_blueprint_courses(bp_course['id'])),
+                courses=get_blueprint_courses(bp_course.id)),
         }
     ]
 
@@ -662,7 +662,7 @@ def import_dev_course(bp_course: Course, progress_bar=None):
     prefix = match.group(1)
     course_code = match.group(2)
     assert prefix.upper() == 'BP', "Course code is not a blueprint"
-    dev_course = get_course_by_code(f"DEV_{course_code}")
+    dev_course = Course.get_by_code(f"DEV_{course_code}")
 
     # if we're running this right from the script (instead of a unit test) prompt to confirm
     if course_code == "__main__":
@@ -1403,12 +1403,8 @@ def get_course_by_id(course_id: int) -> Course:
 
     DeprecationWarning: Use Course.get_by_id(course_id) instead
     """
-
-    url = f'{API_URL}/courses/{course_id}' \
-          + '?include[]=term&include[]=grading_periods'
-    response = requests.get(url, headers=HEADERS)
-    assert response.ok
-    return Course(response.json())
+    warnings.warn("DeprecationWarning: Use Course.get_by_id instead")
+    return Course.get_by_id(course_id)
 
 
 def format_homepage(profile: Profile, course: Course, homepage: dict):
@@ -1979,44 +1975,11 @@ def get_course_id_from_string(course_string: str):
         return int(id_match.group(1))
     elif course_name_match:
         print(course_name_match)
-        return get_course_by_code(course_name_match.group(1))['id']
+        return Course.get_by_code(course_name_match.group(1))['id']
     elif course_root_name_match:
-        return get_course_by_code(f"BP_{course_root_name_match.group(1)}")['id']
+        return Course.get_by_code(f"BP_{course_root_name_match.group(1)}")['id']
     else:
         return None
-
-
-def get_course_by_code(code: str, params=None, return_list=False) -> Course | List[Course | None] | None:
-    """Summary
-        attempts to find a course by course code,
-        inclusive of starting component
-        currently does not support
-        course sections
-
-    Args:
-        return_list: True if you want to return a list of courses that match
-        params: any params to be passed to the call
-        code (str): The course code
-
-    Returns:
-        Course | List(Course): The matching course or a list of same
-        or None if no match
-
-    Deprecated: Use Course.get_course_by_code() instead
-
-    """
-    if params is None:
-        params = {}
-    url = f"{API_URL}/accounts/{ROOT_ACCOUNT_ID}/courses?"
-    print(url)
-    courses = get_paged_data(
-        url,
-        headers=HEADERS,
-        params={"search_term": code, **params})
-    if courses and len(courses) > 1:
-        courses.sort(reverse=True, key=lambda course: course['id'])
-
-    return list(map(lambda a: Course(a),courses)) if return_list else Course(courses[0])
 
 
 def get_sections(course):

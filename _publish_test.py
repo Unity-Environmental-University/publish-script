@@ -24,11 +24,11 @@ assert('test' in publish_script.API_URL)
 
 
 def get_test_course():
-    return publish_script.get_course_by_code(f'BP_{TEST_COURSE_CODE}')
+    return Course.get_by_code(f'BP_{TEST_COURSE_CODE}')
 
 
 def get_test_section():
-    return publish_script.get_course_by_code(f'24-Jan_{TEST_COURSE_CODE}')
+    return Course.get_by_code(f'24-Jan_{TEST_COURSE_CODE}')
 
 
 def get_item_names(items):
@@ -45,7 +45,7 @@ def flatten_modules(modules: list):
 
 class TestMisc(unittest.TestCase):
     def test_flatten_module(self):
-        course = publish_script.get_course_by_code('DEV_' + TEST_COURSE_CODE)
+        course = Course.get_by_code('DEV_' + TEST_COURSE_CODE)
         modules = publish_script.get_modules(course['id'])
         flattened_modules = flatten_modules(modules)
         print(flattened_modules)
@@ -71,7 +71,7 @@ class TestCourseResetAndImport(unittest.TestCase):
     """
 
     def test_reset(self):
-        course = publish_script.get_course_by_code(f'BP_{TEST_COURSE_CODE}')
+        course = Course.get_by_code(f'BP_{TEST_COURSE_CODE}')
         self.assertIsNotNone(course, "Can't Find Test Course by code")
 
         original_course_id = course['id']
@@ -79,7 +79,7 @@ class TestCourseResetAndImport(unittest.TestCase):
         reply_course = publish_script.reset_course(course)
         self.assertNotEqual(original_course_id, reply_course['id'], "Course id has not been changed on reset")
 
-        course = publish_script.get_course_by_code(f'BP_{TEST_COURSE_CODE}')
+        course = Course.get_by_code(f'BP_{TEST_COURSE_CODE}')
         self.assertIsNotNone(course, "Course does not exist")
         self.assertFalse(publish_script.get_modules(int(course['id'])), "Course contains modules after reset")
 
@@ -87,10 +87,10 @@ class TestCourseResetAndImport(unittest.TestCase):
 
     def test_import_dev(self):
         self.maxDiff = None
-        bp_course = publish_script.get_course_by_code(f'BP_{TEST_COURSE_CODE}')
+        bp_course = Course.get_by_code(f'BP_{TEST_COURSE_CODE}')
         publish_script.import_dev_course(bp_course)
-        bp_course = publish_script.get_course_by_code(f'BP_{TEST_COURSE_CODE}', params={'include[]': 'syllabus_body'})
-        dev_course = publish_script.get_course_by_code(f'DEV_{TEST_COURSE_CODE}', params={'include[]': 'syllabus_body'})
+        bp_course = Course.get_by_code(f'BP_{TEST_COURSE_CODE}', params={'include[]': 'syllabus_body'})
+        dev_course = Course.get_by_code(f'DEV_{TEST_COURSE_CODE}', params={'include[]': 'syllabus_body'})
         self.assertEqual(
             len(bp_course['syllabus_body']), len(dev_course['syllabus_body']), "Course syllabi do not mach")
 
@@ -102,13 +102,13 @@ class TestCourseResetAndImport(unittest.TestCase):
             f"BP modules do not match dev modules.")
 
     def test_unset_blueprint(self):
-        course = publish_script.get_course_by_code(f'BP_{TEST_COURSE_CODE}')
+        course = Course.get_by_code(f'BP_{TEST_COURSE_CODE}')
         self.assertIsNotNone(course, "Can't Find Test Course by code")
         response_course = publish_script.unset_course_as_blueprint(course)
         self.assertFalse(response_course['blueprint'], "Course isn't a blueprint")
 
     def test_set_blueprint(self):
-        course = publish_script.get_course_by_code(f'BP_{TEST_COURSE_CODE}')
+        course = Course.get_by_code(f'BP_{TEST_COURSE_CODE}')
         self.assertIsNotNone(course, "Can't Find Test Course by code")
         response_course = publish_script.set_course_as_blueprint(course)
         print(response_course['blueprint_restrictions'])
