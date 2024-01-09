@@ -1,9 +1,11 @@
 import inspect
+import warnings
 
 try:
     import aiohttp
-except ImportError:
+except ImportError as e:
     aiohttp = None
+    warnings.warn(e.msg)
     print("aiohttp not loaded, no async operations")
 
 import asyncio
@@ -91,9 +93,13 @@ class CanvasTalker:
         self.api_url = api_url if api_url else API_URL
         self.account_id = account_id if account_id else ACCOUNT_ID
 
-    def get(self, url: str, **args):
+    def get(self, url: str, params: dict = None, **args):
         url = f'{self.api_url}/{url}'
-        response = requests.get(url, headers=args['headers'] if 'headers' in args else self.headers, **args)
+        response = requests.get(
+            url,
+            headers=args['headers'] if 'headers' in args else self.headers,
+            params=params,
+            **args)
         assert response.ok, response.text
         return response.json()
 
@@ -143,16 +149,43 @@ class Course:
         pass
 
     def __getitem__(self, item):
+        if item not in self.canvas_data:
+            return None
         return self.canvas_data[item]
 
     def __setitem__(self, item, value):
         self.canvas_data[item] = value
 
     @classmethod
-    def get_by_id(cls, id_: int):
+    def get_by_id(cls, id_: int) -> Self:
         canvas_talker = CanvasTalker()
         data = canvas_talker.get(f'courses/{id_}')
         return Course(data)
+
+    @classmethod
+    def get_by_code(cls, code: str, return_list: bool = False, params: dict = None) -> Self | List[Self]:
+        """
+        Gets a course, or list of courses, by a course code
+        Args:
+            code: A course code of the forma TERMCODE_DEPT1234
+            return_list: returns a list of all matching courses if true
+            **params: passes all additional params on to 'requests.get(params=)'
+
+        Returns:
+        A course or list of courses if return_list is true, matching the code
+        """
+        url = f"accounts/{ROOT_ACCOUNT_ID}/courses"
+        params = params if params is not None else {}
+        talker = CanvasTalker()
+        courses = talker.get_paged_data(
+            url,
+            params={"search_term": code, **params})
+
+        # if there are multiple courses, return by the most recently assigned a new ID
+        if courses and len(courses) > 1:
+            courses.sort(reverse=True, key=lambda course: course['id'])
+
+        return list(map(lambda a: Course(a), courses)) if return_list else Course(courses[0])
 
     @property
     def id(self) -> int:
@@ -169,7 +202,7 @@ class Course:
             return None
         prefix = match.group(1)
         course_code = match.group(2)
-        return prefix + course_code
+        return prefix + '_' + course_code
 
     @course_code.setter
     def course_code(self, value):
@@ -219,15 +252,37 @@ class Term:
     def __init__(self, canvas_data: dict):
         self.canvas_data = canvas_data if canvas_data else {}
 
+    def __getitem__(self, item):
+        if item not in self.canvas_data:
+            return None
+        return self.canvas_data[item]
+
+    def __setitem__(self, item, value):
+        self.canvas_data[item] = value
+
     @classmethod
-    def get_by_code(cls, code: str):
+    def get_by_code(
+            cls,
+            code: str,
+            return_list: bool = False,
+            workflow_state: str = 'all'
+    ) -> Self | List[Self]:
         ct = CanvasTalker(account_id=ROOT_ACCOUNT_ID)
         data = ct.get(f'accounts/{ROOT_ACCOUNT_ID}/terms', params={
-            'workflow_state[]': 'all',
+            'workflow_state[]': workflow_state,
             'term_name': code
         })
-        return Term(data)
+        print(json.dumps(data))
+        if 'enrollment_terms' not in data:
+            warnings.warn(f'No enrollment terms found for {code}')
+        terms = data['enrollment_terms']
+        if not terms or len(terms) == 0:
+            return None
+        return Term(terms[0]) if not return_list else list(map(lambda a: Term(a), terms))
 
+    @property
+    def code(self) -> str:
+        return self.canvas_data['name']
 
 
 def load_constants(path=CONSTANTS_FILE, context=None):
@@ -508,11 +563,11 @@ async def handle_run(updates: list, status_label: tk.Label):
                     await update['func']
                 else:
                     update['func']()
-        except Exception as e:
+        except Exception as exception:
             messagebox.showerror(message=update['error'].format(
-                e=str(e)) + "\n" + traceback.format_exc())
+                e=str(exception)) + "\n" + traceback.format_exc())
             print(traceback.format_exc())
-            raise e
+            raise exception
 
     status_label.config(text=f'Finished!')
 
@@ -970,6 +1025,7 @@ def get_source_course_id(course_id: int) -> int:
 
     Returns:
         int: The course id of the source course
+
     """
     response = requests.get(
         f'{API_URL}/courses/{course_id}/content_migrations',
@@ -1344,7 +1400,10 @@ def get_course_by_id(course_id: int) -> Course:
 
     Returns:
         The course
+
+    DeprecationWarning: Use Course.get_by_id(course_id) instead
     """
+
     url = f'{API_URL}/courses/{course_id}' \
           + '?include[]=term&include[]=grading_periods'
     response = requests.get(url, headers=HEADERS)
@@ -1927,7 +1986,7 @@ def get_course_id_from_string(course_string: str):
         return None
 
 
-def get_course_by_code(code: str, params=None, return_list=False) -> Course | None:
+def get_course_by_code(code: str, params=None, return_list=False) -> Course | List[Course | None] | None:
     """Summary
         attempts to find a course by course code,
         inclusive of starting component
@@ -1942,6 +2001,9 @@ def get_course_by_code(code: str, params=None, return_list=False) -> Course | No
     Returns:
         Course | List(Course): The matching course or a list of same
         or None if no match
+
+    Deprecated: Use Course.get_course_by_code() instead
+
     """
     if params is None:
         params = {}
