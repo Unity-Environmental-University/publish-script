@@ -72,6 +72,7 @@ class TestCourseResetAndImport(unittest.TestCase):
         self.assertIsNotNone(course, "Can't Find Test Course by code")
 
         original_course_id = course['id']
+        publish_script.unset_course_as_blueprint(course)
         reply_course = publish_script.reset_course(course)
         self.assertNotEqual(original_course_id, reply_course['id'], "Course id has not been changed on reset")
 
@@ -79,7 +80,7 @@ class TestCourseResetAndImport(unittest.TestCase):
         self.assertIsNotNone(course, "Course does not exist")
         self.assertFalse(publish_script.get_modules(int(course['id'])), "Course contains modules after reset")
 
-        self.assertEqual(reply_course, course, f"Reset course is not the same as searched for course - {reply_course['id']}, {course['id']}")
+        self.assertEqual(reply_course.canvas_data, course.canvas_data, f"Reset course is not the same as searched for course - {reply_course['id']}, {course['id']}")
 
     def test_import_dev(self):
         self.maxDiff = None
@@ -90,8 +91,8 @@ class TestCourseResetAndImport(unittest.TestCase):
         self.assertEqual(
             len(bp_course['syllabus_body']), len(dev_course['syllabus_body']), "Course syllabi do not mach")
 
-        bp_modules = publish_script.get_modules(int(bp_course['id']))
-        dev_modules = publish_script.get_modules(int(bp_course['id']))
+        bp_modules = publish_script.get_modules(int(bp_course.id))
+        dev_modules = publish_script.get_modules(int(bp_course.id))
         self.assertEqual(
             get_item_names(flatten_modules(bp_modules)),
             get_item_names(flatten_modules(dev_modules)),
@@ -167,3 +168,8 @@ class TestLocking(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(course, "Can't Find Test Course by code")
         self.assertTrue(publish_script.lock_module_items(course), "locking did not succeed")
 
+
+class TestPublish(unittest.IsolatedAsyncioTestCase):
+    def setUp(self) -> None:
+        course = get_test_course()
+        publish_script.set_course_as_blueprint(course)

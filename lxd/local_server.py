@@ -94,7 +94,6 @@ class AuthenticatorRequestHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         print("request received...")
-        # print(json.dumps(json.load(self.rfile)))
         parsed_path = urlparse.urlparse(self.path)
         query = urlparse.parse_qs(parsed_path.query)
         print(query)

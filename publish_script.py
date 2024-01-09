@@ -77,6 +77,43 @@ LEARNING_MATERIALS_REPLACEMENTS = [
 ]
 
 
+# A wrapper for canvas api dict return course object
+class Course:
+    canvas_data: dict
+
+    def __init__(self, data: dict) -> None:
+        self.canvas_data = data if data is not None else {}
+        pass
+
+    def __getitem__(self, item):
+        return self.canvas_data[item]
+
+    def __setitem__(self, item, value):
+        self.canvas_data[item] = value
+
+    @property
+    def id(self) -> int:
+        return self.canvas_data['id']
+
+    @id.setter
+    def id(self, value: int) -> None:
+        self.canvas_data['id'] = value
+
+    @property
+    def course_code(self):
+        match = re.search(COURSE_CODE_REGEX, self.canvas_data["course_code"])
+        if not match:
+            return None
+        prefix = match.group(1)
+        course_code = match.group(2)
+        return prefix + course_code
+
+    @course_code.setter
+    def course_code(self, value):
+        self.canvas_data["course_code"] = re.sub(COURSE_CODE_REGEX, self.canvas_data['course_code'], value)
+        self.canvas_data["name"] = re.sub(COURSE_CODE_REGEX, self.canvas_data['name'], value)
+
+
 class Profile:
     """
     Class holding information needed to make a faculty pic and bio profile on course homepage
@@ -92,7 +129,6 @@ class Profile:
             display_name: str = None,
             local_img_path: str = None) -> None:
         """
-
         Args:
             user: The canvas api user
             bio: The biography of the user
@@ -165,14 +201,14 @@ def course_entry_callback(
         status_label: Place to display
     """
     course_id = get_course_id_from_string(course_string)
-    course = get_course(course_id)
+    course = get_course_by_id(course_id)
     if not course_id:
         status_label.configure(text="Course Not Found")
         return False
     else:
         status_label.configure(text=f"Course Found\n{course['name']}")
         setup_main_ui(
-            bp_course=get_course(course_id),
+            bp_course=get_course_by_id(course_id),
             window=window,
             status_label=status_label)
         for widget in to_remove:
@@ -188,7 +224,7 @@ def set_api_url(_api_url: str):
 
 def setup_main_ui(
         *,
-        bp_course: dict,
+        bp_course: Course,
         window: tk.Tk,
         status_label: tk.Label):
     """Summary
@@ -199,7 +235,6 @@ def setup_main_ui(
         window: The widow to create UI in
         status_label (Widget): Description
     """
-    print(bp_course)
     # source_course_id = get_source_course_id(bp_id)
     # Create a progress bar
     progress_bar = ttk.Progressbar(
@@ -210,13 +245,14 @@ def setup_main_ui(
     progress_bar.pack()
 
     def reset_and_import():
-        unset_course_as_blueprint(bp_course),
-        reset_course(bp_course),
+        course = bp_course
+        unset_course_as_blueprint(course),
+        reset_course(course),
         # ID changes on reset so ge the new one
-        bp_course['id'] = get_course_by_code(bp_course['course_code'])['id']
+        course.id = get_course_by_code(course.course_code).id
 
-        import_dev_course(bp_course, progress_bar=progress_bar),
-        set_course_as_blueprint(bp_course)
+        import_dev_course(course, progress_bar=progress_bar),
+        set_course_as_blueprint(course)
 
     updates = [
         {
@@ -265,7 +301,7 @@ def setup_main_ui(
                        + 'NOTE: You must associate courses by hand before doing this',
             'error': 'There was a problem syncing\n{e}',
             'func': lambda: begin_course_sync(
-                course=bp_course,
+                bp_course=bp_course,
                 progress_bar=progress_bar,
                 status_label=status_label),
         },
@@ -393,7 +429,7 @@ async def handle_run(updates: list, status_label: tk.Label):
     status_label.config(text=f'Finished!')
 
 
-def unset_course_as_blueprint(course: dict[str, str]) -> dict[str, str]:
+def unset_course_as_blueprint(course: Course) -> Course:
     """
     Removes a blueprint designation from a course
     Args:
@@ -410,10 +446,10 @@ def unset_course_as_blueprint(course: dict[str, str]) -> dict[str, str]:
     }
     response = requests.put(url, data=payload, headers=HEADERS)
     print(response)
-    return response.json()
+    return Course(response.json())
 
 
-def set_course_as_blueprint(course: dict[str, str]) -> dict[str, str]:
+def set_course_as_blueprint(course: Course) -> Course:
     """
 
     Args:
@@ -438,14 +474,14 @@ def set_course_as_blueprint(course: dict[str, str]) -> dict[str, str]:
     }
     response = requests.put(url, data=payload, headers=HEADERS)
     print(response)
-    return response.json()
+    return Course(response.json())
 
 
-def reset_course(course: dict[str, str]):
+def reset_course(course: Course):
     """Summary
         Resets the course and returns the reset version of the course
     Args:
-        course (dict): The course to reset
+        course: The course to reset
 
     Returns:
         TYPE: The new shiny, empty course
@@ -463,13 +499,14 @@ def reset_course(course: dict[str, str]):
         print(response)
         if response.ok:
             course['id'] = response.json()['id']
-            return response.json()
+            return Course(response.json())
+
         else:
             raise Exception(response.json())
     return False
 
 
-def import_dev_course(bp_course: dict, progress_bar=None):
+def import_dev_course(bp_course: Course, progress_bar=None):
     """
     Imports the dev version of a BP course into the BP course
 
@@ -493,7 +530,7 @@ def import_dev_course(bp_course: dict, progress_bar=None):
     return import_course(bp_course, dev_course, progress_bar=progress_bar)
 
 
-def import_course(dest_course: dict, source_course: dict, progress_bar=None) -> dict:
+def import_course(dest_course: Course, source_course: Course, progress_bar=None) -> dict:
     """
         Copies source course into destination course. Returns the migration object
         once the migration is finished.
@@ -518,7 +555,7 @@ def import_course(dest_course: dict, source_course: dict, progress_bar=None) -> 
 
 def generate_email(
         *,
-        course: dict,
+        course: Course,
         courses: list,
         emails: list):
     """Summary
@@ -538,7 +575,7 @@ def generate_email(
 
     code = course["course_code"][3:]
 
-    example_course_data = get_course(
+    example_course_data = get_course_by_id(
         courses[0]['id'] if courses
         else course['id'])
     print(json.dumps(example_course_data, indent=2))
@@ -589,16 +626,16 @@ def generate_email(
 
 def begin_course_sync(
         *,
-        course: dict,
+        bp_course: Course,
         progress_bar: ttk.Progressbar,
         status_label: tk.Label) -> dict | None:
     """Summary
         Begins the sync process of the blueprint to its member course
 
     Args:
-        course (dict): The blueprint course
-        progress_bar (object): The progress bar to update. Not sure if we
-        status_label (object): The status label to update with info
+        bp_course: The blueprint course
+        progress_bar: The progress bar to update. Not sure if we
+        status_label: The status label to update with info
         have enough info to use this though
 
     Returns:
@@ -612,7 +649,7 @@ def begin_course_sync(
 
     }
     response = requests.post(
-        f'{API_URL}/courses/{course["id"]}'
+        f'{API_URL}/courses/{bp_course["id"]}'
         + '/blueprint_templates/default/migrations',
         headers=HEADERS,
         data=payload)
@@ -625,7 +662,7 @@ def begin_course_sync(
     migration = response.json()
     poll_migration(
         migration,
-        f'{API_URL}/courses/{course["id"]}'
+        f'{API_URL}/courses/{bp_course["id"]}'
         + '/blueprint_templates/default/'
         + f'migrations/{migration["id"]}',
         status_label=status_label,
@@ -701,16 +738,16 @@ def publish_courses(*, courses: list):
         print(response.content)
 
 
-def lock_module_items(course: dict, progress_bar: ttk.Progressbar | None = None):
+def lock_module_items(course: Course, progress_bar: ttk.Progressbar | None = None):
     """Summary
         Locks all module items in a blueprint course
 
     Args:
-        progress_bar (ttk.ProgressBar, optional): A progress bar object to update
-        course (dict): The course to lock items on
+        progress_bar: A progress bar object to update
+        course: The course to lock items on
     """
 
-    course_id = course['id']
+    course_id = course.id
     modules = get_modules(course_id)
 
     total = 0
@@ -1055,7 +1092,7 @@ email_button: tk.Button | None = None
 
 def replace_faculty_profiles(
         *,
-        bp_course: dict,
+        bp_course: Course,
         courses: list,
         window: tk.Tk,
         progress_bar: ttk.Progressbar) -> list:
@@ -1093,8 +1130,8 @@ def replace_faculty_profiles(
     profiles = []
     home_page_urls = []
     i = 1
+
     for course in courses:
-        print(json.dumps(course))
         profile = get_course_profile(course, pages)
         profiles.append(profile)
 
@@ -1210,32 +1247,31 @@ def get_faculty_pages(force=False):
     return pages
 
 
-def get_course(course_id: int) -> dict:
+def get_course_by_id(course_id: int) -> Course:
     """Summary
         Gets a course by ID
 
     Args:
-        course_id (int): ID of the course to get
+        course_id: ID of the course to get
 
     Returns:
-        dict: A dictionary containing the json parsed course
+        The course
     """
     url = f'{API_URL}/courses/{course_id}' \
           + '?include[]=term&include[]=grading_periods'
     response = requests.get(url, headers=HEADERS)
-    print(url)
-    print(response)
-    return response.json()
+    assert response.ok
+    return Course(response.json())
 
 
-def format_homepage(profile, course, homepage):
+def format_homepage(profile: Profile, course: Course, homepage: dict):
     """Summary
         Takes a faculty profile page, the course, and the homepage and returns
         the homepage filled in with faculty info and pic if able
     Args:
-        profile (Profile): The profile dict for the user
-        course (dict): The course dict from canvas api
-        homepage (dict): The homepage dict from canvas api
+        profile: The profile dict for the user
+        course: The course dict from canvas api
+        homepage: The homepage dict from canvas api
 
     Returns:
         str: html string of the front page
@@ -1244,7 +1280,7 @@ def format_homepage(profile, course, homepage):
     # if it's cbt theme, run the new formatter
     text: str
     if "cbt-banner-header" in homepage['body']:
-        text = format_homepage_curio(profile, course, homepage)
+        text = format_homepage_curio(profile, homepage)
     else:
         with open("template.html", 'r') as f:
             template = f.read()
@@ -1278,13 +1314,12 @@ def clean_up_bio(html):
     return html
 
 
-def format_homepage_curio(profile: Profile, course, homepage):
+def format_homepage_curio(profile: Profile, homepage: dict):
     """Summary
         Formats course home pages in the curio style, rather than the old style.
     Args:
-        profile (dict): Profile information for the instructor
-        course (dict): Canvas api course
-        homepage (doct): Canvas api home page for the course
+        profile: Profile information for the instructor
+        homepage: Canvas api home page for the course
 
     Returns:
         str: The formatted homepage content with instructor pic and bio
@@ -1309,12 +1344,12 @@ def format_homepage_curio(profile: Profile, course, homepage):
     return homepage
 
 
-def get_course_profile(course, pages):
+def get_course_profile(course: Course, pages: list[dict]):
     """
     Gets the instructor profile associated with a given course
     Args:
-        course (dict): The course to get the profile for
-        pages (list[dict]): A list of faculty profile pages to search
+        course: The course to get the profile for
+        pages: A list of faculty profile pages to search
 
     Returns:
         Profile: The profile information for the given course
@@ -1377,12 +1412,12 @@ def get_course_profile_from_assignment(course):
     return get_instructor_profile_submission(instructor)
 
 
-def get_blueprint_courses(bp_id):
+def get_blueprint_courses(bp_id: int) -> list[Course]:
     """Summary
         Gets a list of courses associated with a blueprint course id
 
     Args:
-        bp_id (TYPE): The blueprint course ID
+        bp_id: The blueprint course ID
 
     Returns:
         TYPE: A list of courses associated with this blueprint
@@ -1391,32 +1426,19 @@ def get_blueprint_courses(bp_id):
           "blueprint_templates/default/associated_courses?per_page=50"
     courses = get_paged_data(url)
 
-    return courses
+    return list(map(lambda a: Course(a), courses))
 
 
-def overwrite_home_page(profile: Profile, course: dict) -> str:
+def overwrite_home_page(profile: Profile, course: Course) -> str:
     """Summary
         Replaces the picture and bio element, if able
         of a course home page
      Args:
-        profile (dict): The faculty profile dictionary
-        course (dict): The course dictionary
+        profile: The faculty profile dictionary
+        course: The course dictionary
 
      Returns:
-        TYPE: The url of the changed page
-
-    Raises:
-        Exception: Description
-
-    Args:
-        profile (dict): Description
-        course (dict): Description
-
-    Returns:
-        str: Description
-
-    No Longer Raises:
-        ValueError: Couldn't access home page of course
+        The url of the changed page
     """
 
     url = f'{API_URL}/courses/{course["id"]}/front_page'
@@ -1817,7 +1839,7 @@ def get_course_id_from_string(course_string: str):
         return None
 
 
-def get_course_by_code(code: str, params=None, return_list=False) -> dict | None:
+def get_course_by_code(code: str, params=None, return_list=False) -> Course | None:
     """Summary
         attempts to find a course by course code,
         inclusive of starting component
@@ -1830,7 +1852,7 @@ def get_course_by_code(code: str, params=None, return_list=False) -> dict | None
         code (str): The course code
 
     Returns:
-        dict: A dictionary representing the first course found
+        Course | List(Course): The matching course or a list of same
         or None if no match
     """
     if params is None:
@@ -1844,7 +1866,7 @@ def get_course_by_code(code: str, params=None, return_list=False) -> dict | None
     if courses and len(courses) > 1:
         courses.sort(reverse=True, key=lambda course: course['id'])
 
-    return courses if return_list else courses[0]
+    return list(map(lambda a: Course(a),courses)) if return_list else Course(courses[0])
 
 
 def get_sections(course):
