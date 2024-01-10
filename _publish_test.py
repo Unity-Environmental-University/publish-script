@@ -1,9 +1,8 @@
-import json
 import unittest
 from typing import List
 
 import publish_script
-from publish_script import Term, Course, Profile
+from publish_script import Term, Course
 import requests
 
 CONSTANTS_FILE = 'constants_test.json'
@@ -75,7 +74,7 @@ class TestCourseResetAndImport(unittest.TestCase):
         self.assertIsNotNone(course, "Can't Find Test Course by code")
 
         original_course_id = course['id']
-        publish_script.unset_course_as_blueprint(course)
+        course.unset_as_blueprint()
         reply_course = publish_script.reset_course(course)
         self.assertNotEqual(original_course_id, reply_course['id'], "Course id has not been changed on reset")
 
@@ -104,16 +103,17 @@ class TestCourseResetAndImport(unittest.TestCase):
     def test_unset_blueprint(self):
         course = Course.get_by_code(f'BP_{TEST_COURSE_CODE}')
         self.assertIsNotNone(course, "Can't Find Test Course by code")
-        response_course = publish_script.unset_course_as_blueprint(course)
-        self.assertFalse(response_course['blueprint'], "Course isn't a blueprint")
+        course.unset_as_blueprint()
+        self.assertFalse(course.is_blueprint, "Course is a blueprint")
 
     def test_set_blueprint(self):
         course = Course.get_by_code(f'BP_{TEST_COURSE_CODE}')
         self.assertIsNotNone(course, "Can't Find Test Course by code")
-        response_course = publish_script.set_course_as_blueprint(course)
-        print(response_course['blueprint_restrictions'])
+        course.set_as_blueprint()
+        self.assertTrue(course.is_blueprint, "Course is not blueprint")
+        print(course['blueprint_restrictions'])
         self.assertEqual(
-            response_course['blueprint_restrictions'],
+            course['blueprint_restrictions'],
             {
                 'content': True,
                 'points': True,
@@ -161,13 +161,13 @@ class TestLocking(unittest.IsolatedAsyncioTestCase):
 
     async def test_lock(self):
         course = get_test_course()
-        publish_script.set_course_as_blueprint(course)
+        course.set_as_blueprint()
         self.assertIsNotNone(course, "Can't Find Test Course by code")
         self.assertTrue(await publish_script.lock_module_items_async(course), "locking did not succeed")
 
     def test_lock_sync(self):
         course = get_test_course()
-        publish_script.set_course_as_blueprint(course)
+        course.set_as_blueprint()
         self.assertIsNotNone(course, "Can't Find Test Course by code")
         self.assertTrue(publish_script.lock_module_items(course), "locking did not succeed")
 

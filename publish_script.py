@@ -57,27 +57,81 @@ SYLLABUS_REPLACEMENTS = [{
                + ' and you should expect to receive a response to emails within 24 hours.'
 }]
 
-LEARNING_MATERIALS_REPLACEMENTS = [
-    {
-        'find': r'<p>\[Text[^\]]*by SME[^\]]*\]</p>',
-        'replace': '',
-    },
 
-    {
-        'find': r'\[[iI]nsert annotation for media\]',
-        'replace': '',
-    },
-    {
-        'find':
-            r'<h3>\[Title for <span style="text-decoration: underline;"> optional </span>secondary media element\]</h3>',
-        'replace': '',
-    },
-    {
-        'find':
-            r'<h3><strong>\[Title for \w+ category of LMs\]</strong></h3>',
-        'replace': 'Materials',
-    },
-]
+class LmFilter:
+    replacements = [
+        {
+            'find': r'<p>\[Text[^\]]*by SME[^\]]*\]</p>',
+            'replace': '',
+        },
+
+        {
+            'find': r'\[[iI]nsert annotation for media\]',
+            'replace': '',
+        },
+        {
+            'find':
+                r'<h3>\[Title for <span style="text-decoration: underline;"> optional </span>secondary media element\]</h3>',
+            'replace': '',
+        },
+        {
+            'find':
+                r'<h3><strong>\[Title for \w+ category of LMs\]</strong></h3>',
+            'replace': 'Materials',
+        },
+    ]
+
+    @staticmethod
+    def cbt_parents(item):
+        return item.has_attr('class') and 'cbt-content' in item['class']
+
+    @staticmethod
+    def lm_narrative(item):
+        is_content_block = item.has_attr('class') and 'cbt-content' in item['class']
+        print(is_content_block)
+        match = re.search(r'(\[\w*LM Narrative|LM Narrative])', item.text)
+        if match:
+            print(item)
+            print(match)
+        return is_content_block and match
+
+    @classmethod
+    def remove_lm_annotations(cls, text: str) -> str:
+        """Summary
+            Runs a list of regex replacements on html text of a
+            Learning Material page (replacements, defined above)
+    
+        Args:
+            text (str): An html string containing
+            the body of a learning materials page
+    
+        Returns:
+            str: An html string with the regexes run on it
+        """
+        # one liners to replace
+
+        for replace in cls.replacements:
+            find = re.compile(replace['find'], flags=re.MULTILINE)
+            match = re.search(find, text)
+            if match:
+                text = re.sub(find, replace['replace'], text)
+
+        # remove these sections
+        soup = BeautifulSoup(text, 'lxml')
+        bq = soup.find('blockquote')
+        if bq and "SME" in str(bq):
+            parent = single_filter(LmFilter.cbt_parents, bq.parents)
+            parent.decompose()
+
+        divs = soup.find_all('div')
+        trash_divs = filter(LmFilter.lm_narrative, divs)
+        if trash_divs:
+            for div in trash_divs:
+                div.decompose()
+
+        out = str(soup.find('body'))
+        out = re.sub(r'</?body>', '', out)
+        return out
 
 
 class CanvasApiLink:
@@ -86,6 +140,7 @@ class CanvasApiLink:
     """
     headers: dict
     api_url: str
+    account_id: int
 
     def __init__(
             self,
@@ -93,9 +148,39 @@ class CanvasApiLink:
             api_url: str = None,
             account_id: int = None
     ) -> None:
+        """
+
+        Args:
+            headers: The headers to use for requests when not otherwise specified
+            api_url: The api url to use for requests
+            account_id: The account id to use. Not currently used.
+        """
+        self.account_id = account_id
         self.headers = headers if headers else HEADERS
         self.api_url = api_url if api_url else API_URL
         self.account_id = account_id if account_id else ACCOUNT_ID
+
+    def _query(self, func: callable, url: str, params: dict = None, **args):
+        """
+        Recurring code for all requests wrapper functions
+        Args:
+            func: the function to use for calls, assumed to be one of
+            request.get, request.post, request.put, request.delete
+            url: The url PAST the base API url
+            params: any params to pass to the call
+            **args: any additional params to pass to the call
+        Returns:
+            The json decoded data from the response
+
+        """
+        url = f'{self.api_url}/{url}'
+        response = func(
+            url,
+            headers=args['headers'] if 'headers' in args else self.headers,
+            params=params,
+            **args)
+        assert response.ok, response.text
+        return response.json()
 
     def get(self, url: str, params: dict = None, **args):
         """
@@ -108,14 +193,20 @@ class CanvasApiLink:
             A dict or list holding the response from the canvas api
 
         """
-        url = f'{self.api_url}/{url}'
-        response = requests.get(
-            url,
-            headers=args['headers'] if 'headers' in args else self.headers,
-            params=params,
-            **args)
-        assert response.ok, response.text
-        return response.json()
+        return self._query(requests.get, url=url, params=params, **args)
+
+    def put(self, url: str, params: dict = None, **args):
+        """
+        Performs a canvas api put call
+        Args:
+            url: any url to use after the canvas api base
+            params: any params to pass to the requests.get call
+            **args: and other args to pass to requests.get
+        Returns:
+            A dict or list holding the response from the canvas api
+
+        """
+        return self._query(requests.put, url=url, params=params, **args)
 
     def get_paged_data(self, url: str, headers: dict = None, params: dict = None) -> list | None:
         """Summary
@@ -256,7 +347,7 @@ class Course(BaseCanvasObject):
         return self._canvas_data['id']
 
     @property
-    def course_code(self) -> str:
+    def course_code(self) -> str | None:
         """
         The course code in the form PREFIX_DEPT1234
         """
@@ -284,7 +375,7 @@ class Course(BaseCanvasObject):
         return 'blueprint' in self._canvas_data and self._canvas_data['blueprint']
 
     @cached_property
-    def associated_courses(self) -> List[Self]:
+    def associated_courses(self) -> List[Self] | None:
         """
         A list of associated courses if this is a blueprint. None otherwise.
         """
@@ -292,7 +383,7 @@ class Course(BaseCanvasObject):
             return None
 
         url = f"courses/{self.id}/blueprint_templates/default/associated_courses"
-        courses = self.api_link.get_paged_data(url, params={"per_page" : 50})
+        courses = self.api_link.get_paged_data(url, params={"per_page": 50})
 
         return list(map(lambda a: Course(a), courses))
 
@@ -303,6 +394,36 @@ class Course(BaseCanvasObject):
             'include[]': 'enrollments'
         })
         return sections
+
+    def set_as_blueprint(self) -> None:
+        url = f"courses/{self.id}"
+        payload = {
+            'course[blueprint]': True,
+            'course[use_blueprint_restrictions_by_object_type]': 0,
+            'course[blueprint_restrictions][content]': 1,
+            'course[blueprint_restrictions][points]': 1,
+            'course[blueprint_restrictions][due_dates]': 1,
+            'course[blueprint_restrictions][availability_dates]': 1,
+        }
+        canvas_data = self.api_link.put(url, data=payload)
+        self._canvas_data = canvas_data
+        self.reset_cache()
+
+    def unset_as_blueprint(self) -> None:
+        url = f"courses/{self.id}"
+        payload = {
+            'course[blueprint]': False,
+        }
+        response = self.api_link.put(url, data=payload)
+        self._canvas_data = response
+        self.reset_cache()
+
+    def reset_cache(self) -> None:
+        if hasattr(self, 'subsections'):
+            delattr(self, 'subsections')
+
+        if hasattr(self, 'associated_courses'):
+            delattr(self, 'associated_courses')
 
     def publish(self):
         """
@@ -386,11 +507,9 @@ class Term:
 
 def load_constants(path=CONSTANTS_FILE, context=None):
     """
-
     Args:
         path: path to the constants file
         context: the context to set the constants in. Usually just this script. Will probably always be?
-
     Returns:
         a dict containing the loaded constants file
     """
@@ -450,7 +569,7 @@ def course_entry_callback(
     else:
         status_label.configure(text=f"Course Found\n{course['name']}")
         setup_main_ui(
-            bp_course=get_course_by_id(course_id),
+            bp_course=Course.get_by_id(course_id),
             window=window,
             status_label=status_label)
         for widget in to_remove:
@@ -488,13 +607,13 @@ def setup_main_ui(
 
     def reset_and_import():
         course = bp_course
-        unset_course_as_blueprint(course),
+        course.unset_as_blueprint(),
         reset_course(course),
         # ID changes on reset so ge the new one
-        course.id = Course.get_by_code(course.course_code).id
+        course = Course.get_by_code(course.course_code)
 
         import_dev_course(course, progress_bar=progress_bar),
-        set_course_as_blueprint(course)
+        course.set_as_blueprint()
 
     updates = [
         {
@@ -592,9 +711,9 @@ async def opening_dialog(
         application
 
     Args:
-        window (object): The base program window to render into
-        updates (list): The Updates to run
-        status_label (object): Description
+        window: The base program window to render into
+        updates: The Updates to run
+        status_label: Description
     """
     ran_command_line = False
     value: Any = None
@@ -644,9 +763,9 @@ async def handle_run(updates: list, status_label: tk.Label):
         and executes them in order.
 
     Args:
-        updates (list): A list of dicts containing the callbacks
+        updates: A list of dicts containing the callbacks
          and data for each checkbox / workflow step on the interface
-        status_label (object): A label widget to update with status info
+        status_label: A label widget to update with status info
     """
     window = status_label.winfo_toplevel()
     for update in updates:
@@ -668,54 +787,6 @@ async def handle_run(updates: list, status_label: tk.Label):
             raise exception
 
     status_label.config(text=f'Finished!')
-
-
-def unset_course_as_blueprint(course: Course) -> Course:
-    """
-    Removes a blueprint designation from a course
-    Args:
-        course: The course to unset as blueprint
-
-    Returns:
-
-    """
-    assert course, "Course does not exist"
-
-    url = f"{API_URL}/courses/{course['id']}"
-    payload = {
-        'course[blueprint]': False,
-    }
-    response = requests.put(url, data=payload, headers=HEADERS)
-    print(response)
-    return Course(response.json())
-
-
-def set_course_as_blueprint(course: Course) -> Course:
-    """
-
-    Args:
-        course(dict[str, str]): The course to set as blueprint
-
-    Returns:
-        dict[str, str]: The course
-
-
-    """
-
-    assert course, "Course does not exist"
-
-    url = f"{API_URL}/courses/{course['id']}"
-    payload = {
-        'course[blueprint]': True,
-        'course[use_blueprint_restrictions_by_object_type]': 0,
-        'course[blueprint_restrictions][content]': 1,
-        'course[blueprint_restrictions][points]': 1,
-        'course[blueprint_restrictions][due_dates]': 1,
-        'course[blueprint_restrictions][availability_dates]': 1,
-    }
-    response = requests.put(url, data=payload, headers=HEADERS)
-    print(response)
-    return Course(response.json())
 
 
 def reset_course(course: Course):
@@ -816,13 +887,13 @@ def generate_email(
 
     code = course["course_code"][3:]
 
-    example_course_data = get_course_by_id(
+    example_course = Course.get_by_id(
         courses[0]['id'] if courses
         else course['id'])
-    print(json.dumps(example_course_data, indent=2))
+    print(json.dumps(example_course, indent=2))
 
     start_date = datetime.datetime.fromisoformat(
-        example_course_data['term']["start_at"])
+        example_course['term']["start_at"])
     start_date = start_date + datetime.timedelta(days=7)
 
     email_subject = \
@@ -830,7 +901,7 @@ def generate_email(
 
     email_body = template.format(
         term={
-            "name": example_course_data['term']['name'],
+            "name": example_course['term']['name'],
             "start": start_date.strftime('%B %#d')
         },
         creator={
@@ -1146,7 +1217,7 @@ def remove_lm_annotations_from_course(course):
         if lm_page:
             url = f"{API_URL}/courses/{course['id']}/pages/{lm_page['page_url']}"
             full_page = requests.get(url, headers=HEADERS).json()
-            body = remove_lm_annotations(full_page['body'])
+            body = LmFilter.remove_lm_annotations(full_page['body'])
             print(lm_page['url'])
             data = {
                 'wiki_page[body]': body
@@ -1194,65 +1265,6 @@ def update_syllabus(course_id: int):
         data={
             "course[syllabus_body]": syllabus})
     print(response)
-
-
-class LmFilters:
-    @staticmethod
-    def cbt_parents(item):
-        return item.has_attr('class') and 'cbt-content' in item['class']
-
-    @staticmethod
-    def lm_narrative(item):
-        is_content_block = item.has_attr('class') and 'cbt-content' in item['class']
-        print(is_content_block)
-        match = re.search(r'(\[\w*LM Narrative|LM Narrative])', item.text)
-        if match:
-            print(item)
-            print(match)
-        return is_content_block and match
-
-
-def remove_lm_annotations(text: str) -> str:
-    """Summary
-        Runs a list of regex replacements on html text of a
-        Learning Material page (replacements, defined above)
-
-    Args:
-        text (str): An html string containing
-        the body of a learning materials page
-
-    Returns:
-        str: An html string with the regexes run on it
-    """
-    # one liners to replace
-    global LEARNING_MATERIALS_REPLACEMENTS
-
-    for replace in LEARNING_MATERIALS_REPLACEMENTS:
-        find = re.compile(replace['find'], flags=re.MULTILINE)
-        print(replace['find'])
-        match = re.search(find, text)
-        if match:
-            print("FOUND", match)
-            text = re.sub(find, replace['replace'], text)
-
-    # remove these sections
-    soup = BeautifulSoup(text, 'lxml')
-    bq = soup.find('blockquote')
-    print("BQ", bq)
-    if bq and "SME" in str(bq):
-        parent = single_filter(LmFilters.cbt_parents, bq.parents)
-        parent.decompose()
-
-    divs = soup.find_all('div')
-    trash_divs = filter(LmFilters.lm_narrative, divs)
-    print(trash_divs)
-    if trash_divs:
-        for div in trash_divs:
-            div.decompose()
-
-    out = str(soup.find('body'))
-    out = re.sub(r'</?body>', '', out)
-    return out
 
 
 def single_filter(func, to_filter, default=None):
@@ -1633,6 +1645,7 @@ def get_course_profile_from_assignment(course):
         print("The instructor of the course {} cannot be found.".format(
             course_id))
     return get_instructor_profile_submission(instructor)
+
 
 def overwrite_home_page(profile: Profile, course: Course) -> str:
     """Summary
