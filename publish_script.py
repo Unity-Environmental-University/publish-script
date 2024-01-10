@@ -50,11 +50,83 @@ CONSTANTS: dict
 CONSTANTS_FILE: str = 'constants.json'
 MAX_PROFILE_IMAGE_SIZE: int = 400
 
-SYLLABUS_REPLACEMENTS = [{
-    'find': r'<p>The instructor will conduct [^.]*\(48 hours during weekends\)\.',
-    'replace': r'<p>The instructor will conduct all correspondence with students related to the class in Canvas,'
-               + ' and you should expect to receive a response to emails within 24 hours.'
-}]
+
+def in_test(to_match):
+    def func(text):
+        return to_match in text
+
+    return func
+
+
+def not_in_test(to_match):
+    def func(text):
+        return to_match not in text
+
+    return func
+
+
+class SyllabusFix:
+
+    replacements: list = [
+        {
+            'find': r'<p>The instructor will conduct [^.]*\(48 hours during weekends\)\.',
+            'replace': r'<p>The instructor will conduct all '
+                       + r'correspondence with students related to the class in Canvas,'
+            + ' and you should expect to receive a response to emails within 24 hours.',
+            'tests': [
+                not_in_test('48 hours'),
+                in_test('you should expect')
+            ]
+        },
+        {
+            'find': r'(</tr>.*\n)(.*)(<tr.*\n.*<td.*\n.*Copyright\s*</strong>)',
+            'replace': '''\1<tr>
+                    <td style="width: 99.8918%;">
+                        <h4><strong>
+                        Guidelines for Using Generative Artificial Intelligence [AI] in this Course:
+                        </strong></h4>
+                        <p>Using generative AI must be done with an understanding of the 
+                        <a class="inline_disabled" href="/courses/3266650/pages/gen-ai-student-policy" target="_blank" rel="noopener">
+                            <strong>Unity Distance EducationGenerative Artificial Intelligence Policy for Students</strong>
+                        </a>, which spells out acceptable and unacceptable uses of generative AI in your studies in the Unity Distance Education Program.</p>
+                        <p><strong>Please read this policy before completing
+                        coursework using generative AI in this course.</strong></p>
+                        <ul>
+                            <li>In this course, you may be encouraged to explore employing generative AI tools to
+                            improve your understanding of course content.
+                            <em>Potentially permitted uses of generative AI are detailed in the above policy.</em></li>
+                            <li>There also may be specific work in which content produced by generative AI will not be
+                            accepted in this course.<em> It will be specifically noted in the course materials when you
+                            are not permitted to submit work produced by generative AI.</em></li>
+                            <li>When no explicit statement about the use of generative AI is provided in an assignment,
+                            these tools are permitted.</li>
+                        </ul>
+                        <p>You are encouraged to contact your instructor if you have questions about how to use 
+                        generative AI effectively to support your learning.</p>
+                    </td>
+                </tr>\3''',
+            'tests': [
+                in_test('generative AI effectively to support')
+            ]
+        }
+    ]
+
+    @classmethod
+    def fix(cls, text: str) -> str:
+        for replacement in cls.replacements:
+            print(replacement['find'])
+            print(len(cls.replacements))
+            match = re.search(replacement['find'], text)
+            groups: tuple
+            if match:
+                groups = match.groups()
+            else:
+                continue
+            text = re.sub(replacement['find'], replacement['replace'], text)
+            if replacement['tests']:
+                for test in replacement['tests']:
+                    assert test(text)
+        return text
 
 
 class LmFilter:
@@ -159,7 +231,7 @@ class CanvasApiLink:
         self.api_url = api_url if api_url else API_URL
         self.account_id = account_id if account_id else ACCOUNT_ID
 
-    def _query(self, func: callable, url: str, params: dict = None, **args):
+    def _query(self, func: callable, url: str, **args):
         """
         Recurring code for all requests wrapper functions
         Args:
@@ -176,7 +248,6 @@ class CanvasApiLink:
         response = func(
             url,
             headers=args['headers'] if 'headers' in args else self.headers,
-            params=params,
             **args)
         assert response.ok, response.text
         return response.json()
@@ -194,7 +265,7 @@ class CanvasApiLink:
         """
         return self._query(requests.get, url=url, params=params, **args)
 
-    def put(self, url: str, params: dict = None, **args):
+    def put(self, url: str, params: dict = None, data=None, **args):
         """
         Performs a canvas api put call
         Args:
@@ -205,7 +276,7 @@ class CanvasApiLink:
             A dict or list holding the response from the canvas api
 
         """
-        return self._query(requests.put, url=url, params=params, **args)
+        return self._query(requests.put, url=url, params=params, data=data, **args)
 
     def get_paged_data(self, url: str, headers: dict = None, params: dict = None) -> list | None:
         """Summary
@@ -268,6 +339,7 @@ class BaseCanvasObject:
         return self._canvas_data[item]
 
     def __setitem__(self, item, value):
+        warnings.warn("This command is being deprecated, kept in place to support legacy code")
         self._canvas_data[item] = value
 
     def __eq__(self, other):
@@ -298,18 +370,19 @@ class Course(BaseCanvasObject):
 
     # Class Methods
     @classmethod
-    def get_by_id(cls, id_: int) -> Self:
+    def get_by_id(cls, id_: int, params=None) -> Self:
         """
         Gets a new Course instance by id populated with canvas data from the api
 
         Args:
             id_: THe id of the course to fetch and populate this course with
+            params: any parameters to pass to the request
 
         Returns:
             A new Course
         """
         link = CanvasApiLink()
-        data = link.get(f'courses/{id_}')
+        data = link.get(f'courses/{id_}', params=params)
         return Course(data)
 
     @classmethod
@@ -362,27 +435,22 @@ class Course(BaseCanvasObject):
         Args:
             courses: the list of courses to publish
         """
-        url = f'{API_URL}/accounts/{ACCOUNT_ID}/courses'
-        data = {
-            'event': 'offer',
-            # list of course ids
-            'course_ids[]': list(map(lambda a: a['id'], courses))
-        }
-        response = requests.put(url, headers=HEADERS, data=data)
-        if not response.ok:
-            print(response)
-            print(response.content)
+        cls._course_event(courses, 'offer')
 
     @classmethod
     def unpublish_all(cls, courses: List[Self]):
         """
-        Publishes a list of courses
+        Unpublishes a list of courses.
         Args:
             courses: the list of courses to publish
         """
+        cls._course_event(courses, 'claim')
+
+    @classmethod
+    def _course_event(cls, courses: List[Self], event: str):
         url = f'{API_URL}/accounts/{ACCOUNT_ID}/courses'
         data = {
-            'event': 'offer',
+            'event': event,
             # list of course ids
             'course_ids[]': list(map(lambda a: a['id'], courses))
         }
@@ -445,6 +513,15 @@ class Course(BaseCanvasObject):
     def is_published(self):
         return self._canvas_data['workflow_state'] == 'available'
 
+    @property
+    def syllabus(self):
+        if 'syllabus_body' not in self._canvas_data:
+            data = Course.get_by_id(self.id, params={
+                'include[]': 'syllabus_body'
+            })
+            self._canvas_data['syllabus_body'] = data['syllabus_body']
+        return self._canvas_data['syllabus_body']
+
     @cached_property
     def associated_courses(self) -> List[Self] | None:
         """
@@ -465,6 +542,12 @@ class Course(BaseCanvasObject):
             'include[]': 'enrollments'
         })
         return sections
+
+    def change_syllabus(self, val: str):
+        self._canvas_data['syllabus_body'] = val
+        self.api_link.put(f'courses/{self.id}', data={
+            'course[syllabus_body]': val
+        })
 
     def get_potential_sections(self, term: 'Term') -> List[Self]:
         courses = Course.get_all_by_code(self.base_code, term=term)
@@ -508,16 +591,28 @@ class Course(BaseCanvasObject):
         course_data = self.api_link.put(url, params={
             'offer': True
         })
-        Course.publish_all([self])
-        self._canvas_data = Course.get_by_id(self.id)._canvas_data
+        print(course_data)
+        self._canvas_data = course_data
+        self.reset_cache()
 
     def unpublish(self):
         url = f'courses/{self.id}'
         course_data = self.api_link.put(url, params={
-            # WHY IS THIS CALL CLAIM
+            # WHY IS THIS CALLED CLAIM
             'course[event]': 'claim'
         })
         self._canvas_data = Course.get_by_id(self.id)._canvas_data
+
+    def update_syllabus(self):
+        """Summary
+            Updates the syllabus using fixes in SyllabusFix
+        """
+        syllabus = SyllabusFix.fix(self.syllabus)
+        response = self.api_link.put(
+            f'courses/{self.id}',
+            data={"course[syllabus_body]": syllabus})
+        self._canvas_data['syllabus_body'] = syllabus
+        print(response)
 
 
 class Term(BaseCanvasObject):
@@ -707,9 +802,8 @@ def setup_main_ui(
             'argument': 'syllabus',
             'message': "Do you want to update syllabus language"
                        + " in this and DEV_?",
-            'func': lambda: [
-                update_syllabus(bp_course['id']),
-                update_syllabus(get_source_course_id(bp_course['id']))]
+            'func': lambda: [bp_course.update_syllabus(),
+                             Course.get_by_id(get_source_course_id(bp_course.id)).update_syllabus()]
         },
         {
             'name': 'remove_lm_annotations',
@@ -1305,45 +1399,6 @@ def remove_lm_annotations_from_course(course):
                 lm_page['url'],
                 headers=HEADERS,
                 data=data)
-
-
-def update_syllabus_text(text: str):
-    """Summary
-        Executes a series of find/replaces on the text of a syllabus
-
-    Args:
-        text (str): The syllabus body html
-
-    Returns:
-        TYPE: The syllabus with all operations performed
-    """
-
-    global SYLLABUS_REPLACEMENTS
-    for replacement in SYLLABUS_REPLACEMENTS:
-        text = re.sub(replacement['find'], replacement['replace'], text)
-    return text
-
-
-def update_syllabus(course_id: int):
-    """Summary
-        Updates the syllabus of a specific course id
-
-    Args:
-        course_id (int): The id of the course to operate on
-    """
-    url = f"{API_URL}/courses/{course_id}?include[]=syllabus_body"
-    response = requests.get(url, headers=HEADERS)
-    content = response.json()
-    if not response.ok:
-        return False
-    print(content)
-    syllabus = update_syllabus_text(content["syllabus_body"])
-    response = requests.put(
-        f'{API_URL}/courses/{course_id}',
-        headers=HEADERS,
-        data={
-            "course[syllabus_body]": syllabus})
-    print(response)
 
 
 def single_filter(func, to_filter, default=None):

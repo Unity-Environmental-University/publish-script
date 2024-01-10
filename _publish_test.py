@@ -2,7 +2,7 @@ import unittest
 from typing import List
 
 import publish_script
-from publish_script import Term, Course
+from publish_script import Term, Course, SyllabusFix
 import requests
 
 CONSTANTS_FILE = 'constants_test.json'
@@ -130,11 +130,20 @@ class TestProfilePages(unittest.TestCase):
 
 
 class TestCourse(unittest.TestCase):
+
+    original_syllabus: str = None
+
     def setUp(self):
         course = get_test_course()
+        self.original_syllabus = course.syllabus
         modules = publish_script.get_modules(course['id'])
         if len(modules) == 0:
             publish_script.import_dev_course(course)
+
+    def tearDown(self):
+        course = get_test_course()
+        course.change_syllabus(self.original_syllabus)
+
 
     def test_course_properties(self):
         code = f"BP_{TEST_COURSE_CODE}"
@@ -197,6 +206,20 @@ class TestCourse(unittest.TestCase):
             potential_sections, courses_by_term_name,
             f"Potential sections not returning matching sections")
 
+    def test_syllabus_fix(self):
+        with open('syllabus_template.html', 'r') as f:
+            syllabus_template = f.read()
+        course = get_test_course()
+
+        original_syllabus = course.syllabus
+        new_syllabus = SyllabusFix.fix(original_syllabus)
+
+        self.assertGreaterEqual(len(new_syllabus), len(original_syllabus))
+        course.update_syllabus()
+        self.assertEqual(new_syllabus, Course.get_by_id(course.id).syllabus)
+        self.maxDiff = None
+        self.assertEqual(len(new_syllabus), len(course.syllabus))
+
     async def test_lock(self):
         course = get_test_course()
         course.set_as_blueprint()
@@ -215,6 +238,8 @@ class TestCourse(unittest.TestCase):
         self.assertFalse(course.is_published)
         course.publish()
         self.assertTrue(course.is_published)
+
+
 
 
 class TestTerm(unittest.TestCase):
