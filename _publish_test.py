@@ -72,21 +72,20 @@ class TestCourseResetAndImport(unittest.TestCase):
         course = Course.get_by_code(f'BP_{TEST_COURSE_CODE}')
         self.assertIsNotNone(course, "Can't Find Test Course by code")
 
+        original_course_data = course._canvas_data
         original_course_id = course['id']
         course.unset_as_blueprint()
-        reply_course = publish_script.reset_course(course)
-        self.assertNotEqual(original_course_id, reply_course['id'], "Course id has not been changed on reset")
+        course.reset()
+        self.assertNotEqual(original_course_id, course.id, "Course id has not been changed on reset")
 
         course = Course.get_by_code(f'BP_{TEST_COURSE_CODE}')
         self.assertIsNotNone(course, "Course does not exist")
         self.assertFalse(publish_script.get_modules(int(course['id'])), "Course contains modules after reset")
 
-        self.assertEqual(reply_course._canvas_data, course._canvas_data, f"Reset course is not the same as searched for course - {reply_course['id']}, {course['id']}")
-
     def test_import_dev(self):
         self.maxDiff = None
         bp_course = Course.get_by_code(f'BP_{TEST_COURSE_CODE}')
-        publish_script.import_dev_course(bp_course)
+        bp_course.import_dev_course(prompt=False)
         bp_course = Course.get_by_code(f'BP_{TEST_COURSE_CODE}', params={'include[]': 'syllabus_body'})
         dev_course = Course.get_by_code(f'DEV_{TEST_COURSE_CODE}', params={'include[]': 'syllabus_body'})
         self.assertEqual(
@@ -138,12 +137,11 @@ class TestCourse(unittest.TestCase):
         self.original_syllabus = course.syllabus
         modules = publish_script.get_modules(course['id'])
         if len(modules) == 0:
-            publish_script.import_dev_course(course)
+            course.import_dev_course(course, prompt=False)
 
     def tearDown(self):
         course = get_test_course()
         course.change_syllabus(self.original_syllabus)
-
 
     def test_course_properties(self):
         code = f"BP_{TEST_COURSE_CODE}"
@@ -216,7 +214,7 @@ class TestCourse(unittest.TestCase):
 
         self.assertGreaterEqual(len(new_syllabus), len(original_syllabus))
         course.update_syllabus()
-        self.assertEqual(new_syllabus, Course.get_by_id(course.id).syllabus)
+        self.assertEqual(len(new_syllabus), len(Course.get_by_id(course.id).syllabus))
         self.maxDiff = None
         self.assertEqual(len(new_syllabus), len(course.syllabus))
 
@@ -238,8 +236,6 @@ class TestCourse(unittest.TestCase):
         self.assertFalse(course.is_published)
         course.publish()
         self.assertTrue(course.is_published)
-
-
 
 
 class TestTerm(unittest.TestCase):

@@ -114,6 +114,16 @@ class SyllabusFix:
     @classmethod
     def fix(cls, text: str) -> str:
         for replacement in cls.replacements:
+
+            # run replacement tests and skip if they all are already matching
+            test_failed = False
+            for test in replacement['tests']:
+                if not test(text):
+                    test_failed = True
+                    break
+            if not test_failed:
+                continue
+
             print(replacement['find'])
             print(len(cls.replacements))
             match = re.search(replacement['find'], text)
@@ -244,10 +254,10 @@ class CanvasApiLink:
             The json decoded data from the response
 
         """
-        url = f'{self.api_url}/{url}'
+        if not 'headers' in args:
+            args['headers'] = self.headers
         response = func(
-            url,
-            headers=args['headers'] if 'headers' in args else self.headers,
+            f"{self.api_url}/{url}",
             **args)
         assert response.ok, response.text
         return response.json()
@@ -265,7 +275,7 @@ class CanvasApiLink:
         """
         return self._query(requests.get, url=url, params=params, **args)
 
-    def put(self, url: str, params: dict = None, data=None, **args):
+    def put(self, url: str, params: dict = None, data=None, **kwargs):
         """
         Performs a canvas api put call
         Args:
@@ -276,7 +286,10 @@ class CanvasApiLink:
             A dict or list holding the response from the canvas api
 
         """
-        return self._query(requests.put, url=url, params=params, data=data, **args)
+        return self._query(requests.put, url=url, params=params, data=data, **kwargs)
+
+    def post(self, url, params:dict = None, data=None, **kwargs):
+        return self._query(requests.post, url=url, params=params, data=data, **kwargs)
 
     def get_paged_data(self, url: str, headers: dict = None, params: dict = None) -> list | None:
         """Summary
@@ -338,10 +351,6 @@ class BaseCanvasObject:
             return None
         return self._canvas_data[item]
 
-    def __setitem__(self, item, value):
-        warnings.warn("This command is being deprecated, kept in place to support legacy code")
-        self._canvas_data[item] = value
-
     def __eq__(self, other):
         return self.id == other.id
 
@@ -363,7 +372,7 @@ class Course(BaseCanvasObject):
     """
     A class to represent canvas courses and handle various canvas course based operations
     """
-    CODE_REGEX = re.compile(r'([\-.\w]+)?_?(\w{4}\d{3})', re.IGNORECASE)
+    CODE_REGEX = re.compile(r'([\-.\w^]+[^_])?_?(\w{4}\d{3})', re.IGNORECASE)
 
     def __init__(self, data, **kwargs):
         super().__init__(data, **kwargs)
@@ -614,6 +623,61 @@ class Course(BaseCanvasObject):
         self._canvas_data['syllabus_body'] = syllabus
         print(response)
 
+    def reset(self, prompt=True):
+        """Summary
+            Resets the course
+        """
+
+        # ask for confirmation if we're not running this imported from another module
+        if __name__ != "__main__" or prompt and messagebox.askyesno(
+                title="Do You Want To Reset",
+                message=f"Are you sure you want to reset {self.course_code}?'"):
+
+            url = f'/courses/{self.id}/reset_content'
+            data = self.api_link.post(url)
+            self._canvas_data['id'] = data['id']
+
+        return False
+
+    def import_dev_course(self, progress_bar=None, prompt=True):
+        """
+        Imports the dev version of a BP course into the BP course
+
+        Args:
+            prompt: whether to prompt the user before
+            progress_bar: an optional progress bar to update with progress
+        """
+        prefix = self.code_prefix
+        assert prefix.upper() == 'BP', "Course code is not a blueprint"
+        dev_course = Course.get_by_code(f"DEV_{self.base_code}")
+
+        # if we're running this right from the script (instead of a unit test) prompt to confirm
+        if prompt:
+            if not tk.messagebox.askyesno(
+                    f"Are you sure you want to import {dev_course['name']} into {self['name']}?"):
+                return None
+
+        self.import_course(dev_course, progress_bar=progress_bar)
+
+    def import_course(self, source_course: Self, progress_bar=None):
+        """
+            Copies source course into destination course. Returns the migration object
+            once the migration is finished.
+        Args:
+            source_course: The course to copy from
+            progress_bar: An optional progress bar to update
+
+        Returns:
+
+        """
+        payload = {
+            "migration_type": "course_copy_importer",
+            "settings[source_course_id]": source_course["id"]}
+
+        url = f"courses/{self.id}/content_migrations"
+        response = self.api_link.post(url, data=payload)
+        return poll_migration(migration=response, progress_bar=progress_bar)
+
 
 class Term(BaseCanvasObject):
 
@@ -781,12 +845,9 @@ def setup_main_ui(
 
     def reset_and_import():
         course = bp_course
-        course.unset_as_blueprint(),
-        reset_course(course),
-        # ID changes on reset so ge the new one
-        course = Course.get_by_code(course.course_code)
-
-        import_dev_course(course, progress_bar=progress_bar),
+        course.unset_as_blueprint()
+        course.reset()
+        course.import_course(course, progress_bar=progress_bar)
         course.set_as_blueprint()
 
     updates = [
@@ -962,82 +1023,6 @@ async def handle_run(updates: list, status_label: tk.Label):
     status_label.config(text=f'Finished!')
 
 
-def reset_course(course: Course):
-    """Summary
-        Resets the course and returns the reset version of the course
-    Args:
-        course: The course to reset
-
-    Returns:
-        TYPE: The new shiny, empty course
-    """
-
-    assert course, "Course does not exist"
-
-    # ask for confirmation if we're not running this imported from another module
-    if __name__ != "__main__" or messagebox.askyesno(
-            title="Do You Want To Reset",
-            message=f"Are you sure you want to reset {course['name']}?'"):
-
-        url = f'{API_URL}/courses/{course["id"]}/reset_content'
-        response = requests.post(url, headers=HEADERS)
-        print(response)
-        if response.ok:
-            course['id'] = response.json()['id']
-            return Course(response.json())
-
-        else:
-            raise Exception(response.json())
-    return False
-
-
-def import_dev_course(bp_course: Course, progress_bar=None):
-    """
-    Imports the dev version of a BP course into the BP course
-
-    Args:
-        bp_course: the bp course to import into
-        progress_bar: an optional progress bar to update with progress
-    """
-    match = re.search(Course.CODE_REGEX, bp_course["course_code"])
-    assert match, "This is not a course code " + bp_course["course_code"]
-    prefix = match.group(1)
-    course_code = match.group(2)
-    assert prefix.upper() == 'BP', "Course code is not a blueprint"
-    dev_course = Course.get_by_code(f"DEV_{course_code}")
-
-    # if we're running this right from the script (instead of a unit test) prompt to confirm
-    if course_code == "__main__":
-        if not tk.messagebox.askyesno(
-                f"Are you sure you want to import {dev_course['name']} into {bp_course['name']}?"):
-            return None
-
-    return import_course(bp_course, dev_course, progress_bar=progress_bar)
-
-
-def import_course(dest_course: Course, source_course: Course, progress_bar=None) -> dict:
-    """
-        Copies source course into destination course. Returns the migration object
-        once the migration is finished.
-    Args:
-        dest_course: The course to copy into
-        source_course: The course to copy from
-        progress_bar: An optional progress bar to update
-
-    Returns:
-
-    """
-    payload = {
-        "migration_type": "course_copy_importer",
-        "settings[source_course_id]": source_course["id"]}
-
-    url = f"{API_URL}/courses/{dest_course['id']}/content_migrations"
-    response = requests.post(url, data=payload, headers=HEADERS)
-    print(response)
-    if response.ok:
-        return poll_migration(migration=response.json(), progress_bar=progress_bar)
-
-
 def generate_email(
         *,
         course: Course,
@@ -1145,6 +1130,52 @@ def begin_course_sync(
         return None
 
     migration = response.json()
+
+    def import_dev_course(bp_course: Course, progress_bar=None):
+        """
+        Imports the dev version of a BP course into the BP course
+
+        Args:
+            bp_course: the bp course to import into
+            progress_bar: an optional progress bar to update with progress
+        """
+        match = re.search(Course.CODE_REGEX, bp_course["course_code"])
+        assert match, "This is not a course code " + bp_course["course_code"]
+        prefix = match.group(1)
+        course_code = match.group(2)
+        assert prefix.upper() == 'BP', "Course code is not a blueprint"
+        dev_course = Course.get_by_code(f"DEV_{course_code}")
+
+        # if we're running this right from the script (instead of a unit test) prompt to confirm
+        if course_code == "__main__":
+            if not tk.messagebox.askyesno(
+                    f"Are you sure you want to import {dev_course['name']} into {bp_course['name']}?"):
+                return None
+
+        return import_course(bp_course, dev_course, progress_bar=progress_bar)
+
+    def import_course(dest_course: Course, source_course: Course, progress_bar=None) -> dict:
+        """
+            Copies source course into destination course. Returns the migration object
+            once the migration is finished.
+        Args:
+            dest_course: The course to copy into
+            source_course: The course to copy from
+            progress_bar: An optional progress bar to update
+
+        Returns:
+
+        """
+        payload = {
+            "migration_type": "course_copy_importer",
+            "settings[source_course_id]": source_course["id"]}
+
+        url = f"{API_URL}/courses/{dest_course['id']}/content_migrations"
+        response = requests.post(url, data=payload, headers=HEADERS)
+        print(response)
+        if response.ok:
+            return poll_migration(migration=response.json(), progress_bar=progress_bar)
+
     poll_migration(
         migration,
         f'{API_URL}/courses/{bp_course["id"]}'
