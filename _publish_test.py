@@ -209,6 +209,13 @@ class TestCourse(unittest.TestCase):
         self.assertIsNotNone(course, "Can't Find Test Course by code")
         self.assertTrue(publish_script.lock_module_items(course), "locking did not succeed")
 
+    def test_course_publish(self):
+        course = get_test_course()
+        course.unpublish()
+        self.assertFalse(course.is_published)
+        course.publish()
+        self.assertTrue(course.is_published)
+
 
 class TestTerm(unittest.TestCase):
     def setUp(self):

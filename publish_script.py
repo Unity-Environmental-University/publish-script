@@ -373,6 +373,24 @@ class Course(BaseCanvasObject):
             print(response)
             print(response.content)
 
+    @classmethod
+    def unpublish_all(cls, courses: List[Self]):
+        """
+        Publishes a list of courses
+        Args:
+            courses: the list of courses to publish
+        """
+        url = f'{API_URL}/accounts/{ACCOUNT_ID}/courses'
+        data = {
+            'event': 'offer',
+            # list of course ids
+            'course_ids[]': list(map(lambda a: a['id'], courses))
+        }
+        response = requests.put(url, headers=HEADERS, data=data)
+        if not response.ok:
+            print(response)
+            print(response.content)
+
     @cached_property
     def _code_match(self):
         return re.search(Course.CODE_REGEX, self._canvas_data["course_code"])
@@ -422,6 +440,10 @@ class Course(BaseCanvasObject):
         Is this course a blueprint?
         """
         return 'blueprint' in self._canvas_data and self._canvas_data['blueprint']
+
+    @property
+    def is_published(self):
+        return self._canvas_data['workflow_state'] == 'available'
 
     @cached_property
     def associated_courses(self) -> List[Self] | None:
@@ -482,8 +504,20 @@ class Course(BaseCanvasObject):
         """
         Publishes this course
         """
+        url = f'courses/{self.id}'
+        course_data = self.api_link.put(url, params={
+            'offer': True
+        })
         Course.publish_all([self])
+        self._canvas_data = Course.get_by_id(self.id)._canvas_data
 
+    def unpublish(self):
+        url = f'courses/{self.id}'
+        course_data = self.api_link.put(url, params={
+            # WHY IS THIS CALL CLAIM
+            'course[event]': 'claim'
+        })
+        self._canvas_data = Course.get_by_id(self.id)._canvas_data
 
 
 class Term(BaseCanvasObject):
@@ -514,6 +548,7 @@ class Term(BaseCanvasObject):
     @property
     def code(self) -> str:
         return self._canvas_data['name']
+
 
 class Profile:
     """
