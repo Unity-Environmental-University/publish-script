@@ -30,7 +30,6 @@ import win32com.client as win32
 from PIL import Image
 from bs4 import BeautifulSoup
 
-COURSE_CODE_REGEX: re = re.compile(r'([\-.\w]+)_(\w{4}\d{3})', re.IGNORECASE)
 API_TOKEN: str
 API_URL: str
 HTML_URL: str
@@ -252,16 +251,16 @@ class BaseCanvasObject:
 
     def __init__(self, data, headers=None, api_url=None, **kwargs):
         """
-        Initialized the object
+        Initializes the object
         Args:
             data: the canvas data this class is wrapping
             headers: the headers to use, passed to the api_link
-            api_url: the api_url, passed to the api_link
+            api_url: the api_url, passed to the api_link. CURRENTLY pulls from constant if not included
             **kwargs: all other args passed directly to api_link constructor
         """
-        self._canvas_data = {}
+
         self._canvas_data = data if data is not None else {}
-        self.api_link = CanvasApiLink(headers=headers, api_url=api_url, **kwargs)
+        self.api_link = BaseCanvasObject.new_api_link(headers=headers, api_url=api_url, **kwargs)
 
     def __getitem__(self, item):
         if item not in self._canvas_data:
@@ -271,11 +270,31 @@ class BaseCanvasObject:
     def __setitem__(self, item, value):
         self._canvas_data[item] = value
 
+    def __eq__(self, other):
+        return self.id == other.id
+
+    @staticmethod
+    def new_api_link(headers=None, api_url=None, **kwargs):
+        return CanvasApiLink(headers=headers, api_url=api_url, **kwargs)
+
+    @property
+    def id(self) -> int:
+        """
+        Course id
+        Returns: canvas data course id
+
+        """
+        return self._canvas_data['id']
+
 
 class Course(BaseCanvasObject):
     """
     A class to represent canvas courses and handle various canvas course based operations
     """
+    CODE_REGEX = re.compile(r'([\-.\w]+)?_?(\w{4}\d{3})', re.IGNORECASE)
+
+    def __init__(self, data, **kwargs):
+        super().__init__(data, **kwargs)
 
     # Class Methods
     @classmethod
@@ -294,29 +313,47 @@ class Course(BaseCanvasObject):
         return Course(data)
 
     @classmethod
-    def get_by_code(cls, code: str, return_list: bool = False, params: dict = None) -> Self | List[Self]:
+    def get_all_by_code(cls, code: str, params: dict=None, term: 'Term' = None) -> List[Self]:
+        return cls.get_by_code(code, params=params, term=term, return_list=True)
+
+    @classmethod
+    def get_by_code(
+            cls,
+            code: str,
+            return_list: bool = False,
+            params: dict = None,
+            term: 'Term' = None
+    ) -> Self | List[Self]:
         """
         Gets a course, or list of courses, by a course code
         Args:
             code: A course code of the forma TERMCODE_DEPT1234
             return_list: returns a list of all matching courses if true
-            **params: passes all additional params on to 'requests.get(params=)'
+            params: passes all additional params on to 'requests.get(params=)'
+            term: the term to search within. Not used if not provided.
+
 
         Returns:
             A course or list of courses if return_list is true, matching the code
         """
         url = f"accounts/{ROOT_ACCOUNT_ID}/courses"
         params = params if params is not None else {}
+        params['search_term'] = code
+        if term is not None:
+            params['enrollment_term_id'] = term.id
         link = CanvasApiLink()
         courses = link.get_paged_data(
             url,
-            params={"search_term": code, **params})
+            params=params
+        )
 
         # if there are multiple courses, return by the most recently assigned a new ID
         if courses and len(courses) > 1:
             courses.sort(reverse=True, key=lambda course: course['id'])
 
-        return list(map(lambda a: Course(a), courses)) if return_list else Course(courses[0])
+        return list(
+                map(lambda a: Course(a), courses)
+            ) if return_list else Course(courses[0])
 
     @classmethod
     def publish_all(cls, courses: List[Self]):
@@ -336,22 +373,17 @@ class Course(BaseCanvasObject):
             print(response)
             print(response.content)
 
+    @cached_property
+    def _code_match(self):
+        return re.search(Course.CODE_REGEX, self._canvas_data["course_code"])
+
     # Properties
-    @property
-    def id(self) -> int:
-        """
-        Course id
-        Returns: canvas data course id
-
-        """
-        return self._canvas_data['id']
-
     @property
     def course_code(self) -> str | None:
         """
         The course code in the form PREFIX_DEPT1234
         """
-        match = re.search(COURSE_CODE_REGEX, self._canvas_data["course_code"])
+        match = self._code_match
         if not match:
             return None
         prefix = match.group(1)
@@ -362,10 +394,27 @@ class Course(BaseCanvasObject):
     def course_code(self, value) -> None:
         """
         Sets the course code to value.
-        TODO: Add error checking
         """
-        self._canvas_data["course_code"] = re.sub(COURSE_CODE_REGEX, self._canvas_data['course_code'], value)
-        self._canvas_data["name"] = re.sub(COURSE_CODE_REGEX, self._canvas_data['name'], value)
+        match = re.search(Course.CODE_REGEX, value)
+        if not match:
+            warnings.warn("Code does not match PREFIX_DEPT1234")
+
+        self._canvas_data["course_code"] = value
+        self._canvas_data["name"] = re.sub(self.CODE_REGEX, self._canvas_data['name'], value)
+        # reset cache
+        delattr(self, '_code_match')
+
+    @property
+    def base_code(self) -> str:
+        if self._code_match:
+            return self._code_match.group(2)
+        return ""
+
+    @property
+    def code_prefix(self) -> str:
+        if self._code_match:
+            return self._code_match.group(1)
+        return ""
 
     @property
     def is_blueprint(self) -> bool:
@@ -394,6 +443,10 @@ class Course(BaseCanvasObject):
             'include[]': 'enrollments'
         })
         return sections
+
+    def get_potential_sections(self, term: 'Term') -> List[Self]:
+        courses = Course.get_all_by_code(self.base_code, term=term)
+        return courses
 
     def set_as_blueprint(self) -> None:
         url = f"courses/{self.id}"
@@ -432,7 +485,37 @@ class Course(BaseCanvasObject):
         Course.publish_all([self])
 
 
-class Profile(BaseCanvasObject):
+
+class Term(BaseCanvasObject):
+
+    def __init__(self, data, **kwargs):
+        super().__init__(data, **kwargs)
+
+    @classmethod
+    def get_by_code(
+            cls,
+            code: str,
+            return_list: bool = False,
+            workflow_state: str = 'all'
+    ) -> Self | List[Self]:
+        ct = CanvasApiLink(account_id=ROOT_ACCOUNT_ID)
+        data = ct.get(f'accounts/{ROOT_ACCOUNT_ID}/terms', params={
+            'workflow_state[]': workflow_state,
+            'term_name': code
+        })
+        print(json.dumps(data))
+        if 'enrollment_terms' not in data:
+            warnings.warn(f'No enrollment terms found for {code}')
+        terms = data['enrollment_terms']
+        if not terms or len(terms) == 0:
+            return None
+        return Term(terms[0]) if not return_list else list(map(lambda a: Term(a), terms))
+
+    @property
+    def code(self) -> str:
+        return self._canvas_data['name']
+
+class Profile:
     """
     Class holding information needed to make a faculty pic and bio profile on course homepage
     Properties:
@@ -464,45 +547,6 @@ class Profile(BaseCanvasObject):
         self.bio = bio
         self.img_src = img_src
         self.local_img_path = local_img_path
-
-
-class Term:
-    canvas_data: dict = None
-
-    def __init__(self, canvas_data: dict):
-        self.canvas_data = canvas_data if canvas_data else {}
-
-    def __getitem__(self, item):
-        if item not in self.canvas_data:
-            return None
-        return self.canvas_data[item]
-
-    def __setitem__(self, item, value):
-        self.canvas_data[item] = value
-
-    @classmethod
-    def get_by_code(
-            cls,
-            code: str,
-            return_list: bool = False,
-            workflow_state: str = 'all'
-    ) -> Self | List[Self]:
-        ct = CanvasApiLink(account_id=ROOT_ACCOUNT_ID)
-        data = ct.get(f'accounts/{ROOT_ACCOUNT_ID}/terms', params={
-            'workflow_state[]': workflow_state,
-            'term_name': code
-        })
-        print(json.dumps(data))
-        if 'enrollment_terms' not in data:
-            warnings.warn(f'No enrollment terms found for {code}')
-        terms = data['enrollment_terms']
-        if not terms or len(terms) == 0:
-            return None
-        return Term(terms[0]) if not return_list else list(map(lambda a: Term(a), terms))
-
-    @property
-    def code(self) -> str:
-        return self.canvas_data['name']
 
 
 def load_constants(path=CONSTANTS_FILE, context=None):
@@ -826,7 +870,7 @@ def import_dev_course(bp_course: Course, progress_bar=None):
         bp_course: the bp course to import into
         progress_bar: an optional progress bar to update with progress
     """
-    match = re.search(COURSE_CODE_REGEX, bp_course["course_code"])
+    match = re.search(Course.CODE_REGEX, bp_course["course_code"])
     assert match, "This is not a course code " + bp_course["course_code"]
     prefix = match.group(1)
     course_code = match.group(2)

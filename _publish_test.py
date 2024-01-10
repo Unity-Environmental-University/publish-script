@@ -68,7 +68,6 @@ class TestCourseResetAndImport(unittest.TestCase):
     Tests for getting course reset and importing
     Can take a long time to run
     """
-
     def test_reset(self):
         course = Course.get_by_code(f'BP_{TEST_COURSE_CODE}')
         self.assertIsNotNone(course, "Can't Find Test Course by code")
@@ -100,28 +99,6 @@ class TestCourseResetAndImport(unittest.TestCase):
             get_item_names(flatten_modules(dev_modules)),
             f"BP modules do not match dev modules.")
 
-    def test_unset_blueprint(self):
-        course = Course.get_by_code(f'BP_{TEST_COURSE_CODE}')
-        self.assertIsNotNone(course, "Can't Find Test Course by code")
-        course.unset_as_blueprint()
-        self.assertFalse(course.is_blueprint, "Course is a blueprint")
-
-    def test_set_blueprint(self):
-        course = Course.get_by_code(f'BP_{TEST_COURSE_CODE}')
-        self.assertIsNotNone(course, "Can't Find Test Course by code")
-        course.set_as_blueprint()
-        self.assertTrue(course.is_blueprint, "Course is not blueprint")
-        print(course['blueprint_restrictions'])
-        self.assertEqual(
-            course['blueprint_restrictions'],
-            {
-                'content': True,
-                'points': True,
-                'due_dates': True,
-                'availability_dates': True,
-            },
-            "Restrictions not properly set on course")
-
 
 class TestProfilePages(unittest.TestCase):
     def setUp(self):
@@ -152,12 +129,73 @@ class TestProfilePages(unittest.TestCase):
         self.assertEqual(profile.user['name'], user['name'], msg="Profile names do not match")
 
 
-class TestLocking(unittest.IsolatedAsyncioTestCase):
+class TestCourse(unittest.TestCase):
     def setUp(self):
         course = get_test_course()
         modules = publish_script.get_modules(course['id'])
         if len(modules) == 0:
             publish_script.import_dev_course(course)
+
+    def test_course_properties(self):
+        code = f"BP_{TEST_COURSE_CODE}"
+        course: Course = Course.get_by_code(code)
+        self.assertEqual(course['name'], course._canvas_data['name'], "course['name'] does not match its data")
+
+    def test_get_course(self):
+        code = f"BP_{TEST_COURSE_CODE}"
+        course: Course = Course.get_by_code(code)
+        course_by_id: Course = Course.get_by_id(course.id)
+        # The test course code is a stub; we should be able to get all the prefix matching versions:
+        # BP, DEV, and any Sections
+        courses: List[Course] = Course.get_all_by_code(TEST_COURSE_CODE)
+        self.assertIsNotNone(course)
+        self.assertEqual(course.course_code, code, "course codes by id and code do not match")
+        self.assertEqual(course_by_id.id, course.id, "ids of course by id and by code do not match")
+        self.assertEqual(course_by_id['name'], course['name'], "names of course by id and by code do not match")
+        self.assertGreater(len(courses), 2, "Not enough courses found")
+
+    def test_unset_blueprint(self):
+        course = Course.get_by_code(f'BP_{TEST_COURSE_CODE}')
+        self.assertIsNotNone(course, "Can't Find Test Course by code")
+        course.unset_as_blueprint()
+        self.assertFalse(course.is_blueprint, "Course is a blueprint")
+
+    def test_set_blueprint(self):
+        course = Course.get_by_code(f'BP_{TEST_COURSE_CODE}')
+        self.assertIsNotNone(course, "Can't Find Test Course by code")
+        course.set_as_blueprint()
+        self.assertTrue(course.is_blueprint, "Course is not blueprint")
+        print(course['blueprint_restrictions'])
+        self.assertEqual(
+            course['blueprint_restrictions'],
+            {
+                'content': True,
+                'points': True,
+                'due_dates': True,
+                'availability_dates': True,
+            },
+            "Restrictions not properly set on course")
+
+    def test_get_courses_by_term(self):
+        term = Term.get_by_code(TEST_TERM_CODE)
+        courses_by_term = Course.get_all_by_code(TEST_COURSE_CODE, term=term)
+        courses_by_term_name = Course.get_all_by_code(f'{term.code}_{TEST_COURSE_CODE}')
+        self.assertIsNotNone(courses_by_term_name, f"Courses not found")
+        self.assertGreaterEqual(len(courses_by_term), 3, f"There are {len(courses_by_term)}")
+        self.assertListEqual(
+            courses_by_term,
+            courses_by_term_name,
+            "courses searched by term and by term name do not match")
+
+    def test_find_sections(self):
+        term = Term.get_by_code(TEST_TERM_CODE)
+        course = Course.get_by_code(f'BP_{TEST_COURSE_CODE}')
+        self.assertIsNotNone(term, f"Term not found for code{TEST_TERM_CODE}")
+        potential_sections = course.get_potential_sections(term)
+        courses_by_term_name = Course.get_all_by_code(f'{term.code}_{course.base_code}')
+        self.assertListEqual(
+            potential_sections, courses_by_term_name,
+            f"Potential sections not returning matching sections")
 
     async def test_lock(self):
         course = get_test_course()
@@ -172,27 +210,6 @@ class TestLocking(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(publish_script.lock_module_items(course), "locking did not succeed")
 
 
-class TestCourse(unittest.TestCase):
-
-    def test_course_properties(self):
-        code = f"BP_{TEST_COURSE_CODE}"
-        course: Course = Course.get_by_code(code)
-        self.assertEqual(course['name'], course._canvas_data['name'], "course['name'] does not match its data")
-
-    def test_get_course(self):
-        code = f"BP_{TEST_COURSE_CODE}"
-        course: Course = Course.get_by_code(code)
-        course_by_id: Course = Course.get_by_id(course.id)
-        # The test course code is a stub; we should be able to get all the prefix matching versions:
-        # BP, DEV, and any Sections
-        courses: List[Course] = Course.get_by_code(TEST_COURSE_CODE, return_list=True)
-        self.assertIsNotNone(course)
-        self.assertEqual(course.course_code, code, "course codes by id and code do not match")
-        self.assertEqual(course_by_id.id, course.id, "ids of course by id and by code do not match")
-        self.assertEqual(course_by_id['name'], course['name'], "names of course by id and by code do not match")
-        self.assertGreater(len(courses), 2, "Not enough courses found")
-
-
 class TestTerm(unittest.TestCase):
     def setUp(self):
         pass
@@ -204,4 +221,14 @@ class TestTerm(unittest.TestCase):
         term = Term.get_by_code(TEST_TERM_CODE)
         self.assertIsNotNone(term, "Term not found for code{}".format(TEST_TERM_CODE))
         self.assertEqual(term['name'], TEST_TERM_CODE, "Term code doesn't match")
+
+
+class TestPublish(unittest.TestCase):
+    def setUp(self):
+        pass
+
+    def tearDown(self):
+        pass
+
+
 
