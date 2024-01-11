@@ -546,7 +546,7 @@ class Course(BaseCanvasObject):
             self._canvas_data['syllabus_body'] = data['syllabus_body']
         return self._canvas_data['syllabus_body']
 
-    @property
+    @cached_property
     def associated_courses(self) -> List[Self] | None:
         """
         A list of associated courses if this is a blueprint. None otherwise.

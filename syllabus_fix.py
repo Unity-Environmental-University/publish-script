@@ -29,9 +29,10 @@ for code in course_string.split():
         continue
     i = i + 1
 
-    courses = [course, course.get_parent_course()]
-
-    courses = courses
+    courses = [course]
+    parent = course.get_parent_course()
+    if parent and 'BP' in course.code_prefix:
+        courses.append(parent)
 
     for update_course in courses:
         update_course.update_syllabus()
@@ -43,7 +44,7 @@ for code in course_string.split():
         for associate_course in course.associated_courses:
             ps.open_browser_func([f'{associate_course.course_url}/assignments/syllabus'])
 
-messagebox.showinfo(f"Finished! \n{i} BP/DEV pairs found and updated.")
+messagebox.showinfo("Finished", f"Finished! \n{i} BP/DEV pairs found and updated.")
 
 
 
