@@ -79,6 +79,14 @@ class SyllabusFix:
             ]
         },
         {
+            'find': 'EducationGenerative',
+            'replace': 'Education Generative',
+            'tests': [
+                not_in_test('EducationGenerative'),
+                in_test('Education Generative')
+            ]
+        },
+        {
             'find': r'(</tr>.*\n)(.*)(<tr.*\n.*<td.*\n.*Copyright\s*</strong>)',
             'replace': '''\1<tr>
                     <td style="width: 99.8918%;">
@@ -87,7 +95,7 @@ class SyllabusFix:
                         </strong></h4>
                         <p>Using generative AI must be done with an understanding of the 
                         <a class="inline_disabled" href="/courses/3266650/pages/gen-ai-student-policy" target="_blank" rel="noopener">
-                            <strong>Unity Distance EducationGenerative Artificial Intelligence Policy for Students</strong>
+                            <strong>Unity Distance Education Generative Artificial Intelligence Policy for Students</strong>
                         </a>, which spells out acceptable and unacceptable uses of generative AI in your studies in the Unity Distance Education Program.</p>
                         <p><strong>Please read this policy before completing
                         coursework using generative AI in this course.</strong></p>
@@ -394,6 +402,7 @@ class Course(BaseCanvasObject):
         data = link.get(f'courses/{id_}', params=params)
         return Course(data)
 
+
     @classmethod
     def get_all_by_code(cls, code: str, params: dict=None, term: 'Term' = None) -> List[Self]:
         return cls.get_by_code(code, params=params, term=term, return_list=True)
@@ -473,6 +482,12 @@ class Course(BaseCanvasObject):
         return re.search(Course.CODE_REGEX, self._canvas_data["course_code"])
 
     # Properties
+
+    @property
+    def course_url(self) -> str:
+        url = f'{self.api_link.api_url}/courses/{self.id}'
+        return re.sub('/api/v1', '', url)
+
     @property
     def course_code(self) -> str | None:
         """
@@ -531,7 +546,7 @@ class Course(BaseCanvasObject):
             self._canvas_data['syllabus_body'] = data['syllabus_body']
         return self._canvas_data['syllabus_body']
 
-    @cached_property
+    @property
     def associated_courses(self) -> List[Self] | None:
         """
         A list of associated courses if this is a blueprint. None otherwise.
@@ -677,6 +692,18 @@ class Course(BaseCanvasObject):
         url = f"courses/{self.id}/content_migrations"
         response = self.api_link.post(url, data=payload)
         return poll_migration(migration=response, progress_bar=progress_bar)
+
+    def get_parent_course(self):
+        migrations = self.api_link.get(f'courses/{self.id}/content_migrations')
+
+        # if there are no migrations return false
+        if len(migrations) < 1:
+            print(f"No imports found for course {self.course_code}")
+            return False
+
+        # sort by id descending so the first element is the latest created
+        migrations.sort(reverse=True, key=lambda migration: migration['id'])
+        return Course.get_by_id(migrations[0]['settings']['source_course_id'])
 
 
 class Term(BaseCanvasObject):
@@ -898,7 +925,9 @@ def setup_main_ui(
             'func': lambda: begin_course_sync(
                 bp_course=bp_course,
                 progress_bar=progress_bar,
-                status_label=status_label),
+                status_label=status_label,
+                wait_for_completion=True,
+                progress_callback=lambda p, status: print(p, status))
         },
 
         {
@@ -1097,12 +1126,16 @@ def generate_email(
 def begin_course_sync(
         *,
         bp_course: Course,
-        progress_bar: ttk.Progressbar,
-        status_label: tk.Label) -> dict | None:
+        wait_for_completion: True,
+        progress_bar: ttk.Progressbar=None,
+        progress_callback: Callable=None,
+        status_label: tk.Label=None) -> dict | None:
     """Summary
         Begins the sync process of the blueprint to its member course
 
     Args:
+        wait_for_completion: Whether or not to poll the results or just let the syncs happen
+        progress_callback: a callback of func(percent, status)
         bp_course: The blueprint course
         progress_bar: The progress bar to update. Not sure if we
         status_label: The status label to update with info
@@ -1130,71 +1163,26 @@ def begin_course_sync(
         return None
 
     migration = response.json()
-
-    def import_dev_course(bp_course: Course, progress_bar=None):
-        """
-        Imports the dev version of a BP course into the BP course
-
-        Args:
-            bp_course: the bp course to import into
-            progress_bar: an optional progress bar to update with progress
-        """
-        match = re.search(Course.CODE_REGEX, bp_course["course_code"])
-        assert match, "This is not a course code " + bp_course["course_code"]
-        prefix = match.group(1)
-        course_code = match.group(2)
-        assert prefix.upper() == 'BP', "Course code is not a blueprint"
-        dev_course = Course.get_by_code(f"DEV_{course_code}")
-
-        # if we're running this right from the script (instead of a unit test) prompt to confirm
-        if course_code == "__main__":
-            if not tk.messagebox.askyesno(
-                    f"Are you sure you want to import {dev_course['name']} into {bp_course['name']}?"):
-                return None
-
-        return import_course(bp_course, dev_course, progress_bar=progress_bar)
-
-    def import_course(dest_course: Course, source_course: Course, progress_bar=None) -> dict:
-        """
-            Copies source course into destination course. Returns the migration object
-            once the migration is finished.
-        Args:
-            dest_course: The course to copy into
-            source_course: The course to copy from
-            progress_bar: An optional progress bar to update
-
-        Returns:
-
-        """
-        payload = {
-            "migration_type": "course_copy_importer",
-            "settings[source_course_id]": source_course["id"]}
-
-        url = f"{API_URL}/courses/{dest_course['id']}/content_migrations"
-        response = requests.post(url, data=payload, headers=HEADERS)
-        print(response)
-        if response.ok:
-            return poll_migration(migration=response.json(), progress_bar=progress_bar)
-
-    poll_migration(
-        migration,
-        f'{API_URL}/courses/{bp_course["id"]}'
-        + '/blueprint_templates/default/'
-        + f'migrations/{migration["id"]}',
-        status_label=status_label,
-        progress_bar=progress_bar
-    )
+    print(migration)
+    if wait_for_completion:
+        poll_migration(
+            migration,
+            migration_url=f'{API_URL}/courses/{bp_course["id"]}/blueprint_templates/default/migrations/{migration["id"]}',
+            progress_bar=progress_bar,
+            progress_callback=progress_callback)
 
 
 def poll_migration(
         migration: dict,
         migration_url: str | None = None,
         progress_bar: ttk.Progressbar | None = None,
+        progress_callback: Callable = None,
         status_label: tk.Label | None = None,
         poll_interval: float = 2.0):
     """
 
     Args:
+        progress_callback:
         migration(dict): a migration dict from canvas API
         migration_url(str): the url to poll, if different from that in the migration object
         progress_bar(ttk.Progressbar): an optional progress bar to update
@@ -1221,8 +1209,11 @@ def poll_migration(
         print(migration['workflow_state'])
         if status_label is not None:
             status_label.configure(text=f"{migration['workflow_state']}...")
-        if progress_bar is not None and 'completion' in migration:
-            update_progress_bar(progress_bar, migration['completion'])
+        if 'completed' in migration:
+            if progress_bar is not None:
+                update_progress_bar(progress_bar, migration['completion'])
+            if progress_callback is not None:
+                progress_callback(migration['completion'], status=migration['workflow_state'])
         time.sleep(poll_interval)
         response = requests.get(migration_url, headers=HEADERS)
         if response.ok:
