@@ -1,12 +1,12 @@
-import csv
-import functools
+
 import unittest
 import publish_script
+from publish_script import Course
 import re
 import requests
 import json
 import csv
-from functools import reduce
+
 CONSTANTS_FILE = 'constants.json'
 with open(CONSTANTS_FILE) as f:
     constants = json.load(f)
@@ -40,8 +40,8 @@ print(publish_script.API_URL)
 
 
 def is_section_setup(course):
-    sections = publish_script.get_sections(course)
-    grading_sections = list( filter(lambda section: section['name'].lower() == 'grading', sections))
+    sections = course.get_sections()
+    grading_sections = list(filter(lambda a: a['name'].lower() == 'grading', sections))
     if len(grading_sections) > 0:
         instructor = publish_script.get_canvas_instructor(course['id'])
         print(course['name'])
@@ -69,7 +69,7 @@ class TestInsertSection(unittest.TestCase):
         print(json.dumps(terms, indent=2))
 
     def test_get_course(self):
-        course = publish_script.get_course_by_code('23-Nov_ANIM401')
+        course = Course.get_by_code('23-Nov_ANIM401')
         print(course)
         self.assertTrue(course)
 
@@ -93,14 +93,14 @@ class TestInsertSection(unittest.TestCase):
                     names.append(instructor_name)
 
         for code in names_by_code.keys():
-            print(code)
-            courses = publish_script.get_course_by_code(code, return_list=True)
+            courses = Course.get_by_code(code, return_list=True)
 
             for course in courses:
                 print(course)
                 instructor = publish_script.get_canvas_instructor(course['id'])
                 if instructor['name'] in names_by_code[code]:
                     self.assertTrue(is_section_setup(course))
+
 
 if __name__ == '__main__':
     unittest.main()

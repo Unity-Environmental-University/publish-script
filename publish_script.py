@@ -1,5 +1,6 @@
 import inspect
 import warnings
+from functools import cached_property
 
 try:
     import aiohttp
@@ -29,7 +30,6 @@ import win32com.client as win32
 from PIL import Image
 from bs4 import BeautifulSoup
 
-COURSE_CODE_REGEX: re = re.compile(r'([\-.\w]+)_(\w{4}\d{3})', re.IGNORECASE)
 API_TOKEN: str
 API_URL: str
 HTML_URL: str
@@ -50,38 +50,186 @@ CONSTANTS: dict
 CONSTANTS_FILE: str = 'constants.json'
 MAX_PROFILE_IMAGE_SIZE: int = 400
 
-SYLLABUS_REPLACEMENTS = [{
-    'find': r'<p>The instructor will conduct [^.]*\(48 hours during weekends\)\.',
-    'replace': r'<p>The instructor will conduct all correspondence with students related to the class in Canvas,'
-               + ' and you should expect to receive a response to emails within 24 hours.'
-}]
 
-LEARNING_MATERIALS_REPLACEMENTS = [
-    {
-        'find': r'<p>\[Text[^\]]*by SME[^\]]*\]</p>',
-        'replace': '',
-    },
+def in_test(to_match):
+    def func(text):
+        return to_match in text
 
-    {
-        'find': r'\[[iI]nsert annotation for media\]',
-        'replace': '',
-    },
-    {
-        'find':
-            r'<h3>\[Title for <span style="text-decoration: underline;"> optional </span>secondary media element\]</h3>',
-        'replace': '',
-    },
-    {
-        'find':
-            r'<h3><strong>\[Title for \w+ category of LMs\]</strong></h3>',
-        'replace': 'Materials',
-    },
-]
+    return func
 
 
-class CanvasTalker:
+def not_in_test(to_match):
+    def func(text):
+        return to_match not in text
+
+    return func
+
+
+class SyllabusFix:
+
+    replacements: list = [
+        {
+            'find': r'<p>The instructor will conduct [^.]*\(48 hours during weekends\)\.',
+            'replace': r'<p>The instructor will conduct all '
+                       + r'correspondence with students related to the class in Canvas,'
+            + ' and you should expect to receive a response to emails within 24 hours.',
+            'tests': [
+                not_in_test('48 hours'),
+                in_test('you should expect')
+            ]
+        },
+        {
+            'find': 'EducationGenerative',
+            'replace': 'Education Generative',
+            'tests': [
+                not_in_test('EducationGenerative'),
+                in_test('Education Generative')
+            ]
+        },
+        {
+            'find': r'(</tr>.*\n)(.*)(<tr.*\n.*<td.*\n.*Copyright\s*</strong>)',
+            'replace': '''\1<tr>
+                    <td style="width: 99.8918%;">
+                        <h4><strong>
+                        Guidelines for Using Generative Artificial Intelligence [AI] in this Course:
+                        </strong></h4>
+                        <p>Using generative AI must be done with an understanding of the 
+                        <a class="inline_disabled" href="/courses/3266650/pages/gen-ai-student-policy" target="_blank" rel="noopener">
+                            <strong>Unity Distance Education Generative Artificial Intelligence Policy for Students</strong>
+                        </a>, which spells out acceptable and unacceptable uses of generative AI in your studies in the Unity Distance Education Program.</p>
+                        <p><strong>Please read this policy before completing
+                        coursework using generative AI in this course.</strong></p>
+                        <ul>
+                            <li>In this course, you may be encouraged to explore employing generative AI tools to
+                            improve your understanding of course content.
+                            <em>Potentially permitted uses of generative AI are detailed in the above policy.</em></li>
+                            <li>There also may be specific work in which content produced by generative AI will not be
+                            accepted in this course.<em> It will be specifically noted in the course materials when you
+                            are not permitted to submit work produced by generative AI.</em></li>
+                            <li>When no explicit statement about the use of generative AI is provided in an assignment,
+                            these tools are permitted.</li>
+                        </ul>
+                        <p>You are encouraged to contact your instructor if you have questions about how to use 
+                        generative AI effectively to support your learning.</p>
+                    </td>
+                </tr>\3''',
+            'tests': [
+                in_test('generative AI effectively to support')
+            ]
+        }
+    ]
+
+    @classmethod
+    def fix(cls, text: str) -> str:
+        for replacement in cls.replacements:
+
+            # run replacement tests and skip if they all are already matching
+            test_failed = False
+            for test in replacement['tests']:
+                if not test(text):
+                    test_failed = True
+                    break
+            if not test_failed:
+                continue
+
+            print(replacement['find'])
+            print(len(cls.replacements))
+            match = re.search(replacement['find'], text)
+            groups: tuple
+            if match:
+                groups = match.groups()
+            else:
+                continue
+            text = re.sub(replacement['find'], replacement['replace'], text)
+            if replacement['tests']:
+                for test in replacement['tests']:
+                    assert test(text)
+        return text
+
+
+class LmFilter:
+    replacements = [
+        {
+            'find': r'<p>\[Text[^\]]*by SME[^\]]*\]</p>',
+            'replace': '',
+        },
+
+        {
+            'find': r'\[[iI]nsert annotation for media\]',
+            'replace': '',
+        },
+        {
+            'find':
+                r'<h3>\[Title for <span style="text-decoration: underline;"> optional </span>secondary media element\]</h3>',
+            'replace': '',
+        },
+        {
+            'find':
+                r'<h3><strong>\[Title for \w+ category of LMs\]</strong></h3>',
+            'replace': 'Materials',
+        },
+    ]
+
+    @staticmethod
+    def cbt_parents(item):
+        return item.has_attr('class') and 'cbt-content' in item['class']
+
+    @staticmethod
+    def lm_narrative(item):
+        is_content_block = item.has_attr('class') and 'cbt-content' in item['class']
+        print(is_content_block)
+        match = re.search(r'(\[\w*LM Narrative|LM Narrative])', item.text)
+        if match:
+            print(item)
+            print(match)
+        return is_content_block and match
+
+    @classmethod
+    def remove_lm_annotations(cls, text: str) -> str:
+        """Summary
+            Runs a list of regex replacements on html text of a
+            Learning Material page (replacements, defined above)
+    
+        Args:
+            text (str): An html string containing
+            the body of a learning materials page
+    
+        Returns:
+            str: An html string with the regexes run on it
+        """
+        # one liners to replace
+
+        for replace in cls.replacements:
+            find = re.compile(replace['find'], flags=re.MULTILINE)
+            match = re.search(find, text)
+            if match:
+                text = re.sub(find, replace['replace'], text)
+
+        # remove these sections
+        soup = BeautifulSoup(text, 'lxml')
+        bq = soup.find('blockquote')
+        if bq and "SME" in str(bq):
+            parent = single_filter(LmFilter.cbt_parents, bq.parents)
+            parent.decompose()
+
+        divs = soup.find_all('div')
+        trash_divs = filter(LmFilter.lm_narrative, divs)
+        if trash_divs:
+            for div in trash_divs:
+                div.decompose()
+
+        out = str(soup.find('body'))
+        out = re.sub(r'</?body>', '', out)
+        return out
+
+
+class CanvasApiLink:
+    """
+    This class handles api calls to the canvas api
+    """
     headers: dict
     api_url: str
+    account_id: int
 
     def __init__(
             self,
@@ -89,19 +237,67 @@ class CanvasTalker:
             api_url: str = None,
             account_id: int = None
     ) -> None:
+        """
+
+        Args:
+            headers: The headers to use for requests when not otherwise specified
+            api_url: The api url to use for requests
+            account_id: The account id to use. Not currently used.
+        """
+        self.account_id = account_id
         self.headers = headers if headers else HEADERS
         self.api_url = api_url if api_url else API_URL
         self.account_id = account_id if account_id else ACCOUNT_ID
 
-    def get(self, url: str, params: dict = None, **args):
-        url = f'{self.api_url}/{url}'
-        response = requests.get(
-            url,
-            headers=args['headers'] if 'headers' in args else self.headers,
-            params=params,
+    def _query(self, func: callable, url: str, **args):
+        """
+        Recurring code for all requests wrapper functions
+        Args:
+            func: the function to use for calls, assumed to be one of
+            request.get, request.post, request.put, request.delete
+            url: The url PAST the base API url
+            params: any params to pass to the call
+            **args: any additional params to pass to the call
+        Returns:
+            The json decoded data from the response
+
+        """
+        if not 'headers' in args:
+            args['headers'] = self.headers
+        response = func(
+            f"{self.api_url}/{url}",
             **args)
         assert response.ok, response.text
         return response.json()
+
+    def get(self, url: str, params: dict = None, **args):
+        """
+        Performs a canvas api call
+        Args:
+            url: any url to use after the canvas api base
+            params: any params to pass to the requests.get call
+            **args: and other args to pass to requests.get
+        Returns:
+            A dict or list holding the response from the canvas api
+
+        """
+        return self._query(requests.get, url=url, params=params, **args)
+
+    def put(self, url: str, params: dict = None, data=None, **kwargs):
+        """
+        Performs a canvas api put call
+        Args:
+            url: any url to use after the canvas api base
+            params: any params to pass to the requests.get call
+            **args: and other args to pass to requests.get
+        Returns:
+            A dict or list holding the response from the canvas api
+
+        """
+        return self._query(requests.put, url=url, params=params, data=data, **kwargs)
+
+    def post(self, url, params:dict = None, data=None, **kwargs):
+        return self._query(requests.post, url=url, params=params, data=data, **kwargs)
 
     def get_paged_data(self, url: str, headers: dict = None, params: dict = None) -> list | None:
         """Summary
@@ -138,66 +334,166 @@ class CanvasTalker:
         return out
 
 
-# A wrapper for canvas api dict return course object
-class Course:
-    canvas_data: dict
-    canvas_talker: CanvasTalker
+class BaseCanvasObject:
+    """
+    A base class for classes that talk to and hold data from canvas API,
+    """
+    api_link: CanvasApiLink
+    _canvas_data: dict
 
-    def __init__(self, data: dict) -> None:
-        self.canvas_talker = CanvasTalker(HEADERS, API_URL)
-        self.canvas_data = data if data is not None else {}
-        pass
+    def __init__(self, data, headers=None, api_url=None, **kwargs):
+        """
+        Initializes the object
+        Args:
+            data: the canvas data this class is wrapping
+            headers: the headers to use, passed to the api_link
+            api_url: the api_url, passed to the api_link. CURRENTLY pulls from constant if not included
+            **kwargs: all other args passed directly to api_link constructor
+        """
+
+        self._canvas_data = data if data is not None else {}
+        self.api_link = BaseCanvasObject.new_api_link(headers=headers, api_url=api_url, **kwargs)
 
     def __getitem__(self, item):
-        if item not in self.canvas_data:
+        if item not in self._canvas_data:
             return None
-        return self.canvas_data[item]
+        return self._canvas_data[item]
 
-    def __setitem__(self, item, value):
-        self.canvas_data[item] = value
+    def __eq__(self, other):
+        return self.id == other.id
 
+    @staticmethod
+    def new_api_link(headers=None, api_url=None, **kwargs):
+        return CanvasApiLink(headers=headers, api_url=api_url, **kwargs)
+
+    @property
+    def id(self) -> int:
+        """
+        Course id
+        Returns: canvas data course id
+
+        """
+        return self._canvas_data['id']
+
+
+class Course(BaseCanvasObject):
+    """
+    A class to represent canvas courses and handle various canvas course based operations
+    """
+    CODE_REGEX = re.compile(r'([\-.\w^]+[^_])?_?(\w{4}\d{3})', re.IGNORECASE)
+
+    def __init__(self, data, **kwargs):
+        super().__init__(data, **kwargs)
+
+    # Class Methods
     @classmethod
-    def get_by_id(cls, id_: int) -> Self:
-        canvas_talker = CanvasTalker()
-        data = canvas_talker.get(f'courses/{id_}')
+    def get_by_id(cls, id_: int, params=None) -> Self:
+        """
+        Gets a new Course instance by id populated with canvas data from the api
+
+        Args:
+            id_: THe id of the course to fetch and populate this course with
+            params: any parameters to pass to the request
+
+        Returns:
+            A new Course
+        """
+        link = CanvasApiLink()
+        data = link.get(f'courses/{id_}', params=params)
         return Course(data)
 
+
     @classmethod
-    def get_by_code(cls, code: str, return_list: bool = False, params: dict = None) -> Self | List[Self]:
+    def get_all_by_code(cls, code: str, params: dict=None, term: 'Term' = None) -> List[Self]:
+        return cls.get_by_code(code, params=params, term=term, return_list=True)
+
+    @classmethod
+    def get_by_code(
+            cls,
+            code: str,
+            return_list: bool = False,
+            params: dict = None,
+            term: 'Term' = None
+    ) -> Self | List[Self]:
         """
         Gets a course, or list of courses, by a course code
         Args:
             code: A course code of the forma TERMCODE_DEPT1234
             return_list: returns a list of all matching courses if true
-            **params: passes all additional params on to 'requests.get(params=)'
+            params: passes all additional params on to 'requests.get(params=)'
+            term: the term to search within. Not used if not provided.
+
 
         Returns:
-        A course or list of courses if return_list is true, matching the code
+            A course or list of courses if return_list is true, matching the code
         """
         url = f"accounts/{ROOT_ACCOUNT_ID}/courses"
         params = params if params is not None else {}
-        talker = CanvasTalker()
-        courses = talker.get_paged_data(
+        params['search_term'] = code
+        if term is not None:
+            params['enrollment_term_id'] = term.id
+        link = CanvasApiLink()
+        courses = link.get_paged_data(
             url,
-            params={"search_term": code, **params})
+            params=params
+        )
 
         # if there are multiple courses, return by the most recently assigned a new ID
         if courses and len(courses) > 1:
             courses.sort(reverse=True, key=lambda course: course['id'])
 
-        return list(map(lambda a: Course(a), courses)) if return_list else Course(courses[0])
+        return list(
+                map(lambda a: Course(a), courses)
+            ) if return_list else Course(courses[0])
+
+    @classmethod
+    def publish_all(cls, courses: List[Self]):
+        """
+        Publishes a list of courses
+        Args:
+            courses: the list of courses to publish
+        """
+        cls._course_event(courses, 'offer')
+
+    @classmethod
+    def unpublish_all(cls, courses: List[Self]):
+        """
+        Unpublishes a list of courses.
+        Args:
+            courses: the list of courses to publish
+        """
+        cls._course_event(courses, 'claim')
+
+    @classmethod
+    def _course_event(cls, courses: List[Self], event: str):
+        url = f'{API_URL}/accounts/{ACCOUNT_ID}/courses'
+        data = {
+            'event': event,
+            # list of course ids
+            'course_ids[]': list(map(lambda a: a['id'], courses))
+        }
+        response = requests.put(url, headers=HEADERS, data=data)
+        if not response.ok:
+            print(response)
+            print(response.content)
+
+    @cached_property
+    def _code_match(self):
+        return re.search(Course.CODE_REGEX, self._canvas_data["course_code"])
+
+    # Properties
 
     @property
-    def id(self) -> int:
-        return self.canvas_data['id']
-
-    @id.setter
-    def id(self, value: int) -> None:
-        self.canvas_data['id'] = value
+    def course_url(self) -> str:
+        url = f'{self.api_link.api_url}/courses/{self.id}'
+        return re.sub('/api/v1', '', url)
 
     @property
-    def course_code(self):
-        match = re.search(COURSE_CODE_REGEX, self.canvas_data["course_code"])
+    def course_code(self) -> str | None:
+        """
+        The course code in the form PREFIX_DEPT1234
+        """
+        match = self._code_match
         if not match:
             return None
         prefix = match.group(1)
@@ -205,60 +501,215 @@ class Course:
         return prefix + '_' + course_code
 
     @course_code.setter
-    def course_code(self, value):
-        self.canvas_data["course_code"] = re.sub(COURSE_CODE_REGEX, self.canvas_data['course_code'], value)
-        self.canvas_data["name"] = re.sub(COURSE_CODE_REGEX, self.canvas_data['name'], value)
+    def course_code(self, value) -> None:
+        """
+        Sets the course code to value.
+        """
+        match = re.search(Course.CODE_REGEX, value)
+        if not match:
+            warnings.warn("Code does not match PREFIX_DEPT1234")
+
+        self._canvas_data["course_code"] = value
+        self._canvas_data["name"] = re.sub(self.CODE_REGEX, self._canvas_data['name'], value)
+        # reset cache
+        delattr(self, '_code_match')
 
     @property
-    def associated_courses(self):
-        return get_blueprint_courses(self.id)
+    def base_code(self) -> str:
+        if self._code_match:
+            return self._code_match.group(2)
+        return ""
 
     @property
-    def is_blueprint(self):
-        return 'blueprint' in self.canvas_data and self.canvas_data['blueprint']
+    def code_prefix(self) -> str:
+        if self._code_match:
+            return self._code_match.group(1)
+        return ""
 
-
-class Profile:
-    """
-    Class holding information needed to make a faculty pic and bio profile on course homepage
-    """
-    user: dict = None
-    bio: str = None
-
-    def __init__(
-            self,
-            user: dict,
-            bio: str,
-            img_src: str,
-            display_name: str = None,
-            local_img_path: str = None) -> None:
+    @property
+    def is_blueprint(self) -> bool:
         """
-        Args:
-            user: The canvas api user
-            bio: The biography of the user
-            img_src: URL to the image
-            local_img_path: Local path of the image, if saved
+        Is this course a blueprint?
         """
-        self.display_name = display_name
-        self.user = user
-        self.bio = bio
-        self.img_src = img_src
-        self.local_img_path = local_img_path
+        return 'blueprint' in self._canvas_data and self._canvas_data['blueprint']
 
+    @property
+    def is_published(self):
+        return self._canvas_data['workflow_state'] == 'available'
 
-class Term:
-    canvas_data: dict = None
+    @property
+    def syllabus(self):
+        if 'syllabus_body' not in self._canvas_data:
+            data = Course.get_by_id(self.id, params={
+                'include[]': 'syllabus_body'
+            })
+            self._canvas_data['syllabus_body'] = data['syllabus_body']
+        return self._canvas_data['syllabus_body']
 
-    def __init__(self, canvas_data: dict):
-        self.canvas_data = canvas_data if canvas_data else {}
-
-    def __getitem__(self, item):
-        if item not in self.canvas_data:
+    @property
+    def associated_courses(self) -> List[Self] | None:
+        """
+        A list of associated courses if this is a blueprint. None otherwise.
+        """
+        if not self.is_blueprint:
             return None
-        return self.canvas_data[item]
 
-    def __setitem__(self, item, value):
-        self.canvas_data[item] = value
+        url = f"courses/{self.id}/blueprint_templates/default/associated_courses"
+        courses = self.api_link.get_paged_data(url, params={"per_page": 50})
+
+        return list(map(lambda a: Course(a), courses))
+
+    @cached_property
+    def subsections(self) -> list[dict]:
+        url = f'courses/{self.id}/sections'
+        sections = self.api_link.get(url, params={
+            'include[]': 'enrollments'
+        })
+        return sections
+
+    def change_syllabus(self, val: str):
+        self._canvas_data['syllabus_body'] = val
+        self.api_link.put(f'courses/{self.id}', data={
+            'course[syllabus_body]': val
+        })
+
+    def get_potential_sections(self, term: 'Term') -> List[Self]:
+        courses = Course.get_all_by_code(self.base_code, term=term)
+        return courses
+
+    def set_as_blueprint(self) -> None:
+        url = f"courses/{self.id}"
+        payload = {
+            'course[blueprint]': True,
+            'course[use_blueprint_restrictions_by_object_type]': 0,
+            'course[blueprint_restrictions][content]': 1,
+            'course[blueprint_restrictions][points]': 1,
+            'course[blueprint_restrictions][due_dates]': 1,
+            'course[blueprint_restrictions][availability_dates]': 1,
+        }
+        canvas_data = self.api_link.put(url, data=payload)
+        self._canvas_data = canvas_data
+        self.reset_cache()
+
+    def unset_as_blueprint(self) -> None:
+        url = f"courses/{self.id}"
+        payload = {
+            'course[blueprint]': False,
+        }
+        response = self.api_link.put(url, data=payload)
+        self._canvas_data = response
+        self.reset_cache()
+
+    def reset_cache(self) -> None:
+        if hasattr(self, 'subsections'):
+            delattr(self, 'subsections')
+
+        if hasattr(self, 'associated_courses'):
+            delattr(self, 'associated_courses')
+
+    def publish(self):
+        """
+        Publishes this course
+        """
+        url = f'courses/{self.id}'
+        course_data = self.api_link.put(url, params={
+            'offer': True
+        })
+        print(course_data)
+        self._canvas_data = course_data
+        self.reset_cache()
+
+    def unpublish(self):
+        url = f'courses/{self.id}'
+        course_data = self.api_link.put(url, params={
+            # WHY IS THIS CALLED CLAIM
+            'course[event]': 'claim'
+        })
+        self._canvas_data = Course.get_by_id(self.id)._canvas_data
+
+    def update_syllabus(self):
+        """Summary
+            Updates the syllabus using fixes in SyllabusFix
+        """
+        syllabus = SyllabusFix.fix(self.syllabus)
+        response = self.api_link.put(
+            f'courses/{self.id}',
+            data={"course[syllabus_body]": syllabus})
+        self._canvas_data['syllabus_body'] = syllabus
+        print(response)
+
+    def reset(self, prompt=True):
+        """Summary
+            Resets the course
+        """
+
+        # ask for confirmation if we're not running this imported from another module
+        if __name__ != "__main__" or prompt and messagebox.askyesno(
+                title="Do You Want To Reset",
+                message=f"Are you sure you want to reset {self.course_code}?'"):
+
+            url = f'/courses/{self.id}/reset_content'
+            data = self.api_link.post(url)
+            self._canvas_data['id'] = data['id']
+
+        return False
+
+    def import_dev_course(self, progress_bar=None, prompt=True):
+        """
+        Imports the dev version of a BP course into the BP course
+
+        Args:
+            prompt: whether to prompt the user before
+            progress_bar: an optional progress bar to update with progress
+        """
+        prefix = self.code_prefix
+        assert prefix.upper() == 'BP', "Course code is not a blueprint"
+        dev_course = Course.get_by_code(f"DEV_{self.base_code}")
+
+        # if we're running this right from the script (instead of a unit test) prompt to confirm
+        if prompt:
+            if not tk.messagebox.askyesno(
+                    f"Are you sure you want to import {dev_course['name']} into {self['name']}?"):
+                return None
+
+        self.import_course(dev_course, progress_bar=progress_bar)
+
+    def import_course(self, source_course: Self, progress_bar=None):
+        """
+            Copies source course into destination course. Returns the migration object
+            once the migration is finished.
+        Args:
+            source_course: The course to copy from
+            progress_bar: An optional progress bar to update
+
+        Returns:
+
+        """
+        payload = {
+            "migration_type": "course_copy_importer",
+            "settings[source_course_id]": source_course["id"]}
+
+        url = f"courses/{self.id}/content_migrations"
+        response = self.api_link.post(url, data=payload)
+        return poll_migration(migration=response, progress_bar=progress_bar)
+
+    def get_parent_course(self):
+        migrations = self.api_link.get(f'courses/{self.id}/content_migrations')
+
+        # if there are no migrations return false
+        if len(migrations) < 1:
+            print(f"No imports found for course {self.course_code}")
+            return False
+
+        # sort by id descending so the first element is the latest created
+        migrations.sort(reverse=True, key=lambda migration: migration['id'])
+        return Course.get_by_id(migrations[0]['settings']['source_course_id'])
+
+
+class Term(BaseCanvasObject):
+
+    def __init__(self, data, **kwargs):
+        super().__init__(data, **kwargs)
 
     @classmethod
     def get_by_code(
@@ -267,7 +718,7 @@ class Term:
             return_list: bool = False,
             workflow_state: str = 'all'
     ) -> Self | List[Self]:
-        ct = CanvasTalker(account_id=ROOT_ACCOUNT_ID)
+        ct = CanvasApiLink(account_id=ROOT_ACCOUNT_ID)
         data = ct.get(f'accounts/{ROOT_ACCOUNT_ID}/terms', params={
             'workflow_state[]': workflow_state,
             'term_name': code
@@ -282,16 +733,48 @@ class Term:
 
     @property
     def code(self) -> str:
-        return self.canvas_data['name']
+        return self._canvas_data['name']
+
+
+class Profile:
+    """
+    Class holding information needed to make a faculty pic and bio profile on course homepage
+    Properties:
+    user: The instructor user object
+    bio: the text bio in html
+    """
+    user: dict = None
+    bio: str = None
+
+    def __init__(
+            self,
+            user: dict,
+            bio: str,
+            img_src: str,
+            display_name: str = None,
+            local_img_path: str = None,
+            **kwargs
+    ) -> None:
+        """
+        Args:
+            user: The canvas api user
+            bio: The biography of the user
+            img_src: URL to the image
+            local_img_path: Local path of the image, if saved
+        """
+        super().__init__(**kwargs)
+        self.display_name = display_name
+        self.user = user
+        self.bio = bio
+        self.img_src = img_src
+        self.local_img_path = local_img_path
 
 
 def load_constants(path=CONSTANTS_FILE, context=None):
     """
-
     Args:
         path: path to the constants file
         context: the context to set the constants in. Usually just this script. Will probably always be?
-
     Returns:
         a dict containing the loaded constants file
     """
@@ -351,7 +834,7 @@ def course_entry_callback(
     else:
         status_label.configure(text=f"Course Found\n{course['name']}")
         setup_main_ui(
-            bp_course=get_course_by_id(course_id),
+            bp_course=Course.get_by_id(course_id),
             window=window,
             status_label=status_label)
         for widget in to_remove:
@@ -374,9 +857,9 @@ def setup_main_ui(
         Sets up the main workflow UI
 
     Args:
-        bp_course (dict): the course we're working with
+        bp_course: the course we're working with
         window: The widow to create UI in
-        status_label (Widget): Description
+        status_label: Description
     """
     # source_course_id = get_source_course_id(bp_id)
     # Create a progress bar
@@ -389,13 +872,10 @@ def setup_main_ui(
 
     def reset_and_import():
         course = bp_course
-        unset_course_as_blueprint(course),
-        reset_course(course),
-        # ID changes on reset so ge the new one
-        course.id = get_course_by_code(course.course_code).id
-
-        import_dev_course(course, progress_bar=progress_bar),
-        set_course_as_blueprint(course)
+        course.unset_as_blueprint()
+        course.reset()
+        course.import_course(course, progress_bar=progress_bar)
+        course.set_as_blueprint()
 
     updates = [
         {
@@ -410,9 +890,8 @@ def setup_main_ui(
             'argument': 'syllabus',
             'message': "Do you want to update syllabus language"
                        + " in this and DEV_?",
-            'func': lambda: [
-                update_syllabus(bp_course['id']),
-                update_syllabus(get_source_course_id(bp_course['id']))]
+            'func': lambda: [bp_course.update_syllabus(),
+                             Course.get_by_id(get_source_course_id(bp_course.id)).update_syllabus()]
         },
         {
             'name': 'remove_lm_annotations',
@@ -446,7 +925,9 @@ def setup_main_ui(
             'func': lambda: begin_course_sync(
                 bp_course=bp_course,
                 progress_bar=progress_bar,
-                status_label=status_label),
+                status_label=status_label,
+                wait_for_completion=True,
+                progress_callback=lambda p, status: print(p, status))
         },
 
         {
@@ -465,7 +946,7 @@ def setup_main_ui(
             'func': lambda: replace_faculty_profiles(
                 bp_course=bp_course,
                 # get course by code in case it has changed
-                courses=get_blueprint_courses(get_course_by_code(bp_course['course_code'])['id']),
+                courses=bp_course.associated_courses,
                 window=window,
                 progress_bar=progress_bar),
         },
@@ -473,8 +954,7 @@ def setup_main_ui(
             'name': 'publish',
             'message': 'Do you want to publish associated courses?',
             'error': 'There was a problem publishing courses\n{e}',
-            'func': lambda: publish_courses(
-                courses=get_blueprint_courses(bp_course['id'])),
+            'func': lambda: Course.publish_all(bp_course.associated_courses)
         }
     ]
 
@@ -494,9 +974,9 @@ async def opening_dialog(
         application
 
     Args:
-        window (object): The base program window to render into
-        updates (list): The Updates to run
-        status_label (object): Description
+        window: The base program window to render into
+        updates: The Updates to run
+        status_label: Description
     """
     ran_command_line = False
     value: Any = None
@@ -546,9 +1026,9 @@ async def handle_run(updates: list, status_label: tk.Label):
         and executes them in order.
 
     Args:
-        updates (list): A list of dicts containing the callbacks
+        updates: A list of dicts containing the callbacks
          and data for each checkbox / workflow step on the interface
-        status_label (object): A label widget to update with status info
+        status_label: A label widget to update with status info
     """
     window = status_label.winfo_toplevel()
     for update in updates:
@@ -570,130 +1050,6 @@ async def handle_run(updates: list, status_label: tk.Label):
             raise exception
 
     status_label.config(text=f'Finished!')
-
-
-def unset_course_as_blueprint(course: Course) -> Course:
-    """
-    Removes a blueprint designation from a course
-    Args:
-        course: The course to unset as blueprint
-
-    Returns:
-
-    """
-    assert course, "Course does not exist"
-
-    url = f"{API_URL}/courses/{course['id']}"
-    payload = {
-        'course[blueprint]': False,
-    }
-    response = requests.put(url, data=payload, headers=HEADERS)
-    print(response)
-    return Course(response.json())
-
-
-def set_course_as_blueprint(course: Course) -> Course:
-    """
-
-    Args:
-        course(dict[str, str]): The course to set as blueprint
-
-    Returns:
-        dict[str, str]: The course
-
-
-    """
-
-    assert course, "Course does not exist"
-
-    url = f"{API_URL}/courses/{course['id']}"
-    payload = {
-        'course[blueprint]': True,
-        'course[use_blueprint_restrictions_by_object_type]': 0,
-        'course[blueprint_restrictions][content]': 1,
-        'course[blueprint_restrictions][points]': 1,
-        'course[blueprint_restrictions][due_dates]': 1,
-        'course[blueprint_restrictions][availability_dates]': 1,
-    }
-    response = requests.put(url, data=payload, headers=HEADERS)
-    print(response)
-    return Course(response.json())
-
-
-def reset_course(course: Course):
-    """Summary
-        Resets the course and returns the reset version of the course
-    Args:
-        course: The course to reset
-
-    Returns:
-        TYPE: The new shiny, empty course
-    """
-
-    assert course, "Course does not exist"
-
-    # ask for confirmation if we're not running this imported from another module
-    if __name__ != "__main__" or messagebox.askyesno(
-            title="Do You Want To Reset",
-            message=f"Are you sure you want to reset {course['name']}?'"):
-
-        url = f'{API_URL}/courses/{course["id"]}/reset_content'
-        response = requests.post(url, headers=HEADERS)
-        print(response)
-        if response.ok:
-            course['id'] = response.json()['id']
-            return Course(response.json())
-
-        else:
-            raise Exception(response.json())
-    return False
-
-
-def import_dev_course(bp_course: Course, progress_bar=None):
-    """
-    Imports the dev version of a BP course into the BP course
-
-    Args:
-        bp_course: the bp course to import into
-        progress_bar: an optional progress bar to update with progress
-    """
-    match = re.search(COURSE_CODE_REGEX, bp_course["course_code"])
-    assert match, "This is not a course code " + bp_course["course_code"]
-    prefix = match.group(1)
-    course_code = match.group(2)
-    assert prefix.upper() == 'BP', "Course code is not a blueprint"
-    dev_course = get_course_by_code(f"DEV_{course_code}")
-
-    # if we're running this right from the script (instead of a unit test) prompt to confirm
-    if course_code == "__main__":
-        if not tk.messagebox.askyesno(
-                f"Are you sure you want to import {dev_course['name']} into {bp_course['name']}?"):
-            return None
-
-    return import_course(bp_course, dev_course, progress_bar=progress_bar)
-
-
-def import_course(dest_course: Course, source_course: Course, progress_bar=None) -> dict:
-    """
-        Copies source course into destination course. Returns the migration object
-        once the migration is finished.
-    Args:
-        dest_course: The course to copy into
-        source_course: The course to copy from
-        progress_bar: An optional progress bar to update
-
-    Returns:
-
-    """
-    payload = {
-        "migration_type": "course_copy_importer",
-        "settings[source_course_id]": source_course["id"]}
-
-    url = f"{API_URL}/courses/{dest_course['id']}/content_migrations"
-    response = requests.post(url, data=payload, headers=HEADERS)
-    print(response)
-    if response.ok:
-        return poll_migration(migration=response.json(), progress_bar=progress_bar)
 
 
 def generate_email(
@@ -718,13 +1074,13 @@ def generate_email(
 
     code = course["course_code"][3:]
 
-    example_course_data = get_course_by_id(
+    example_course = Course.get_by_id(
         courses[0]['id'] if courses
         else course['id'])
-    print(json.dumps(example_course_data, indent=2))
+    print(json.dumps(example_course, indent=2))
 
     start_date = datetime.datetime.fromisoformat(
-        example_course_data['term']["start_at"])
+        example_course['term']["start_at"])
     start_date = start_date + datetime.timedelta(days=7)
 
     email_subject = \
@@ -732,7 +1088,7 @@ def generate_email(
 
     email_body = template.format(
         term={
-            "name": example_course_data['term']['name'],
+            "name": example_course['term']['name'],
             "start": start_date.strftime('%B %#d')
         },
         creator={
@@ -770,12 +1126,16 @@ def generate_email(
 def begin_course_sync(
         *,
         bp_course: Course,
-        progress_bar: ttk.Progressbar,
-        status_label: tk.Label) -> dict | None:
+        wait_for_completion: True,
+        progress_bar: ttk.Progressbar=None,
+        progress_callback: Callable=None,
+        status_label: tk.Label=None) -> dict | None:
     """Summary
         Begins the sync process of the blueprint to its member course
 
     Args:
+        wait_for_completion: Whether or not to poll the results or just let the syncs happen
+        progress_callback: a callback of func(percent, status)
         bp_course: The blueprint course
         progress_bar: The progress bar to update. Not sure if we
         status_label: The status label to update with info
@@ -803,25 +1163,26 @@ def begin_course_sync(
         return None
 
     migration = response.json()
-    poll_migration(
-        migration,
-        f'{API_URL}/courses/{bp_course["id"]}'
-        + '/blueprint_templates/default/'
-        + f'migrations/{migration["id"]}',
-        status_label=status_label,
-        progress_bar=progress_bar
-    )
+    print(migration)
+    if wait_for_completion:
+        poll_migration(
+            migration,
+            migration_url=f'{API_URL}/courses/{bp_course["id"]}/blueprint_templates/default/migrations/{migration["id"]}',
+            progress_bar=progress_bar,
+            progress_callback=progress_callback)
 
 
 def poll_migration(
         migration: dict,
         migration_url: str | None = None,
         progress_bar: ttk.Progressbar | None = None,
+        progress_callback: Callable = None,
         status_label: tk.Label | None = None,
         poll_interval: float = 2.0):
     """
 
     Args:
+        progress_callback:
         migration(dict): a migration dict from canvas API
         migration_url(str): the url to poll, if different from that in the migration object
         progress_bar(ttk.Progressbar): an optional progress bar to update
@@ -848,8 +1209,11 @@ def poll_migration(
         print(migration['workflow_state'])
         if status_label is not None:
             status_label.configure(text=f"{migration['workflow_state']}...")
-        if progress_bar is not None and 'completion' in migration:
-            update_progress_bar(progress_bar, migration['completion'])
+        if 'completed' in migration:
+            if progress_bar is not None:
+                update_progress_bar(progress_bar, migration['completion'])
+            if progress_callback is not None:
+                progress_callback(migration['completion'], status=migration['workflow_state'])
         time.sleep(poll_interval)
         response = requests.get(migration_url, headers=HEADERS)
         if response.ok:
@@ -860,25 +1224,6 @@ def poll_migration(
     print(response)
     print(response.content)
     return migration
-
-
-def publish_courses(*, courses: list):
-    """Summary
-    Publishes a set of courses.
-
-    Args:
-        courses (list): A list of course dicts
-    """
-    url = f'{API_URL}/accounts/{ACCOUNT_ID}/courses'
-    data = {
-        'event': 'offer',
-        # list of course ids
-        'course_ids[]': list(map(lambda a: a['id'], courses))
-    }
-    response = requests.put(url, headers=HEADERS, data=data)
-    if not response.ok:
-        print(response)
-        print(response.content)
 
 
 def lock_module_items(course: Course, progress_bar: ttk.Progressbar | None = None):
@@ -1067,7 +1412,7 @@ def remove_lm_annotations_from_course(course):
         if lm_page:
             url = f"{API_URL}/courses/{course['id']}/pages/{lm_page['page_url']}"
             full_page = requests.get(url, headers=HEADERS).json()
-            body = remove_lm_annotations(full_page['body'])
+            body = LmFilter.remove_lm_annotations(full_page['body'])
             print(lm_page['url'])
             data = {
                 'wiki_page[body]': body
@@ -1076,104 +1421,6 @@ def remove_lm_annotations_from_course(course):
                 lm_page['url'],
                 headers=HEADERS,
                 data=data)
-
-
-def update_syllabus_text(text: str):
-    """Summary
-        Executes a series of find/replaces on the text of a syllabus
-
-    Args:
-        text (str): The syllabus body html
-
-    Returns:
-        TYPE: The syllabus with all operations performed
-    """
-
-    global SYLLABUS_REPLACEMENTS
-    for replacement in SYLLABUS_REPLACEMENTS:
-        text = re.sub(replacement['find'], replacement['replace'], text)
-    return text
-
-
-def update_syllabus(course_id: int):
-    """Summary
-        Updates the syllabus of a specific course id
-
-    Args:
-        course_id (int): The id of the course to operate on
-    """
-    url = f"{API_URL}/courses/{course_id}?include[]=syllabus_body"
-    response = requests.get(url, headers=HEADERS)
-    content = response.json()
-    if not response.ok:
-        return False
-    print(content)
-    syllabus = update_syllabus_text(content["syllabus_body"])
-    response = requests.put(
-        f'{API_URL}/courses/{course_id}',
-        headers=HEADERS,
-        data={
-            "course[syllabus_body]": syllabus})
-    print(response)
-
-
-class LmFilters:
-    @staticmethod
-    def cbt_parents(item):
-        return item.has_attr('class') and 'cbt-content' in item['class']
-
-    @staticmethod
-    def lm_narrative(item):
-        is_content_block = item.has_attr('class') and 'cbt-content' in item['class']
-        print(is_content_block)
-        match = re.search(r'(\[\w*LM Narrative|LM Narrative])', item.text)
-        if match:
-            print(item)
-            print(match)
-        return is_content_block and match
-
-
-def remove_lm_annotations(text: str) -> str:
-    """Summary
-        Runs a list of regex replacements on html text of a
-        Learning Material page (replacements, defined above)
-
-    Args:
-        text (str): An html string containing
-        the body of a learning materials page
-
-    Returns:
-        str: An html string with the regexes run on it
-    """
-    # one liners to replace
-    global LEARNING_MATERIALS_REPLACEMENTS
-
-    for replace in LEARNING_MATERIALS_REPLACEMENTS:
-        find = re.compile(replace['find'], flags=re.MULTILINE)
-        print(replace['find'])
-        match = re.search(find, text)
-        if match:
-            print("FOUND", match)
-            text = re.sub(find, replace['replace'], text)
-
-    # remove these sections
-    soup = BeautifulSoup(text, 'lxml')
-    bq = soup.find('blockquote')
-    print("BQ", bq)
-    if bq and "SME" in str(bq):
-        parent = single_filter(LmFilters.cbt_parents, bq.parents)
-        parent.decompose()
-
-    divs = soup.find_all('div')
-    trash_divs = filter(LmFilters.lm_narrative, divs)
-    print(trash_divs)
-    if trash_divs:
-        for div in trash_divs:
-            div.decompose()
-
-    out = str(soup.find('body'))
-    out = re.sub(r'</?body>', '', out)
-    return out
 
 
 def single_filter(func, to_filter, default=None):
@@ -1403,12 +1650,8 @@ def get_course_by_id(course_id: int) -> Course:
 
     DeprecationWarning: Use Course.get_by_id(course_id) instead
     """
-
-    url = f'{API_URL}/courses/{course_id}' \
-          + '?include[]=term&include[]=grading_periods'
-    response = requests.get(url, headers=HEADERS)
-    assert response.ok
-    return Course(response.json())
+    warnings.warn("DeprecationWarning: Use Course.get_by_id instead")
+    return Course.get_by_id(course_id)
 
 
 def format_homepage(profile: Profile, course: Course, homepage: dict):
@@ -1440,7 +1683,8 @@ def format_homepage(profile: Profile, course: Course, homepage: dict):
             bio=profile.bio)
         text = clean_up_bio(text)
 
-    ensure_directory_exists('profiles')
+    if not os.path.exists('profiles'):
+        os.makedirs('profiles')
     profile_path = f'profiles/{profile.user["id"]}_{course["id"]}.htm'
     with open(profile_path, 'wb') as f:
         f.write(text.encode("utf-8", "replace"))
@@ -1557,23 +1801,6 @@ def get_course_profile_from_assignment(course):
         print("The instructor of the course {} cannot be found.".format(
             course_id))
     return get_instructor_profile_submission(instructor)
-
-
-def get_blueprint_courses(bp_id: int) -> list[Course]:
-    """Summary
-        Gets a list of courses associated with a blueprint course id
-
-    Args:
-        bp_id: The blueprint course ID
-
-    Returns:
-        TYPE: A list of courses associated with this blueprint
-    """
-    url = f"{API_URL}/courses/{bp_id}/" \
-          "blueprint_templates/default/associated_courses?per_page=50"
-    courses = get_paged_data(url)
-
-    return list(map(lambda a: Course(a), courses))
 
 
 def overwrite_home_page(profile: Profile, course: Course) -> str:
@@ -1979,59 +2206,11 @@ def get_course_id_from_string(course_string: str):
         return int(id_match.group(1))
     elif course_name_match:
         print(course_name_match)
-        return get_course_by_code(course_name_match.group(1))['id']
+        return Course.get_by_code(course_name_match.group(1))['id']
     elif course_root_name_match:
-        return get_course_by_code(f"BP_{course_root_name_match.group(1)}")['id']
+        return Course.get_by_code(f"BP_{course_root_name_match.group(1)}")['id']
     else:
         return None
-
-
-def get_course_by_code(code: str, params=None, return_list=False) -> Course | List[Course | None] | None:
-    """Summary
-        attempts to find a course by course code,
-        inclusive of starting component
-        currently does not support
-        course sections
-
-    Args:
-        return_list: True if you want to return a list of courses that match
-        params: any params to be passed to the call
-        code (str): The course code
-
-    Returns:
-        Course | List(Course): The matching course or a list of same
-        or None if no match
-
-    Deprecated: Use Course.get_course_by_code() instead
-
-    """
-    if params is None:
-        params = {}
-    url = f"{API_URL}/accounts/{ROOT_ACCOUNT_ID}/courses?"
-    print(url)
-    courses = get_paged_data(
-        url,
-        headers=HEADERS,
-        params={"search_term": code, **params})
-    if courses and len(courses) > 1:
-        courses.sort(reverse=True, key=lambda course: course['id'])
-
-    return list(map(lambda a: Course(a),courses)) if return_list else Course(courses[0])
-
-
-def get_sections(course):
-    url = f'{API_URL}/courses/{course["id"]}/sections?include[]=students&include[]=enrollments'
-    sections = requests.get(url, headers=HEADERS, data={
-        "include[]": "enrollments"
-    }).json()
-    return sections
-
-
-def ensure_directory_exists(directory_path):
-    # Ensure the directory exists; create if not
-    if not os.path.exists(directory_path):
-        os.makedirs(directory_path)
-
 
 def main():
     """Summary
