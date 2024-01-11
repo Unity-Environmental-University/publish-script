@@ -51,44 +51,69 @@ CONSTANTS_FILE: str = 'constants.json'
 MAX_PROFILE_IMAGE_SIZE: int = 400
 
 
-def in_test(to_match):
-    def func(text):
-        return to_match in text
+class Replacement:
+    def __init__(self, find: str, replace: str, tests: list[Callable]):
+        self.find = find
+        self.replace = replace
+        self.tests = tests
+        print(self.find, self.replace, self.tests)
 
-    return func
+    @staticmethod
+    def in_test(to_match):
+        def func(text):
+            return to_match in text
+        return func
 
+    @staticmethod
+    def re_search(expression, true_if_false=False):
+        def func(text):
+            match = re.search(expression, text)
+            out = False
+            if match is not None:
+                if true_if_false:
+                    out = False
+                else:
+                    out = match
+            print(out)
+            return out
+        return func
+    @staticmethod
+    def not_in_test(to_match):
+        def func(text):
+            return not to_match in text
+        return func
 
-def not_in_test(to_match):
-    def func(text):
-        return to_match not in text
+    def check_tests(self, text: str, assert_pass=False):
+        print(assert_pass)
+        for test in self.tests:
+            if not test(text):
+                if assert_pass:
+                    assert False, 'Test Failed'
+                else:
+                    return False
 
-    return func
+        return True
 
 
 class SyllabusFix:
-
     replacements: list = [
-        {
-            'find': r'<p>The instructor will conduct [^.]*\(48 hours during weekends\)\.',
-            'replace': r'<p>The instructor will conduct all '
-                       + r'correspondence with students related to the class in Canvas,'
+        Replacement(
+            find=r'<p>The instructor will conduct [^.]*\(48 hours during weekends\)\.',
+            replace=r'<p>The instructor will conduct all '
+            + r'correspondence with students related to the class in Canvas,'
             + ' and you should expect to receive a response to emails within 24 hours.',
-            'tests': [
-                not_in_test('48 hours'),
-                in_test('you should expect')
-            ]
-        },
-        {
-            'find': 'EducationGenerative',
-            'replace': 'Education Generative',
-            'tests': [
-                not_in_test('EducationGenerative'),
-                in_test('Education Generative')
-            ]
-        },
-        {
-            'find': r'(</tr>.*\n)(.*)(<tr.*\n.*<td.*\n.*Copyright\s*</strong>)',
-            'replace': '''\1<tr>
+            tests=[
+                Replacement.not_in_test('48 hours'),
+                Replacement.in_test('you should expect')]),
+        Replacement(
+            find='EducationGenerative',
+            replace='Education Generative',
+            tests=[
+                Replacement.not_in_test('EducationGenerative'),
+                Replacement.in_test('Education Generative')]),
+        Replacement(
+            find=r'(</tr>.*\n)(.*)(<tr.*\n.*<td.*\n.*Copyright\s*</strong>)',
+            replace=r'''\1<tr>
                     <td style="width: 99.8918%;">
                         <h4><strong>
                         Guidelines for Using Generative Artificial Intelligence [AI] in this Course:
@@ -112,39 +137,39 @@ class SyllabusFix:
                         <p>You are encouraged to contact your instructor if you have questions about how to use 
                         generative AI effectively to support your learning.</p>
                     </td>
-                </tr>\3''',
-            'tests': [
-                in_test('generative AI effectively to support')
-            ]
-        }
-    ]
+                </tr>
+                \3''',
+            tests=[
+                Replacement.in_test('generative AI effectively to support'),
+                Replacement.re_search(r'>\s*Copyright\s*<')])]
 
     @classmethod
-    def fix(cls, text: str) -> str:
-        for replacement in cls.replacements:
+    def fix(cls, source_text: str) -> str:
+        replacements = SyllabusFix.replacements
+        out_text = source_text
+        print(list(map(lambda a: a.find, replacements)))
+        for replacement in replacements:
 
             # run replacement tests and skip if they all are already matching
-            test_failed = False
-            for test in replacement['tests']:
-                if not test(text):
-                    test_failed = True
-                    break
-            if not test_failed:
+            print(replacement.find)
+            match = re.search(replacement.find, source_text)
+            # if tests already pass, we don't need to do anything
+            if replacement.check_tests(source_text):
+                print(f'Checks ')
                 continue
 
-            print(replacement['find'])
-            print(len(cls.replacements))
-            match = re.search(replacement['find'], text)
             groups: tuple
             if match:
                 groups = match.groups()
             else:
                 continue
-            text = re.sub(replacement['find'], replacement['replace'], text)
-            if replacement['tests']:
-                for test in replacement['tests']:
-                    assert test(text)
-        return text
+
+            backup_text = out_text
+            out_text = re.sub(replacement.find, replacement.replace, source_text)
+            if not replacement.check_tests(out_text, assert_pass=True):
+                out_text = backup_text
+
+        return out_text
 
 
 class LmFilter:
@@ -338,9 +363,6 @@ class BaseCanvasObject:
     """
     A base class for classes that talk to and hold data from canvas API,
     """
-    api_link: CanvasApiLink
-    _canvas_data: dict
-
     def __init__(self, data, headers=None, api_url=None, **kwargs):
         """
         Initializes the object
