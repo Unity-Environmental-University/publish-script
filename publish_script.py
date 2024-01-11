@@ -56,7 +56,6 @@ class Replacement:
         self.find = find
         self.replace = replace
         self.tests = tests
-        print(self.find, self.replace, self.tests)
 
     @staticmethod
     def in_test(to_match):
@@ -77,6 +76,7 @@ class Replacement:
             print(out)
             return out
         return func
+
     @staticmethod
     def not_in_test(to_match):
         def func(text):
@@ -589,6 +589,22 @@ class Course(BaseCanvasObject):
         })
         return sections
 
+    @property
+    def tabs(self):
+       return self.api_link.get(f'courses/{self.id}/tabs')
+
+    def get_tab(self, label):
+        return next(filter(lambda x: x['label'] == label, self.tabs), None)
+
+    def tab_hidden(self, label: str, value: bool):
+        tab = self.get_tab(label)
+        if tab is None:
+            return None
+        return self.api_link.put(f'courses/{self.id}/tabs/{tab["id"]}', data={
+            'hidden': value
+        })
+
+
     def change_syllabus(self, val: str):
         self._canvas_data['syllabus_body'] = val
         self.api_link.put(f'courses/{self.id}', data={
@@ -725,7 +741,11 @@ class Course(BaseCanvasObject):
 
         # sort by id descending so the first element is the latest created
         migrations.sort(reverse=True, key=lambda migration: migration['id'])
-        return Course.get_by_id(migrations[0]['settings']['source_course_id'])
+        try:
+            return Course.get_by_id(migrations[0]['settings']['source_course_id'])
+        except AssertionError:
+            return Course.get_by_code('DEV_' + self.base_code)
+
 
 
 class Term(BaseCanvasObject):

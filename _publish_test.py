@@ -1,3 +1,4 @@
+import json
 import re
 import unittest
 from typing import List
@@ -236,6 +237,20 @@ class TestCourse(unittest.TestCase):
         self.assertFalse(course.is_published)
         course.publish()
         self.assertTrue(course.is_published)
+
+    def test_tabs(self):
+        course = get_test_course()
+        tabs = course.tabs
+        self.assertGreater(len(tabs), 0, "No tabs found")
+        tab = course.get_tab('Dropout Detective')
+        self.assertIsNotNone(tab, "Dropout Detective not found")
+        course.tab_hidden('Dropout Detective', False)
+        tab = course.get_tab('Dropout Detective')
+        if 'hidden' in tab:
+            self.assertFalse(tab['hidden'], "Dropout Detective not hidden")
+        course.tab_hidden('Dropout Detective', True)
+        tab = course.get_tab('Dropout Detective')
+        self.assertTrue(tab['hidden'], "Dropout Detective hidden")
 
 
 class TestTerm(unittest.TestCase):
