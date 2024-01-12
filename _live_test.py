@@ -1,7 +1,7 @@
 
 import unittest
 import publish_script
-from publish_script import Course
+from publish_script import Course, Term
 import re
 import requests
 import json
@@ -39,30 +39,7 @@ test_course_code: str = 'TEST000'
 print(publish_script.API_URL)
 
 
-def is_section_setup(course):
-    sections = course.get_sections()
-    grading_sections = list(filter(lambda a: a['name'].lower() == 'grading', sections))
-    if len(grading_sections) > 0:
-        instructor = publish_script.get_canvas_instructor(course['id'])
-        print(course['name'])
-        print(instructor['name'])
-        print(grading_sections)
-        section = grading_sections[0]
-        assert section['start_at'] == '2023-12-28T05:00:00Z' or section['start_at'] == '2023-12-27T05:00:00Z'
-        assert section['end_at'] == '2023-12-31T05:00:00Z' or section['end_at'] == '2024-01-01T05:00:00Z'
-        assert section['restrict_enrollments_to_section_dates']
-        enrollments = requests.get(
-            f'{API_URL}/sections/{section["id"]}/enrollments',
-            headers=publish_script.HEADERS).json()
-        assert len(enrollments) == 1
-        enrollment = enrollments[0]
-        print(enrollment)
-        assert enrollment['user']['name'] == instructor['name']
-        return True
-    return False
-
-
-class TestInsertSection(unittest.TestCase):
+class TestSectionInserted(unittest.TestCase):
     def test_get_terms(self):
         url = f'{publish_script.API_URL}/accounts/{publish_script.ROOT_ACCOUNT_ID}/terms'
         terms = requests.get(url, headers=publish_script.HEADERS).json()
@@ -99,7 +76,34 @@ class TestInsertSection(unittest.TestCase):
                 print(course)
                 instructor = publish_script.get_canvas_instructor(course['id'])
                 if instructor['name'] in names_by_code[code]:
-                    self.assertTrue(is_section_setup(course))
+                    self.assertTrue(self.is_section_setup(course))
+
+    @staticmethod
+    def is_section_setup(course):
+        sections = course.get_sections()
+        grading_sections = list(filter(lambda a: a['name'].lower() == 'grading', sections))
+        if len(grading_sections) > 0:
+            instructor = publish_script.get_canvas_instructor(course['id'])
+            print(course['name'])
+            print(instructor['name'])
+            print(grading_sections)
+            section = grading_sections[0]
+            assert section['start_at'] == '2023-12-28T05:00:00Z' or section['start_at'] == '2023-12-27T05:00:00Z'
+            assert section['end_at'] == '2023-12-31T05:00:00Z' or section['end_at'] == '2024-01-01T05:00:00Z'
+            assert section['restrict_enrollments_to_section_dates']
+            enrollments = requests.get(
+                f'{API_URL}/sections/{section["id"]}/enrollments',
+                headers=publish_script.HEADERS).json()
+            assert len(enrollments) == 1
+            enrollment = enrollments[0]
+            print(enrollment)
+            assert enrollment['user']['name'] == instructor['name']
+            return True
+        return False
+
+
+    def test_syllabi(self):
+        term = Term.get_term('DE/HL-24-Jan')
 
 
 if __name__ == '__main__':
