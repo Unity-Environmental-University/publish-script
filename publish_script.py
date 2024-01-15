@@ -51,20 +51,29 @@ CONSTANTS_FILE: str = 'constants.json'
 MAX_PROFILE_IMAGE_SIZE: int = 400
 
 
+class ReplaceException(BaseException):
+    def __init__(self, message: str):
+
+        pass
+
+
 class Replacement:
-    def __init__(self, find: str, replace: str, tests: list[Callable]):
+    def __init__(self, find: str, replace: str | Callable, tests: list):
         self.find = find
         self.replace = replace
         self.tests = tests
 
     @staticmethod
-    def in_test(to_match):
+    def in_test(to_match, phase=None, msg=None):
+        msg = to_match if msg is None else msg
+
         def func(text):
             return to_match in text
-        return func
+        return func, phase, msg
 
     @staticmethod
-    def re_search(expression, true_if_false=False):
+    def re_search(expression, true_if_false=False, phase=None, msg=None):
+        msg = expression if msg is None else msg
         def func(text):
             match = re.search(expression, text)
             out = False
@@ -75,99 +84,163 @@ class Replacement:
                     out = match
             print(out)
             return out
-        return func
+        return func, phase, msg
 
     @staticmethod
-    def not_in_test(to_match):
+    def not_in_test(to_match, phase=None, msg=None):
+        msg = to_match if msg is None else msg
+
         def func(text):
-            return not to_match in text
-        return func
+            return to_match not in text
+        return func, phase, msg
 
-    def check_tests(self, text: str, assert_pass=False):
-        print(assert_pass)
-        for test in self.tests:
-            if not test(text):
-                if assert_pass:
-                    assert False, 'Test Failed'
-                else:
-                    return False
+    def pre_check(self, text:str):
+        return self._check_tests(text, phase='pre')
 
-        return True
+    def post_check(self, text:str):
+        def callback(msg):
+            raise ReplaceException(msg)
+        return self._check_tests(text, 'post', callback)
+
+    def _check_tests(self, text: str, phase=None, on_fail: Callable = None):
+        for test, phase_, msg in self.tests:
+            if (phase and phase == phase_) or not phase_ or not phase:
+                result, msg = test(text), msg
+                if not test(text):
+                    if on_fail:
+                        on_fail(msg)
+                    return result, msg
+        return True, "all tests passed"
+
+    def fix(self, source_text) -> (bool, str):
+        no_need_to_run, msg = self.pre_check(source_text)
+
+        if no_need_to_run:
+            print("all tests passed, no need to apply fix " + self.find)
+            return False
+
+        groups: tuple
+        match = re.search(self.find, source_text)
+        if match:
+            groups = match.groups()
+        else:
+            warnings.warn(self.find + " not found")
+            return False
+
+        if callable(self.replace):
+            replace = self.replace
+            replace(match, source_text)
+
+        backup_text = source_text
+        out_text = re.sub(self.find, self.replace, source_text)
+        result, msg = self.post_check(out_text)
+        if not result:
+            raise ReplaceException(msg)
+
+        return out_text
 
 
 class SyllabusFix:
-    replacements: list = [
+
+
+    replacements = [
+
+        Replacement(
+            find=r'''<div class="cbt-table">\s*<p>Please make sure that.*library webpage for more information.</p>''',
+            replace='<div class="cbt-table">',
+            tests=[
+                Replacement.re_search(r'>\s*Copyright\s*<',  phase="pre")
+            ]
+        ),
+        Replacement(
+            find=r'(support your learning\.\s*</p>\s*</td>\s*</tr>)(\s*<tr style="height: 178px;">)',
+            replace=r'''\1
+<tr style="height: 118px;">
+<td style="width: 99.8918%; height: 118px;">
+<h3><strong>Copyright</strong></h3>
+<p>Please make sure that any photographs or materials used for class projects are not copyright protected. If you have any questions about copyright law, please go to the Unity Environmental University library webpage for more information.</p>
+</td>
+</tr>
+\2''',
+            tests=[
+                Replacement.re_search(r'<h3(.*)Copyright(.*)h3>'),
+            ]
+        ),
+        Replacement(
+            find=r'(<th[^>]*>)[\s\n]*Assignments[\s\n]*</th>',
+            replace=r'\1Letter Grade</th>',
+            tests=[
+                Replacement.in_test('Letter Grade</th>')
+            ]
+        ),
+        Replacement(
+            find=r'(<th[^>]*>)[\s\n]*Due date[\s\n]*</th>',
+            replace=r'\1Percent</th>',
+            tests=[
+                Replacement.in_test('Percent</th>')
+            ]
+        ),
+        Replacement(
+            find=r'(<th[^>]*>)[\s\n]*Weight[\s\n]*</th>',
+            replace=r'\1</th>',
+            tests=[
+                Replacement.not_in_test('Weight</th>')
+            ]
+        ),
         Replacement(
             find=r'<p>The instructor will conduct [^.]*\(48 hours during weekends\)\.',
             replace=r'<p>The instructor will conduct all '
-            + r'correspondence with students related to the class in Canvas,'
-            + ' and you should expect to receive a response to emails within 24 hours.',
+                    + r'correspondence with students related to the class in Canvas,'
+                    + ' and you should expect to receive a response to emails within 24 hours.',
             tests=[
                 Replacement.not_in_test('48 hours'),
-                Replacement.in_test('you should expect')]),
+                Replacement.in_test('you should expect')
+            ]
+        ),
         Replacement(
             find='EducationGenerative',
             replace='Education Generative',
             tests=[
                 Replacement.not_in_test('EducationGenerative'),
-                Replacement.in_test('Education Generative')]),
+                Replacement.in_test('Education Generative')
+            ]
+        ),
         Replacement(
             find=r'(</tr>.*\n)(.*)(<tr.*\n.*<td.*\n.*Copyright\s*</strong>)',
-            replace=r'''\1<tr>
-                    <td style="width: 99.8918%;">
-                        <h4><strong>
-                        Guidelines for Using Generative Artificial Intelligence [AI] in this Course:
-                        </strong></h4>
-                        <p>Using generative AI must be done with an understanding of the 
-                        <a class="inline_disabled" href="/courses/3266650/pages/gen-ai-student-policy" target="_blank" rel="noopener">
-                            <strong>Unity Distance Education Generative Artificial Intelligence Policy for Students</strong>
-                        </a>, which spells out acceptable and unacceptable uses of generative AI in your studies in the Unity Distance Education Program.</p>
-                        <p><strong>Please read this policy before completing
-                        coursework using generative AI in this course.</strong></p>
-                        <ul>
-                            <li>In this course, you may be encouraged to explore employing generative AI tools to
-                            improve your understanding of course content.
-                            <em>Potentially permitted uses of generative AI are detailed in the above policy.</em></li>
-                            <li>There also may be specific work in which content produced by generative AI will not be
-                            accepted in this course.<em> It will be specifically noted in the course materials when you
-                            are not permitted to submit work produced by generative AI.</em></li>
-                            <li>When no explicit statement about the use of generative AI is provided in an assignment,
-                            these tools are permitted.</li>
-                        </ul>
-                        <p>You are encouraged to contact your instructor if you have questions about how to use 
-                        generative AI effectively to support your learning.</p>
-                    </td>
-                </tr>
-                \3''',
+            replace=r'''\1
+<tr>
+<td style="width: 99.8918%;">
+<h4><strong>
+Guidelines for Using Generative Artificial Intelligence [AI] in this Course:
+</strong></h4>
+<p>Using generative AI must be done with an understanding of the
+<a class="inline_disabled" href="http://unity.instructure.com/courses/3266650/pages/gen-ai-student-policy" target="_blank" rel="noopener">
+<strong>Unity Distance Education Generative Artificial Intelligence Policy for Students</strong>
+</a>, which spells out acceptable and unacceptable uses of generative AI in your studies in the Unity Distance Education Program.</p>
+<p><strong>Please read this policy before completing coursework using generative AI in this course.</strong></p>
+<ul>
+<li>In this course, you may be encouraged to explore employing generative AI tools to improve your understanding of course content.
+<em>Potentially permitted uses of generative AI are detailed in the above policy.</em></li>
+<li>There also may be specific work in which content produced by generative AI will not be accepted in this course.<em> It will be specifically noted in the course materials when you are not permitted to submit work produced by generative AI.</em></li>
+<li>When no explicit statement about the use of generative AI is provided in an assignment, these tools are permitted.</li>
+</ul>
+<p>You are encouraged to contact your instructor if you have questions about how to use generative AI effectively to support your learning.</p>
+</td>
+</tr>
+\3''',
             tests=[
                 Replacement.in_test('generative AI effectively to support'),
-                Replacement.re_search(r'>\s*Copyright\s*<')])]
-
+                Replacement.re_search(r'>\s*Copyright\s*<')
+            ]
+        ),
+    ]
     @classmethod
     def fix(cls, source_text: str) -> str:
-        replacements = SyllabusFix.replacements
         out_text = source_text
-        print(list(map(lambda a: a.find, replacements)))
-        for replacement in replacements:
-
-            # run replacement tests and skip if they all are already matching
-            print(replacement.find)
-            match = re.search(replacement.find, source_text)
-            # if tests already pass, we don't need to do anything
-            if replacement.check_tests(source_text):
-                print(f'Checks ')
-                continue
-
-            groups: tuple
-            if match:
-                groups = match.groups()
-            else:
-                continue
-
-            backup_text = out_text
-            out_text = re.sub(replacement.find, replacement.replace, source_text)
-            if not replacement.check_tests(out_text, assert_pass=True):
-                out_text = backup_text
+        for replacement in cls.replacements:
+            fixed_text = replacement.fix(out_text)
+            if fixed_text:
+                out_text = fixed_text
 
         return out_text
 

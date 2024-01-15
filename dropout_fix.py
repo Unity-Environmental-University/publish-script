@@ -18,7 +18,6 @@ def progress(percent, status, **args):
 
 i = 0
 
-
 for code in course_string.split():
     print(f"Starting for {code}")
     if '_' not in code:
