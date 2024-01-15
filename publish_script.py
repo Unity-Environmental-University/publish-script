@@ -142,9 +142,14 @@ class Replacement:
 
 class SyllabusFix:
 
-
     replacements = [
-
+        Replacement(
+            find=r'''To access a discussion's grading.*and then click "show rubric".''',
+            replace=r'''To access a discussion's grading rubric, click on the "View Rubric" button in the discussion directions and/or the "Dot Dot Dot" (for screen readers, titled "Manage this Discussion") button in the upper right corner of the discussion, and then click "show rubric".''',
+            tests=[
+                Replacement.in_test(r'"View Rubric" button')
+            ]
+        ),
         Replacement(
             find=r'''<div class="cbt-table">\s*<p>Please make sure that.*library webpage for more information.</p>''',
             replace='<div class="cbt-table">',
@@ -234,6 +239,7 @@ Guidelines for Using Generative Artificial Intelligence [AI] in this Course:
             ]
         ),
     ]
+
     @classmethod
     def fix(cls, source_text: str) -> str:
         out_text = source_text

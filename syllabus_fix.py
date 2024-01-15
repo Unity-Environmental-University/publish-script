@@ -11,10 +11,8 @@ course_string = simpledialog.askstring(
 
 not_found = []
 
-
 def progress(percent, status, **args):
     print(percent, status)
-
 
 i = 0
 
@@ -40,9 +38,11 @@ for code in course_string.split():
 
     if course.associated_courses:
         print(map(lambda c: c.code, course.associated_courses))
-        ps.begin_course_sync(bp_course=course, progress_callback=progress, wait_for_completion=True)
-        for associate_course in course.associated_courses:
-            ps.open_browser_func([f'{associate_course.course_url}/assignments/syllabus'])
+        wait = False
+        ps.begin_course_sync(bp_course=course, progress_callback=progress, wait_for_completion=wait)
+        if wait:
+            for associate_course in course.associated_courses:
+                ps.open_browser_func([f'{associate_course.course_url}/assignments/syllabus'])
 
 messagebox.showinfo("Finished", f"Finished! \n{i} BP/DEV pairs found and updated.")
 
