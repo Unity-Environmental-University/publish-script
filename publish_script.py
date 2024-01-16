@@ -1,7 +1,6 @@
-import inspect
-import warnings
 from functools import cached_property
-
+import warnings
+import inspect
 try:
     import aiohttp
 except ImportError as e:
@@ -53,7 +52,7 @@ MAX_PROFILE_IMAGE_SIZE: int = 400
 
 class ReplaceException(BaseException):
     def __init__(self, message: str):
-
+        super().__init__(message)
         pass
 
 
@@ -74,6 +73,7 @@ class Replacement:
     @staticmethod
     def re_search(expression, true_if_false=False, phase=None, msg=None):
         msg = expression if msg is None else msg
+
         def func(text):
             match = re.search(expression, text)
             out = False
@@ -140,8 +140,21 @@ class Replacement:
         return out_text
 
 
-class SyllabusFix:
+class FixSet:
+    replacements = []
 
+    @classmethod
+    def fix(cls, source_text: str) -> str:
+        out_text = source_text
+        for replacement in cls.replacements:
+            fixed_text = replacement.fix(out_text)
+            if fixed_text:
+                out_text = fixed_text
+
+        return out_text
+
+
+class SyllabusFix(FixSet):
     replacements = [
         Replacement(
             find=r'''To access a discussion's grading.*and then click "show rubric".''',
@@ -240,15 +253,17 @@ Guidelines for Using Generative Artificial Intelligence [AI] in this Course:
         ),
     ]
 
-    @classmethod
-    def fix(cls, source_text: str) -> str:
-        out_text = source_text
-        for replacement in cls.replacements:
-            fixed_text = replacement.fix(out_text)
-            if fixed_text:
-                out_text = fixed_text
 
-        return out_text
+class EvalFix(FixSet):
+    @classmethod
+    def find_content(cls, course: 'Course'):
+        return course.get_page_by_name('Course Evaluation')
+
+    replacements = [
+        Replacement(
+            find=""
+        )
+    ]
 
 
 class LmFilter:
@@ -475,6 +490,47 @@ class BaseCanvasObject:
 
         """
         return self._canvas_data['id']
+
+
+class BaseContentItem(BaseCanvasObject):
+    _name_property = 'title'
+    _body_property = 'body'
+
+    def __init__(self, course: 'Course', data, **kwargs):
+        super().__init__(data, **kwargs)
+        self._course = course
+
+    @property
+    def name(self) -> str:
+        return self[self._name_property]
+
+    @property
+    def body(self) -> str:
+        return self[self._body_property]
+
+    @property
+    def course(self) -> 'Course':
+        return self.course
+
+
+class Discussion(BaseContentItem):
+    _name_property = 'title'
+    _body_property = 'message'
+
+    def update_body(self, text) -> dict:
+        data = {
+            'message' : text
+        }
+        self._canvas_data['body'] = text
+        return self.api_link.put(f'courses/{self.course.id}/discussion_topics/{self.id}', data=data)
+
+
+class Page(BaseContentItem):
+    _name_property = 'title'
+    _body_property = 'body'
+    @property
+    def name(self) -> str:
+        return self['title']
 
 
 class Course(BaseCanvasObject):
@@ -825,6 +881,44 @@ class Course(BaseCanvasObject):
         except AssertionError:
             return Course.get_by_code('DEV_' + self.base_code)
 
+    def get_modules(self) -> list:
+        """Gets all modules including module item details
+        Returns:
+            list: A list of module dicts
+        """
+        return self.api_link.get_paged_data(
+            f'courses/{self.id}/modules',
+            params={
+                'include[]': 'items, content_details',
+            }
+        )
+
+    def get_pages(self, search_term=None) -> list[Page]:
+        """Gets all pages in the course
+        """
+        params = {
+            'include[]': 'body'
+        }
+        if search_term is not None:
+            params['search_term'] = search_term
+
+        data =  self.api_link.get_paged_data(
+            f'courses/{self.id}/modules',
+            params=params
+        )
+        return [Page(self, datum) for datum in data]
+
+    def get_page_by_name(self, search_term: str) -> Page | List[Page]:
+        """Gets a page by name
+        Args:
+            search_term: the name of the course to search for
+        """
+
+        pages = self.get_pages()
+        if len(pages) == 1:
+            return pages[0]
+        else:
+            return pages
 
 
 class Term(BaseCanvasObject):

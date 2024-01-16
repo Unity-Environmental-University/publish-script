@@ -11,8 +11,10 @@ course_string = simpledialog.askstring(
 
 not_found = []
 
+
 def progress(percent, status, **args):
     print(percent, status)
+
 
 i = 0
 
