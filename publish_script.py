@@ -259,13 +259,6 @@ class EvalFix(FixSet):
     def find_content(cls, course: 'Course'):
         return course.get_page_by_name('Course Evaluation')
 
-    replacements = [
-        Replacement(
-            find=""
-        )
-    ]
-
-
 class LmFilter:
     replacements = [
         {

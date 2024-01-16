@@ -35,7 +35,9 @@ except Exception as e:
     " Ask hallie for a copy of constants.json and put it in this folder.\n{e}")
 # save the api key
 try:
-  api_token = constants["apiToken"]
+  assert "apiToken" in constants, "No API Token provided"
+  API_TOKEN = constants["apiToken"]
+  assert API_TOKEN is not None, "No API Token provided"
   API_URL = constants["apiUrl"]
   html_url = re.sub(r'/api/v1', '', API_URL)
   drive_url = None
@@ -45,11 +47,11 @@ except Exception as e:
   tk.messagebox.showerror(
     message=f"It looks like your constants file is missing some values."
     "Ask hallie for a current copy of the constants.json file.\n{e}")
-
+  exit()
 
 # Authorize the request.
 headers = {
-  "Authorization": f"Bearer {api_token}",
+  "Authorization": f"Bearer {API_TOKEN}",
   "User-Agent": "UnityThemeMigratorBot/0.0"
   " (http://unity.edu; hlarsson@unity.edu)"
 }
@@ -296,7 +298,8 @@ def click_revert_assignments(course_id, win, options):
   print("Reverting")
   for option in options:
     print(option, option['control'].var.get())
-    #if the boolean of the checkbox is checked, run the callback
+    # if the bool of the checkbox is checked, run the callback
+
     if option['control'].var.get():
       print(option['func'])
       option['func'](course_id, option['item_id'])
@@ -843,44 +846,43 @@ def align_rubrics(course_id, source_course_id):
 
 def align_assignments(course_id, source_course_id):
   assignments_lut = get_assignments_lookup_table(course_id, source_course_id)
-  modules = get_modules(course_id)
+  dest_modules = get_modules(course_id)
   source_modules = get_modules(source_course_id)
   source_id_to_id_lut = dict()
 
-  files_lut = get_files_lookup_table(course_id, source_course_id)
   update_assignment_categories(course_id, source_course_id)
 
   for source_module in source_modules:
-    items = source_module["items"]
+    source_items = source_module["items"]
     # skip non-week modules
     number = get_source_module_number(source_module)
     if not number:
       continue
 
-    module = find_new_module_by_number(number, modules)
+    dest_module = find_new_module_by_number(number, dest_modules)
+    dest_items = dest_module['items']
+    source_assignments = list(filter(lambda item: item["type"] == "Assignment", source_items))
 
-    source_assignments = list(filter(lambda item: item["type"] == "Assignment", items))
-
-    assignments = list(
+    dest_assignments = list(
       filter(
         lambda item: item["type"] == "Assignment",
-        items))
+        dest_items))
 
     source_discussions = list(
       filter(
-        lambda item: item["type"] == "Discussion", source_module["items"]))
+        lambda item: item["type"] == "Discussion", source_items))
     source_gallery_discussions = remove_gallery_discussions(source_discussions)
 
     discussions = list(
       filter(
-        lambda item: item["type"] == "Discussion", module["items"]))
+        lambda item: item["type"] == "Discussion", dest_items))
 
     gallery_discussions = remove_gallery_discussions(discussions)
 
     handle_items(
         course_id,
         source_course_id,
-        module,
+        dest_module,
         gallery_discussions,
         source_gallery_discussions,
         handle_discussion,
@@ -889,7 +891,7 @@ def align_assignments(course_id, source_course_id):
     handle_items(
         course_id,
         source_course_id,
-        module, discussions,
+        dest_module, discussions,
         source_discussions,
         handle_discussion,
         f"Week {number} " + "Discussion {number}- {name}")
@@ -897,12 +899,10 @@ def align_assignments(course_id, source_course_id):
     handle_items(
         course_id,
         source_course_id,
-        module, assignments,
+        dest_module, dest_assignments,
         source_assignments,
         handle_assignment,
         f"Week {number} " + "Assignment {number}- {name}")
-
-
 
 def get_new_file_url(src, course_id, source_course_id):
   files_lut = get_files_lookup_table(course_id, source_course_id)
