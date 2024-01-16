@@ -4,7 +4,7 @@ import unittest
 from typing import List
 
 import publish_script
-from publish_script import Term, Course, SyllabusFix
+from publish_script import Term, Course, SyllabusFix, EvalFix, Page
 import requests
 
 CONSTANTS_FILE = 'constants_test.json'
@@ -63,6 +63,7 @@ class TestMisc(unittest.TestCase):
             ','.join(get_item_names(flattened_modules)),
             ','.join(get_item_names(alt_flattened_modules)),
             f'flattened_modules={flattened_modules}')
+
 
 
 class TestCourseResetAndImport(unittest.TestCase):
@@ -254,13 +255,35 @@ class TestCourse(unittest.TestCase):
 
 
 class TestContent(unittest.TestCase):
+    test_page_content = "<div>TEST</div>"
+
     def test_edit_and_revert_page(self):
         course = get_test_course()
-        page = course.get_page_by_name("Course Evaluation")
-        body = page.body
-        original_body = body
-        page.update_content("<div>TEST</div>")
+        pages = course.get_pages_by_name("Course Evaluation")
+        for page in pages:
+            body = page.body
+            original_body = body
+            revisions = page.revisions
+            revisions.sort(key=lambda revision: revision['revision_id'], reverse=True)
+            revert_id = revisions[0]['revision_id']
+            page.update_content(self.test_page_content)
+            page = Page.get_by_id(course, page.id)
+            self.assertEqual(page.body, self.test_page_content)
+            page.reset_content(revert_id)
+            page = Page.get_by_id(course, page.id)
+            self.assertEqual(page.body, original_body)
 
+    def test_eval_fix(self):
+        course = get_test_course()
+        pages = EvalFix.find_content(course)
+        for page in pages:
+            backup = page.body
+            text = EvalFix.fix(page.body)
+            page.update_content(text)
+            reclaim_page = Page.get_by_id(course, page.id)
+            self.assertEqual(reclaim_page.body, text)
+            page.revert_last_changeset()
+            self.assertEqual(page.body, backup)
 
 
 class TestTerm(unittest.TestCase):
