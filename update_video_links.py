@@ -904,6 +904,7 @@ def align_assignments(course_id, source_course_id):
         handle_assignment,
         f"Week {number} " + "Assignment {number}- {name}")
 
+
 def get_new_file_url(src, course_id, source_course_id):
   files_lut = get_files_lookup_table(course_id, source_course_id)
   file_match = re.search(r"files/([0-9]+)", src)
@@ -920,6 +921,7 @@ def get_new_file_url(src, course_id, source_course_id):
       return url, data_url
 
   return None, None
+
 
 def get_new_assignment_url(src, course_id, source_course_id):
   assignments_lut = get_assignments_lookup_table(course_id, source_course_id)
