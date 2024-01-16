@@ -339,10 +339,6 @@ class CanvasApiLink:
     """
     This class handles api calls to the canvas api
     """
-    headers: dict
-    api_url: str
-    account_id: int
-
     def __init__(
             self,
             headers: dict = None,
@@ -360,6 +356,10 @@ class CanvasApiLink:
         self.headers = headers if headers else HEADERS
         self.api_url = api_url if api_url else API_URL
         self.account_id = account_id if account_id else ACCOUNT_ID
+
+    @property
+    def html_url(self):
+        return re.sub('/api/v1','', self.api_url)
 
     def _query(self, func: callable, url: str, **args):
         """
@@ -471,6 +471,18 @@ class BaseCanvasObject:
     def __eq__(self, other):
         return self.id == other.id
 
+    @property
+    def content_url_path(self):
+        raise ValueError(f"property content_link is not defined for {type(self).__name__}")
+
+    @property
+    def html_content_url(self):
+        return self.api_link.api_url + self.content_url_path
+
+    @property
+    def api_content_url(self):
+        raise ValueError(f"property content_link is not defined for {type(self).__name__}")
+
     @staticmethod
     def new_api_link(headers=None, api_url=None, **kwargs):
         return CanvasApiLink(headers=headers, api_url=api_url, **kwargs)
@@ -478,8 +490,7 @@ class BaseCanvasObject:
     @property
     def id(self) -> int:
         """
-        Course id
-        Returns: canvas data course id
+        Returns: canvas data id
 
         """
         return self._canvas_data['id']
@@ -488,10 +499,32 @@ class BaseCanvasObject:
 class BaseContentItem(BaseCanvasObject):
     _name_property = 'title'
     _body_property = 'body'
+    _content_url_template = "courses/{course_id}/contents/{content_id}"
+    _all_content_url_template = "courses/{course_id}/contents"
 
     def __init__(self, course: 'Course', data, **kwargs):
         super().__init__(data, **kwargs)
         self._course = course
+
+    @classmethod
+    def get_by_id(cls, course: 'Course', content_id: int, params: dict = None) -> Self:
+        link = course.api_link
+        data = link.get(cls.get_url_path_from_ids(course_id=course.id, content_id=content_id), params=params)
+        return cls(course, data)
+
+    @classmethod
+    def get_all(cls, course: 'Course', params: dict = None) -> list[Self]:
+        link = course.api_link
+        data = link.get_paged_data(cls.get_all_url(course_id=course.id), params=params)
+        return [cls(course, item) for item in data]
+
+    @classmethod
+    def get_url_path_from_ids(cls, course_id: int, content_id: int):
+        return cls._content_url_template.format(course_id=course_id, content_id=content_id)
+
+    @classmethod
+    def get_all_url(cls, course_id: int):
+        return cls._all_content_url_template.format(course_id=course_id)
 
     @property
     def name(self) -> str:
@@ -505,25 +538,51 @@ class BaseContentItem(BaseCanvasObject):
     def course(self) -> 'Course':
         return self.course
 
+    @property
+    def content_url_path(self):
+        return self._content_url_template.format(course_id=self.course.id, content_id=self.id)
+
+    def update_content(self, text=None, title=None):
+        raise NotImplementedError(f"update content not implemented for {self.__class__.__name__}")
+
+    def _save_data(self, data: dict) -> dict:
+        return self.api_link.put(self.content_url_path, data=data)
+
 
 class Discussion(BaseContentItem):
     _name_property = 'title'
     _body_property = 'message'
+    _content_url_template = "courses/{course_id}/discussion_topics/{content_id}"
+    _all_content_url_template = "courses/{course_id}/discussion_topics"
 
-    def update_body(self, text) -> dict:
-        data = {
-            'message' : text
-        }
-        self._canvas_data['body'] = text
-        return self.api_link.put(f'courses/{self.course.id}/discussion_topics/{self.id}', data=data)
+    def update_content(self, text: str = None, name: str = None):
+        data = {}
+        if text:
+            self._canvas_data[self._body_property] = text
+            data['message'] = text
+        if name:
+            self._canvas_data[self._name_property] = name
+            data['title'] = text
+
+        return self._save_data(data)
 
 
 class Page(BaseContentItem):
     _name_property = 'title'
     _body_property = 'body'
-    @property
-    def name(self) -> str:
-        return self['title']
+    _content_url_template = "courses/{course_id}/pages/{content_id}"
+    _all_content_url_template = "courses/{course_id}/pages/"
+
+    def update_content(self, text:str = None, name: str = None) -> dict:
+        data = {}
+        if text:
+            self._canvas_data[self._body_property] = text
+            data['wiki_page[body]'] = text
+        if name:
+            self._canvas_data[self._name_property] = name
+            data['title'] = name
+
+        return self._save_data(data)
 
 
 class Course(BaseCanvasObject):
@@ -551,7 +610,6 @@ class Course(BaseCanvasObject):
         link = CanvasApiLink()
         data = link.get(f'courses/{id_}', params=params)
         return Course(data)
-
 
     @classmethod
     def get_all_by_code(cls, code: str, params: dict=None, term: 'Term' = None) -> List[Self]:
@@ -634,9 +692,12 @@ class Course(BaseCanvasObject):
     # Properties
 
     @property
+    def content_url_path(self):
+        return f'courses/{self.id}'
+
+    @property
     def course_url(self) -> str:
-        url = f'{self.api_link.api_url}/courses/{self.id}'
-        return re.sub('/api/v1', '', url)
+        return self.html_content_url
 
     @property
     def course_code(self) -> str | None:
@@ -731,7 +792,6 @@ class Course(BaseCanvasObject):
         return self.api_link.put(f'courses/{self.id}/tabs/{tab["id"]}', data={
             'hidden': value
         })
-
 
     def change_syllabus(self, val: str):
         self._canvas_data['syllabus_body'] = val
@@ -895,11 +955,7 @@ class Course(BaseCanvasObject):
         if search_term is not None:
             params['search_term'] = search_term
 
-        data =  self.api_link.get_paged_data(
-            f'courses/{self.id}/modules',
-            params=params
-        )
-        return [Page(self, datum) for datum in data]
+        return Page.get_all(self, params=params)
 
     def get_page_by_name(self, search_term: str) -> Page | List[Page]:
         """Gets a page by name

@@ -219,7 +219,6 @@ class TestCourse(unittest.TestCase):
         self.assertEqual(len(new_syllabus), len(course.syllabus))
 
 
-
     async def test_lock(self):
         course = get_test_course()
         course.set_as_blueprint()
@@ -252,6 +251,16 @@ class TestCourse(unittest.TestCase):
         course.tab_hidden('Dropout Detective', True)
         tab = course.get_tab('Dropout Detective')
         self.assertTrue(tab['hidden'], "Dropout Detective hidden")
+
+
+class TestContent(unittest.TestCase):
+    def test_edit_and_revert_page(self):
+        course = get_test_course()
+        page = course.get_page_by_name("Course Evaluation")
+        body = page.body
+        original_body = body
+        page.update_content("<div>TEST</div>")
+
 
 
 class TestTerm(unittest.TestCase):
