@@ -982,11 +982,15 @@ class Course(BaseCanvasObject):
         if len(migrations) < 1:
             print(f"No imports found for course {self.course_code}")
             return False
-
         # sort by id descending so the first element is the latest created
         migrations.sort(reverse=True, key=lambda migration: migration['id'])
+
         try:
-            return Course.get_by_id(migrations[0]['settings']['source_course_id'])
+            for migration in migrations:
+                course = Course.get_by_id(migration['settings']['source_course_id'])
+                if course.code_prefix == "DEV":
+                    return course
+
         except AssertionError:
             return Course.get_by_code('DEV_' + self.base_code)
 
@@ -1021,6 +1025,18 @@ class Course(BaseCanvasObject):
 
         pages = self.get_pages(search_term)
         return pages
+
+    @classmethod
+    def check_code(cls, value):
+        """
+        Checks if a code is valid and returns the match object if true
+        Args:
+            value:
+
+        Returns:
+
+        """
+        return re.search(Course.CODE_REGEX, value)
 
 
 class Term(BaseCanvasObject):
