@@ -12,7 +12,10 @@ import copy
 import tkinter as tk
 from tkinter import simpledialog
 from bs4 import BeautifulSoup
+
+import publish_script
 import publish_script as ps
+from publish_script import Course
 
 ADD_LEARNING_MATERIALS = False
 UPDATE_SYLLABUS = True
@@ -24,6 +27,8 @@ UG_TERM_DATES = "January 15 - February 18"
 HOMETILE_WIDTH = 512
 GRAD_SCHEME_NAME = "DE Graduate Programs"
 
+
+publish_script.load_constants(CONSTANTS_FILE)
 # Open the file and read the contents
 try:
     with open(CONSTANTS_FILE, 'r') as f:
@@ -80,8 +85,12 @@ def main():
     if len(sys.argv) > 1:
         course_id = sys.argv[1]
     else:
-        course_id = str(tk.simpledialog.askinteger("What Course?",
+        course_id = str(tk.simpledialog.askstring("What Course?",
                                                    "Enter the course_id of the new course (cut the number out of the url and paste here)"))
+
+    #YES we should replace with a course object but that's going to be a whole thing.
+    if course_id is not int and not course_id.isnumeric():
+        course_id = Course.get_by_code(course_id).id
 
     url = f"{API_URL}/courses/{course_id}"
     print(url)
@@ -118,9 +127,23 @@ def main():
         if len(courses) > 1:
             courses.sort(key=lambda course: course['id'], reverse=True)
 
+        source_course = None
         if len(courses) > 0:
-            source_course_id = courses[0]["id"]
-            print("Old course found", source_course_id, courses[0]["course_code"])
+            for course in courses:
+                match = re.search(ps.Course.CODE_REGEX, course["course_code"])
+                #Check if we've found a bad newdev
+                if course["id"] == course_id:
+                    continue
+                if match and match.groups():
+                    prefix = match.groups(1)
+                    if prefix == "NEWDEV":
+                        continue
+
+                source_course = Course(course)
+                source_course_id = source_course.id
+                continue
+
+        print("Old course found", source_course.id, source_course.course_code)
 
     updates = [
         {

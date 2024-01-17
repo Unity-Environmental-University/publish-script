@@ -1,6 +1,9 @@
 from functools import cached_property
 import warnings
 import inspect
+
+import publish_script
+
 try:
     import aiohttp
 except ImportError as e:
@@ -124,7 +127,6 @@ class Replacement:
         if match:
             groups = match.groups()
         else:
-            warnings.warn(self.find + " not found")
             return False
 
         if callable(self.replace):
@@ -147,6 +149,7 @@ class FixSet:
     def fix(cls, source_text: str) -> str:
         out_text = source_text
         for replacement in cls.replacements:
+            print(f"Running {replacement.find} --> {replacement.replace}")
             fixed_text = replacement.fix(out_text)
             if fixed_text:
                 out_text = fixed_text
@@ -156,6 +159,13 @@ class FixSet:
 
 class SyllabusFix(FixSet):
     replacements = [
+        Replacement(
+            find=r'(after you.ve )viewed( the <a title="Course Overview")',
+            replace=r'\1agreed to\2',
+            tests=[
+                Replacement.in_test(r've agreed to the'),
+            ]
+        ),
         Replacement(
             find=r'''To access a discussion's grading.*and then click "show rubric".''',
             replace=r'''To access a discussion's grading rubric, click on the "View Rubric" button in the discussion directions and/or the "Dot Dot Dot" (for screen readers, titled "Manage this Discussion") button in the upper right corner of the discussion, and then click "show rubric".''',
@@ -652,20 +662,23 @@ class Course(BaseCanvasObject):
 
     # Class Methods
     @classmethod
-    def get_by_id(cls, id_: int, params=None) -> Self:
+    def get_by_id(cls, id_: int, params=None, link: CanvasApiLink = None) -> Self:
         """
         Gets a new Course instance by id populated with canvas data from the api
 
         Args:
+            link: the CanvasApiLink to use for the transaction
             id_: THe id of the course to fetch and populate this course with
             params: any parameters to pass to the request
 
         Returns:
             A new Course
         """
-        link = CanvasApiLink()
+        if link is None:
+            link = CanvasApiLink()
         data = link.get(f'courses/{id_}', params=params)
         return Course(data)
+
 
     @classmethod
     def get_all_by_code(cls, code: str, params: dict=None, term: 'Term' = None) -> List[Self]:
@@ -677,6 +690,7 @@ class Course(BaseCanvasObject):
             code: str,
             return_list: bool = False,
             params: dict = None,
+            link: CanvasApiLink = None,
             term: 'Term' = None
     ) -> Self | List[Self]:
         """
@@ -696,7 +710,7 @@ class Course(BaseCanvasObject):
         params['search_term'] = code
         if term is not None:
             params['enrollment_term_id'] = term.id
-        link = CanvasApiLink()
+        link = link if link is not None else CanvasApiLink()
         courses = link.get_paged_data(
             url,
             params=params
