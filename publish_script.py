@@ -1,8 +1,7 @@
 from functools import cached_property
+from functools import cached_property
 import warnings
 import inspect
-
-import publish_script
 
 try:
     import aiohttp
@@ -71,6 +70,7 @@ class Replacement:
 
         def func(text):
             return to_match in text
+
         return func, phase, msg
 
     @staticmethod
@@ -87,6 +87,7 @@ class Replacement:
                     out = match
             print(out)
             return out
+
         return func, phase, msg
 
     @staticmethod
@@ -95,14 +96,16 @@ class Replacement:
 
         def func(text):
             return to_match not in text
+
         return func, phase, msg
 
-    def pre_check(self, text:str):
+    def pre_check(self, text: str):
         return self._check_tests(text, phase='pre')
 
-    def post_check(self, text:str):
+    def post_check(self, text: str):
         def callback(msg):
             raise ReplaceException(msg)
+
         return self._check_tests(text, 'post', callback)
 
     def _check_tests(self, text: str, phase=None, on_fail: Callable = None):
@@ -124,16 +127,14 @@ class Replacement:
 
         groups: tuple
         match = re.search(self.find, source_text)
-        if match:
-            groups = match.groups()
-        else:
+        if not match:
             return False
 
         if callable(self.replace):
             replace = self.replace
             replace(match, source_text)
 
-        backup_text = source_text
+        # backup_text = source_text
         out_text = re.sub(self.find, self.replace, source_text)
         result, msg = self.post_check(out_text)
         if not result:
@@ -177,7 +178,7 @@ class SyllabusFix(FixSet):
             find=r'''<div class="cbt-table">\s*<p>Please make sure that.*library webpage for more information.</p>''',
             replace='<div class="cbt-table">',
             tests=[
-                Replacement.re_search(r'>\s*Copyright\s*<',  phase="pre")
+                Replacement.re_search(r'>\s*Copyright\s*<', phase="pre")
             ]
         ),
         Replacement(
@@ -242,7 +243,7 @@ class SyllabusFix(FixSet):
 Guidelines for Using Generative Artificial Intelligence [AI] in this Course:
 </strong></h4>
 <p>Using generative AI must be done with an understanding of the
-<a class="inline_disabled" href="http://unity.instructure.com/courses/3266650/pages/gen-ai-student-policy" target="_blank" rel="noopener">
+<a class="inline_disabled" href="https://unity.instructure.com/courses/3266650/pages/gen-ai-student-policy" target="_blank" rel="noopener">
 <strong>Unity Distance Education Generative Artificial Intelligence Policy for Students</strong>
 </a>, which spells out acceptable and unacceptable uses of generative AI in your studies in the Unity Distance Education Program.</p>
 <p><strong>Please read this policy before completing coursework using generative AI in this course.</strong></p>
@@ -279,6 +280,7 @@ class EvalFix(FixSet):
             ]
         )
     ]
+
 
 class LmFilter:
     replacements = [
@@ -360,6 +362,7 @@ class CanvasApiLink:
     """
     This class handles api calls to the canvas api
     """
+
     def __init__(
             self,
             headers: dict = None,
@@ -380,7 +383,7 @@ class CanvasApiLink:
 
     @property
     def html_url(self):
-        return re.sub('/api/v1','', self.api_url)
+        return re.sub('/api/v1', '', self.api_url)
 
     def _query(self, func: callable, url: str, **args):
         """
@@ -429,7 +432,7 @@ class CanvasApiLink:
         """
         return self._query(requests.put, url=url, params=params, data=data, **kwargs)
 
-    def post(self, url, params:dict = None, data=None, **kwargs):
+    def post(self, url, params: dict = None, data=None, **kwargs):
         return self._query(requests.post, url=url, params=params, data=data, **kwargs)
 
     def get_paged_data(self, url: str, headers: dict = None, params: dict = None) -> list | None:
@@ -471,6 +474,7 @@ class BaseCanvasObject:
     """
     A base class for classes that talk to and hold data from canvas API,
     """
+
     def __init__(self, data, headers=None, api_url=None, **kwargs):
         """
         Initializes the object
@@ -500,8 +504,7 @@ class BaseCanvasObject:
     def html_content_url(self):
         url = self.api_link.api_url + '/' + self.content_url_path
 
-        return re.sub('api/v1/','/', url)
-
+        return re.sub('api/v1/', '/', url)
 
     @property
     def api_content_url(self):
@@ -584,6 +587,7 @@ class BaseContentItem(BaseCanvasObject):
         out = re.sub(r'</?script[^>]*>', '', out)
         return out
 
+
 class Discussion(BaseContentItem):
     _name_property = 'title'
     _body_property = 'message'
@@ -633,13 +637,13 @@ class Page(BaseContentItem):
 
     def apply_revision(self, revision):
         revision_id = revision['revision_id']
-        result = self.api_link.post(f"{self.content_url_path}/revisions/{revision_id}", params= {
-            'revision_id' : revision_id
+        result = self.api_link.post(f"{self.content_url_path}/revisions/{revision_id}", params={
+            'revision_id': revision_id
         })
         self._canvas_data[self._body_property] = result['body']
         self._canvas_data[self._name_property] = result['title']
 
-    def update_content(self, text:str = None, name: str = None) -> dict:
+    def update_content(self, text: str = None, name: str = None) -> dict:
         data = {}
         if text:
             self._canvas_data[self._body_property] = text
@@ -679,9 +683,8 @@ class Course(BaseCanvasObject):
         data = link.get(f'courses/{id_}', params=params)
         return Course(data)
 
-
     @classmethod
-    def get_all_by_code(cls, code: str, params: dict=None, term: 'Term' = None) -> List[Self]:
+    def get_all_by_code(cls, code: str, params: dict = None, term: 'Term' = None) -> List[Self]:
         return cls.get_by_code(code, params=params, term=term, return_list=True)
 
     @classmethod
@@ -705,24 +708,28 @@ class Course(BaseCanvasObject):
         Returns:
             A course or list of courses if return_list is true, matching the code
         """
-        url = f"accounts/{ROOT_ACCOUNT_ID}/courses"
-        params = params if params is not None else {}
-        params['search_term'] = code
-        if term is not None:
-            params['enrollment_term_id'] = term.id
-        link = link if link is not None else CanvasApiLink()
-        courses = link.get_paged_data(
-            url,
-            params=params
-        )
+        for account in ACCOUNT_IDS_BY_NAME:
+            account_id = ACCOUNT_IDS_BY_NAME[account]
+            url = f"accounts/{account_id}/courses"
+            params = params if params is not None else {}
+            params['search_term'] = code
+            if term is not None:
+                params['enrollment_term_id'] = term.id
+            link = link if link is not None else CanvasApiLink()
+            courses = link.get_paged_data(
+                url,
+                params=params
+            )
+            if courses and len(courses) > 0:
+                break
 
         # if there are multiple courses, return by the most recently assigned a new ID
         if courses and len(courses) > 1:
             courses.sort(reverse=True, key=lambda course: course['id'])
 
         return list(
-                map(lambda a: Course(a), courses)
-            ) if return_list else Course(courses[0])
+            map(lambda a: Course(a), courses)
+        ) if return_list else Course(courses[0])
 
     @classmethod
     def publish_all(cls, courses: List[Self]):
@@ -850,7 +857,7 @@ class Course(BaseCanvasObject):
 
     @property
     def tabs(self):
-       return self.api_link.get(f'courses/{self.id}/tabs')
+        return self.api_link.get(f'courses/{self.id}/tabs')
 
     def get_tab(self, label):
         return next(filter(lambda x: x['label'] == label, self.tabs), None)
@@ -943,7 +950,6 @@ class Course(BaseCanvasObject):
         if __name__ != "__main__" or prompt and messagebox.askyesno(
                 title="Do You Want To Reset",
                 message=f"Are you sure you want to reset {self.course_code}?'"):
-
             url = f'/courses/{self.id}/reset_content'
             data = self.api_link.post(url)
             self._canvas_data['id'] = data['id']
@@ -1474,9 +1480,9 @@ def begin_course_sync(
         *,
         bp_course: Course,
         wait_for_completion: True,
-        progress_bar: ttk.Progressbar=None,
-        progress_callback: Callable=None,
-        status_label: tk.Label=None) -> dict | None:
+        progress_bar: ttk.Progressbar = None,
+        progress_callback: Callable = None,
+        status_label: tk.Label = None) -> dict | None:
     """Summary
         Begins the sync process of the blueprint to its member course
 
@@ -1545,10 +1551,10 @@ def poll_migration(
     response = requests.get(migration_url, headers=HEADERS)
     # poll the migration object until it is done
     while response.ok and migration['workflow_state'] in [
-            'queued',
-            'exporting',
-            'imports_queued',
-            'running']:
+        'queued',
+        'exporting',
+        'imports_queued',
+        'running']:
 
         print(response)
         print(migration)
@@ -2209,10 +2215,10 @@ def get_instructor_profile_from_pages(user: dict, pages: list[dict]) -> Profile 
         lambda entry: user["name"].lower() in entry["title"].lower(),
 
         lambda entry: last_name.lower() in entry["title"].lower()
-        and first_name.lower() in entry["title"].lower(),
+                      and first_name.lower() in entry["title"].lower(),
 
         lambda entry: last_name.lower() in entry["title"].lower()
-        or first_name.lower() in entry["title"].lower(),
+                      or first_name.lower() in entry["title"].lower(),
     ]
 
     potentials = []
@@ -2558,6 +2564,7 @@ def get_course_id_from_string(course_string: str):
         return Course.get_by_code(f"BP_{course_root_name_match.group(1)}")['id']
     else:
         return None
+
 
 def main():
     """Summary
