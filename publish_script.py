@@ -1,5 +1,4 @@
 from functools import cached_property
-from functools import cached_property
 import warnings
 import inspect
 
@@ -53,9 +52,11 @@ MAX_PROFILE_IMAGE_SIZE: int = 400
 
 
 class ReplaceException(BaseException):
-    def __init__(self, message: str):
-        super().__init__(message)
-        pass
+    pass
+
+
+class CourseNotFoundException(BaseException):
+    pass
 
 
 class Replacement:
@@ -332,8 +333,7 @@ class LmFilter:
         Returns:
             str: An html string with the regexes run on it
         """
-        # one liners to replace
-
+        # replace one liners. TODO: migrate this to new Replacement model
         for replace in cls.replacements:
             find = re.compile(replace['find'], flags=re.MULTILINE)
             match = re.search(find, text)
@@ -398,11 +398,11 @@ class CanvasApiLink:
             The json decoded data from the response
 
         """
-        if not 'headers' in args:
+        url = f"{self.api_url}/{url}"
+        print('calling ' + url)
+        if 'headers' not in args:
             args['headers'] = self.headers
-        response = func(
-            f"{self.api_url}/{url}",
-            **args)
+        response = func(url, **args)
         assert response.ok, response.text
         return response.json()
 
@@ -474,8 +474,12 @@ class BaseCanvasObject:
     """
     A base class for classes that talk to and hold data from canvas API,
     """
+    _id_property = 'id'
+    _name_property = None
+    _content_url_template = None
+    _all_content_url_template = None
 
-    def __init__(self, data, headers=None, api_url=None, **kwargs):
+    def __init__(self, data, headers=None, api_url=None, api_link=None, **kwargs):
         """
         Initializes the object
         Args:
@@ -486,7 +490,8 @@ class BaseCanvasObject:
         """
 
         self._canvas_data = data if data is not None else {}
-        self.api_link = BaseCanvasObject.new_api_link(headers=headers, api_url=api_url, **kwargs)
+        self.api_link = api_link if api_link is not None else (
+            BaseCanvasObject.new_api_link(headers=headers, api_url=api_url, **kwargs))
 
     def __getitem__(self, item):
         if item not in self._canvas_data:
@@ -498,7 +503,7 @@ class BaseCanvasObject:
 
     @property
     def content_url_path(self):
-        raise ValueError(f"property content_link is not defined for {type(self).__name__}")
+        return self._content_url_template.format(content_id=self.id)
 
     @property
     def html_content_url(self):
@@ -514,34 +519,21 @@ class BaseCanvasObject:
     def new_api_link(headers=None, api_url=None, **kwargs):
         return CanvasApiLink(headers=headers, api_url=api_url, **kwargs)
 
-    @property
-    def id(self) -> int:
-        """
-        Returns: canvas data id
-
-        """
-        return self._canvas_data['id']
-
-
-class BaseContentItem(BaseCanvasObject):
-    _id_property = 'id'
-    _name_property = 'title'
-    _body_property = 'body'
-    _content_url_template = "courses/{course_id}/contents/{content_id}"
-    _all_content_url_template = "courses/{course_id}/contents"
-
-    def __init__(self, course: 'Course', data, **kwargs):
-        super().__init__(data, **kwargs)
-        self._course = course
-
     @classmethod
     def get_by_id(cls, course: 'Course', content_id: int, params: dict = None) -> Self:
-        link = course.api_link
-        data = link.get(cls.get_url_path_from_ids(course_id=course.id, content_id=content_id), params=params)
-        return cls(course, data)
+        return cls(course, cls._get_data_by_id(
+            course=course,
+            content_id=content_id,
+            params=params,
+        ))
 
     @classmethod
-    def get_all(cls, course: 'Course', params: dict = None) -> list[Self]:
+    def _get_data_by_id(cls, course: 'Course', content_id: int, params: dict = None) -> dict:
+        link = course.api_link
+        return link.get(cls.get_url_path_from_ids(course_id=course.id, content_id=content_id), params=params)
+
+    @classmethod
+    def get_all(cls, course: 'Course'=None, params: dict = None) -> list[Self]:
         link = course.api_link
         data = link.get_paged_data(cls.get_all_url(course_id=course.id), params=params)
         return [cls(course, item) for item in data]
@@ -562,30 +554,50 @@ class BaseContentItem(BaseCanvasObject):
     def name(self) -> str:
         return self[self._name_property]
 
-    @property
-    def body(self) -> str:
-        return self.clear_added_content_tags(
-            self._canvas_data[self._body_property])
-
-    @property
-    def course(self) -> 'Course':
-        return self._course
-
-    @property
-    def content_url_path(self):
-        return self._content_url_template.format(course_id=self.course.id, content_id=self.id)
-
-    def update_content(self, text=None, title=None):
-        raise NotImplementedError(f"update content not implemented for {self.__class__.__name__}")
-
     def _save_data(self, data: dict) -> dict:
         return self.api_link.put(self.content_url_path, data=data)
+
+
+class BaseContentItem(BaseCanvasObject):
+    _body_property = None
+
+    def __init__(self, course: 'Course', data, **kwargs):
+        super().__init__(data, **kwargs)
+        self._course = course
 
     @staticmethod
     def clear_added_content_tags(text: str):
         out = re.sub(r'</?link[^>]*>', '', text)
         out = re.sub(r'</?script[^>]*>', '', out)
         return out
+
+    @property
+    def body(self) -> str | None:
+        if self._body_property is None:
+            return None
+        else:
+            return self.clear_added_content_tags(
+                self._canvas_data[self._body_property])
+
+    @property
+    def content_url_path(self):
+        return self._content_url_template.format(course_id=self.course.id, content_id=self.id)
+
+    @property
+    def course(self) -> 'Course':
+        return self._course
+
+    def update_content(self, text: str = None, name: str = None):
+        data = {}
+        if text and self._body_property:
+            self._canvas_data[self._body_property] = text
+            data[self._body_property] = text
+
+        if name and self._name_property:
+            self._canvas_data[self._name_property] = name
+            data[self._name_property] = text
+
+        return self._save_data(data)
 
 
 class Discussion(BaseContentItem):
@@ -594,16 +606,12 @@ class Discussion(BaseContentItem):
     _content_url_template = "courses/{course_id}/discussion_topics/{content_id}"
     _all_content_url_template = "courses/{course_id}/discussion_topics"
 
-    def update_content(self, text: str = None, name: str = None):
-        data = {}
-        if text:
-            self._canvas_data[self._body_property] = text
-            data['message'] = text
-        if name:
-            self._canvas_data[self._name_property] = name
-            data['title'] = text
 
-        return self._save_data(data)
+class Assignment(BaseContentItem):
+    _name_property = 'name'
+    _body_property = 'description'
+    _content_url_template = "courses/{course_id}/assignments/{content_id}"
+    _all_content_url_template = "courses/{course_id}/assignments"
 
 
 class Page(BaseContentItem):
@@ -655,10 +663,79 @@ class Page(BaseContentItem):
         return self._save_data(data)
 
 
+class Rubric(BaseContentItem):
+    _name_property = 'title'
+    _body_property = None
+    _content_url_template = "courses/{course_id}/rubrics/{content_id}"
+    _all_content_url_template = "courses/{course_id}/rubrics"
+
+    @property
+    def associations(self, reload: bool = False) -> list['RubricAssociation']:
+        if 'associations' in self._canvas_data and reload:
+            return self._body_property['associations']
+
+        data: dict = self._get_data_by_id(
+            course=self.course,
+            content_id=self.id,
+            params={'include': ['associations']}
+        )
+        associations: list[RubricAssociation] = [RubricAssociation(self.course, ra) for ra in data['associations']]
+        self._canvas_data['associations'] = associations
+        return associations
+
+
+class RubricAssociation(BaseContentItem):
+    _name_property = None
+    _content_url_template = "courses/{course_id}/rubric_associations/{content_id}"
+    _all_content_url_template = "courses/{course_id}/rubric_associations"
+
+    @property
+    def use_for_grading(self) -> bool:
+        return self._canvas_data['use_for_grading']
+
+    def set_use_for_grading(self, value):
+        self._canvas_data['use_for_grading'] = value
+        result = self._save_data({
+            'rubric_association[use_for_grading]': value
+        })
+        return result
+
+
+class Term(BaseCanvasObject):
+
+    def __init__(self, data, **kwargs):
+        super().__init__(data, **kwargs)
+
+    @classmethod
+    def get_by_code(
+            cls,
+            code: str,
+            return_list: bool = False,
+            workflow_state: str = 'all'
+    ) -> Self | List[Self]:
+        ct = CanvasApiLink(account_id=ROOT_ACCOUNT_ID)
+        data = ct.get(f'accounts/{ROOT_ACCOUNT_ID}/terms', params={
+            'workflow_state[]': workflow_state,
+            'term_name': code
+        })
+        print(json.dumps(data))
+        if 'enrollment_terms' not in data:
+            warnings.warn(f'No enrollment terms found for {code}')
+        terms = data['enrollment_terms']
+        if not terms or len(terms) == 0:
+            return None
+        return Term(terms[0]) if not return_list else list(map(lambda a: Term(a), terms))
+
+    @property
+    def code(self) -> str:
+        return self._canvas_data['name']
+
+
 class Course(BaseCanvasObject):
     """
     A class to represent canvas courses and handle various canvas course based operations
     """
+    _name_property = 'name'
     CODE_REGEX = re.compile(r'([\-.\w^]+[^_])?_?(\w{4}\d{3})', re.IGNORECASE)
 
     def __init__(self, data, **kwargs):
@@ -684,13 +761,13 @@ class Course(BaseCanvasObject):
         return Course(data)
 
     @classmethod
-    def get_all_by_code(cls, code: str, params: dict = None, term: 'Term' = None) -> List[Self]:
-        return cls.get_by_code(code, params=params, term=term, return_list=True)
+    def get_all_by_code(cls, code: str, params: dict = None, link: CanvasApiLink = None, term: 'Term' = None) -> List[Self]:
+        return cls.get_by_code(code, params=params, term=term, link=link, return_list=True)
 
     @classmethod
     def get_by_code(
             cls,
-            code: str,
+            code: str | None,
             return_list: bool = False,
             params: dict = None,
             link: CanvasApiLink = None,
@@ -699,6 +776,7 @@ class Course(BaseCanvasObject):
         """
         Gets a course, or list of courses, by a course code
         Args:
+            link:
             code: A course code of the forma TERMCODE_DEPT1234
             return_list: returns a list of all matching courses if true
             params: passes all additional params on to 'requests.get(params=)'
@@ -708,11 +786,13 @@ class Course(BaseCanvasObject):
         Returns:
             A course or list of courses if return_list is true, matching the code
         """
+        courses = None
         for account in ACCOUNT_IDS_BY_NAME:
             account_id = ACCOUNT_IDS_BY_NAME[account]
             url = f"accounts/{account_id}/courses"
             params = params if params is not None else {}
-            params['search_term'] = code
+            if code is not None:
+                params['search_term'] = code
             if term is not None:
                 params['enrollment_term_id'] = term.id
             link = link if link is not None else CanvasApiLink()
@@ -723,8 +803,11 @@ class Course(BaseCanvasObject):
             if courses and len(courses) > 0:
                 break
 
+        if courses is None or len(courses) == 0:
+            return None
+
         # if there are multiple courses, return by the most recently assigned a new ID
-        if courses and len(courses) > 1:
+        if len(courses) > 1:
             courses.sort(reverse=True, key=lambda course: course['id'])
 
         return list(
@@ -766,8 +849,8 @@ class Course(BaseCanvasObject):
     def _code_match(self):
         return re.search(Course.CODE_REGEX, self._canvas_data["course_code"])
 
-    # Properties
 
+    # Properties
     @property
     def content_url_path(self):
         return f'courses/{self.id}'
@@ -1037,6 +1120,25 @@ class Course(BaseCanvasObject):
 
         return Page.get_all(self, params=params)
 
+    def get_assignments(self, search_term=None, params=None) -> list[Assignment]:
+        """Gets assignments in a course
+        Args:
+            search_term: Assignment names to match
+            params: additional params to pass to the request
+
+        Returns:
+            a list of Assignments
+
+        """
+        params = params if params else {}
+        if search_term is not None:
+            params['search_term'] = search_term
+
+        return Assignment.get_all(self, params=params)
+
+    def get_rubrics(self) -> List['Rubric']:
+        return Rubric.get_all(self)
+
     def get_pages_by_name(self, search_term: str) -> List[Page]:
         """Gets a page by name
         Args:
@@ -1057,36 +1159,6 @@ class Course(BaseCanvasObject):
 
         """
         return re.search(Course.CODE_REGEX, value)
-
-
-class Term(BaseCanvasObject):
-
-    def __init__(self, data, **kwargs):
-        super().__init__(data, **kwargs)
-
-    @classmethod
-    def get_by_code(
-            cls,
-            code: str,
-            return_list: bool = False,
-            workflow_state: str = 'all'
-    ) -> Self | List[Self]:
-        ct = CanvasApiLink(account_id=ROOT_ACCOUNT_ID)
-        data = ct.get(f'accounts/{ROOT_ACCOUNT_ID}/terms', params={
-            'workflow_state[]': workflow_state,
-            'term_name': code
-        })
-        print(json.dumps(data))
-        if 'enrollment_terms' not in data:
-            warnings.warn(f'No enrollment terms found for {code}')
-        terms = data['enrollment_terms']
-        if not terms or len(terms) == 0:
-            return None
-        return Term(terms[0]) if not return_list else list(map(lambda a: Term(a), terms))
-
-    @property
-    def code(self) -> str:
-        return self._canvas_data['name']
 
 
 class Profile:
@@ -1193,13 +1265,6 @@ def course_entry_callback(
         for widget in to_remove:
             widget.destroy()
         return True
-
-
-def set_api_url(_api_url: str):
-    global API_URL
-    API_URL = _api_url
-    return API_URL
-
 
 def setup_main_ui(
         *,

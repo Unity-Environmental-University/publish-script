@@ -1,8 +1,7 @@
 
 import unittest
 import publish_script
-from publish_script import Course, Term
-import re
+from publish_script import Course, Term, Rubric, RubricAssociation
 import requests
 import json
 import csv
@@ -11,9 +10,7 @@ CONSTANTS_FILE = 'constants.json'
 with open(CONSTANTS_FILE) as f:
     constants = json.load(f)
 
-publish_script.API_TOKEN = constants["apiToken"]
-publish_script.API_URL = constants["apiUrl"]
-publish_script.HTML_URL = re.sub('/api/v1', '', constants["apiUrl"])
+publish_script.load_constants(CONSTANTS_FILE)
 
 instructor_course_id = constants["instructorCourseId"]
 profile_assignment_id = constants["profileAssignmentId"]
@@ -23,8 +20,6 @@ default_profile_url = f"{publish_script.HTML_URL}/users/9230846/files/156109264/
 publish_script.LIVE_URL = constants["liveUrl"]
 
 # Authorize the request.
-publish_script.HEADERS = {"Authorization": f"Bearer {publish_script.API_TOKEN}"}
-publish_script.LIVE_HEADERS = {"Authorization": f'Bearer {constants["liveApiToken"]}'}
 
 accounts = requests.get(f'{publish_script.API_URL}/accounts', headers=publish_script.HEADERS).json()
 account_ids = dict()
@@ -37,6 +32,50 @@ API_URL = publish_script.API_URL
 test_course_code: str = 'TEST000'
 
 print(publish_script.API_URL)
+
+
+class TestOneOff(unittest.TestCase):
+    def test_comm101(self):
+        section = Course.get_by_code('24-Jan_COMM101-03')
+        user = publish_script.get_canvas_instructor(section['id'])
+
+        pages = publish_script.get_instructor_page(user)
+        pages_from_name = publish_script.get_instructor_page(user['name'])
+        self.assertEqual(len(pages), 1, msg="Returned more than one instructor page")
+        self.assertListEqual(pages, pages_from_name, msg="Returned different pages for instructor pages")
+
+    def test_rubrics(self):
+        # course_codes = ['DEV_ARTS101', 'DEV_MATH201']
+        # courses = [Course.get_by_code(code) for code in course_codes]
+        term = Term.get_by_code('24-Jan')
+        courses = Course.get_all_by_code(code=None, term=term)
+        codes = [f'BP_{course.base_code}' for course in courses]
+        codes = list(set(codes))
+        bps = Course.get_all_by_code('BP_')
+
+        courses = [bp for bp in bps if bp.base_code in codes]
+
+        results = []
+        for course in courses:
+            rubrics: list[Rubric] = course.get_rubrics()
+            for rubric in rubrics:
+                associations: list[RubricAssociation] = rubric.associations
+                for association in associations:
+                    result = {
+                            'rubric': rubric,
+                            'course': course,
+                            'association': association
+                        }
+                    if not association.use_for_grading:
+                        results.append(result)
+                        print(rubric.name, rubric.course.name)
+                print(rubric)
+
+        print(results)
+        print( [f'{a["course"].course_code} {a["rubric"].name}' for a in results])
+        self.assertGreater(len(results), 0, '\n'.join([a["course"].base_code for a in results]))
+
+
 
 
 class TestSectionInserted(unittest.TestCase):

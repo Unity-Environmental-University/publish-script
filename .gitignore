@@ -31,3 +31,7 @@ Dr+Gilleland+Biography.docx
 email_template.custom.html
 *.docx
 manifest.json
+private.key
+cert.py
+selfsigned.crt
+upload.json

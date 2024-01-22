@@ -17,7 +17,8 @@ class TestStartServer(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(client_id)
         self.authenticator = Authenticator(
             client_id=client_id,
-            local_url='localhost',
+            local_url="localhost",
+            local_port=8000,
             remote_url='https://unity.test.instructure.com'
         )
         self.authenticator.start()
