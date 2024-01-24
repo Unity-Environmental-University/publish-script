@@ -141,8 +141,6 @@ class TestSectionInserted(unittest.TestCase):
         return False
 
 
-    def test_syllabi(self):
-        term = Term.get_term('DE/HL-24-Jan')
 
 
 if __name__ == '__main__':

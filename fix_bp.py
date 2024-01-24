@@ -15,6 +15,7 @@ fixes_to_run = [
     resources_page.Fixes
 ]
 
+open_as_we_go: bool = False
 def progress(percent, status, **args):
     print(percent, status)
 
@@ -26,7 +27,7 @@ def make_default_bp(code_set):
             code_set.add('BP_' + code)
 
 def main():
-    ps.load_constants('constants_test.json')
+    ps.load_constants('constants.json')
     window = tk.Tk()
     clipboard = window.clipboard_get()
     codes: list[str] = []
@@ -39,6 +40,7 @@ def main():
 
     unique_codes = set(codes)
     open_course_queue: list = []
+    open_page_queue: list = []
     make_default_bp(unique_codes)
     while len(unique_codes) == 0 or not messagebox.askyesno('Use These Codes', "Use Codes?:\n" + ", ".join(unique_codes)):
         course_string = simpledialog.askstring(
@@ -57,8 +59,10 @@ def main():
         make_default_bp(unique_codes)
 
     applied_to = []
-    for code in unique_codes:
+    for i, code in enumerate(unique_codes):
         print(f"Starting for {code}")
+        percent_done = i / len(unique_codes) * 100
+        print("Progress: %", percent_done)
         course = Course.get_by_code(code)
         if not course:
             not_found.append(code)
@@ -74,9 +78,13 @@ def main():
 
                 pages = fix_set.find_content(update_course)
                 for page in pages:
+                    # page.reset_content()
                     text = fix_set.fix(page.body)
                     page.update_content(text)
-                    webbrowser.open_new_tab(page.html_content_url)
+                    if open_as_we_go:
+                        webbrowser.open_new_tab(page.html_content_url)
+                    else:
+                        open_page_queue.append(page.html_content_url)
                 applied_to.append(course)
 
         if course.associated_courses:
@@ -92,9 +100,14 @@ def main():
     messagebox.showinfo("Finished", f"Finished! \n{len(applied_to)} Devs or BPs were affected\n" +
                         f'{", ".join([a.course_code for a in applied_to])}')
 
+    ps.open_browser_func(open_page_queue)
+
     for course in open_course_queue:
-        ps.open_browser_func([f'{course.course_url}/pages/course-evaluation'])
+        pass
+        # ps.open_browser_func([f'{course.course_url}/pages/course-evaluation'])
+        # ps.open_browser_func([f'{course.course_url}/pages/support-page'])
 
 
 if __name__ == "__main__":
     main()
+# ANIM315 BIOL203 BIOL103

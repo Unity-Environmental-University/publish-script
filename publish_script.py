@@ -873,8 +873,8 @@ class Course(BaseCanvasObject):
         match = self._code_match
         if not match:
             return None
-        prefix = match.group(1)
-        course_code = match.group(2)
+        prefix = match.group(1) if match.group(1) else ""
+        course_code = match.group(2) if match.group(1) else ""
         return prefix + '_' + course_code
 
     @course_code.setter

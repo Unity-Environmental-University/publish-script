@@ -8,19 +8,16 @@ class Fixes(FixSet):
 
     replacements = [
         Replacement(
-            find=r'course subject matter .* may have',
-            replace=r'''college policies or procedures and help inform you of and '''
-                    + '''<a href="https://online.unity.edu/support/">'''
-                    + '''support you with any of the college's resources.</a>''',
+            find=r'<p>(<strong>Your advisor.*)</p>',
+            replace=r'''<p><strong>Your advisor</strong> can support you with any college policies or procedures and help inform you of and <a href="https://online.unity.edu/support/">support you with any of the college's resources.&nbsp;</a></p>''',
             tests=[
-                Replacement.in_test('https://online.unity.edu/support/'),
-                Replacement.not_in_test('course subject matter .* may have')
+                Replacement.in_test(r'''<p><strong>Your advisor</strong> can support you with any college policies or procedures and help inform you of and <a href="https://online.unity.edu/support/">support you with any of the college's resources.&nbsp;</a></p>'''),
             ]
         ),
         Replacement(
             find=r'''<p><strong>TutorMe.*</p>''',
             replace=r'''<p><strong>Pear Deck Tutor (see TutorMe link in navigation)</strong>''' +
-                    '''&nbsp;can support you with any course subject matter''' +
+                    '''&nbsp;can support you with any course subject matter ''' +
                     '''or assessment specific question you may have.</p>''',
             tests=[
                 Replacement.in_test('Pear Deck Tutor'),
@@ -30,7 +27,7 @@ class Fixes(FixSet):
         Replacement(
             find=r"<p><strong>Your instructor.*<a.*</p>",
             replace=r'''<p><strong>Your instructor (click "Help" in Navbar and then "Ask instructor a question")''' +
-                    r'''</strong>&nbsp;can support you with any course subject matter''' +
+                    r'''</strong>&nbsp;can support you with any course subject matter ''' +
                     r'''or assessment specific question you may have.</p>''',
             tests=[
                 Replacement.not_in_test(r'''Your instructor (click "Help" in Navbar and then "Ask instructor ''' +
@@ -45,6 +42,13 @@ class Fixes(FixSet):
             replace=r'</a>.</p>',
             tests=[
                 Replacement.not_in_test(r'.</a>.</p>')
+            ]
+        ),
+        Replacement(
+            find=r'matteror',
+            replace=r'matter or',
+            tests=[
+                Replacement.not_in_test(r'matteror')
             ]
         )
     ]
