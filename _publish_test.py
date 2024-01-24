@@ -1,3 +1,5 @@
+
+from fixes import resources_page
 import json
 import re
 import unittest
@@ -273,17 +275,23 @@ class TestContent(unittest.TestCase):
             page = Page.get_by_id(course, page.id)
             self.assertEqual(page.body, original_body)
 
-    def test_eval_fix(self):
+    def test_fix(self, fix):
         course = get_test_course()
-        pages = EvalFix.find_content(course)
+        pages = fix.find_content(course)
         for page in pages:
             backup = page.body
-            text = EvalFix.fix(page.body)
+            text = fix.fix(page.body)
             page.update_content(text)
             reclaim_page = Page.get_by_id(course, page.id)
             self.assertEqual(reclaim_page.body, text)
             page.revert_last_changeset()
             self.assertEqual(page.body, backup)
+
+    def test_eval_fix(self):
+        self.test_fix(EvalFix)
+
+    def test_resource_fix(self):
+        self.test_fix(resources_page.Fixes)
 
 
 class TestTerm(unittest.TestCase):

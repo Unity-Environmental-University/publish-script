@@ -1,6 +1,7 @@
 import webbrowser
 import re
 
+from fixes import resources_page
 import publish_script as ps
 from publish_script import Course, EvalFix, Page
 from tkinter import simpledialog, messagebox
@@ -9,6 +10,10 @@ import tkinter as tk
 
 not_found = []
 
+fixes_to_run = [
+    # EvalFix,
+    resources_page.Fixes
+]
 
 def progress(percent, status, **args):
     print(percent, status)
@@ -21,7 +26,7 @@ def make_default_bp(code_set):
             code_set.add('BP_' + code)
 
 def main():
-    ps.load_constants('constants.json')
+    ps.load_constants('constants_test.json')
     window = tk.Tk()
     clipboard = window.clipboard_get()
     codes: list[str] = []
@@ -65,12 +70,14 @@ def main():
             courses.append(parent)
 
         for update_course in courses:
-            pages = EvalFix.find_content(update_course)
-            for page in pages:
-                text = EvalFix.fix(page.body)
-                page.update_content(text)
-                webbrowser.open_new_tab(page.html_content_url)
-            applied_to.append(course)
+            for fix_set in fixes_to_run:
+
+                pages = fix_set.find_content(update_course)
+                for page in pages:
+                    text = fix_set.fix(page.body)
+                    page.update_content(text)
+                    webbrowser.open_new_tab(page.html_content_url)
+                applied_to.append(course)
 
         if course.associated_courses:
             print(map(lambda c: c.code, course.associated_courses))
