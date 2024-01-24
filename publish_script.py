@@ -761,7 +761,13 @@ class Course(BaseCanvasObject):
         return Course(data)
 
     @classmethod
-    def get_all_by_code(cls, code: str, params: dict = None, link: CanvasApiLink = None, term: 'Term' = None) -> List[Self]:
+    def get_all_by_code(
+            cls,
+            code: str | None,
+            params: dict = None,
+            link: CanvasApiLink = None,
+            term: 'Term' = None) -> List[Self]:
+
         return cls.get_by_code(code, params=params, term=term, link=link, return_list=True)
 
     @classmethod

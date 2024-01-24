@@ -49,33 +49,33 @@ class TestOneOff(unittest.TestCase):
         # courses = [Course.get_by_code(code) for code in course_codes]
         term = Term.get_by_code('24-Jan')
         courses = Course.get_all_by_code(code=None, term=term)
-        codes = [f'BP_{course.base_code}' for course in courses]
+        codes = [course.base_code for course in courses]
         codes = list(set(codes))
         bps = Course.get_all_by_code('BP_')
 
         courses = [bp for bp in bps if bp.base_code in codes]
 
         results = []
+        passed = []
         for course in courses:
             rubrics: list[Rubric] = course.get_rubrics()
+            course_failed = False
             for rubric in rubrics:
                 associations: list[RubricAssociation] = rubric.associations
                 for association in associations:
-                    result = {
-                            'rubric': rubric,
-                            'course': course,
-                            'association': association
-                        }
                     if not association.use_for_grading:
-                        results.append(result)
-                        print(rubric.name, rubric.course.name)
-                print(rubric)
+                        results.append(course)
+                        print(course.course_code, rubric)
+                        course_failed = True
+                        continue
+                    else:
+                        passed.append(rubric)
+            if course_failed:
+                continue
 
-        print(results)
-        print( [f'{a["course"].course_code} {a["rubric"].name}' for a in results])
+        out_list = [course.course_code for course in results]
+        print(out_list)
         self.assertGreater(len(results), 0, '\n'.join([a["course"].base_code for a in results]))
-
-
 
 
 class TestSectionInserted(unittest.TestCase):

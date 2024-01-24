@@ -35,3 +35,4 @@ private.key
 cert.py
 selfsigned.crt
 upload.json
+dump.json
