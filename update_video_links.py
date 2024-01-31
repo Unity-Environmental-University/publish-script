@@ -1,5 +1,6 @@
 import glob
 import traceback
+from typing import Literal
 from pathlib import Path
 from PIL import Image
 import sys
@@ -10,12 +11,13 @@ import os
 import json
 import copy
 import tkinter as tk
-from tkinter import simpledialog
+from tkinter import simpledialog, messagebox
 from bs4 import BeautifulSoup
 
 import publish_script
 import publish_script as ps
 from publish_script import Course
+from publish_script import get_paged_data
 
 ADD_LEARNING_MATERIALS = False
 UPDATE_SYLLABUS = True
@@ -27,14 +29,13 @@ UG_TERM_DATES = "January 15 - February 18"
 HOMETILE_WIDTH = 512
 GRAD_SCHEME_NAME = "DE Graduate Programs"
 
-
 publish_script.load_constants(CONSTANTS_FILE)
 # Open the file and read the contents
 try:
     with open(CONSTANTS_FILE, 'r') as f:
         constants = json.load(f)
 except Exception as e:
-    tk.messagebox.showerror(
+    messagebox.showerror(
         message=f"Problem loading constants.json."
                 " Ask hallie for a copy of constants.json and put it in this folder.\n{e}")
 # save the api key
@@ -48,7 +49,7 @@ try:
     if "driveUrl" in constants:
         drive_url = constants["driveUrl"]
 except Exception as e:
-    tk.messagebox.showerror(
+    messagebox.showerror(
         message=f"It looks like your constants file is missing some values."
                 "Ask hallie for a current copy of the constants.json file.\n{e}")
     exit()
@@ -57,15 +58,14 @@ except Exception as e:
 headers = {
     "Authorization": f"Bearer {API_TOKEN}",
     "User-Agent": "UnityThemeMigratorBot/0.0"
-                  " (http://unity.edu; hlarsson@unity.edu)"
+                  " (https://unity.edu; hlarsson@unity.edu)"
 }
 img_headers = {
     "User-Agent": "UnityThemeMigratorBot/0.0"
-                  " (http://unity.edu; hlarsson@unity.edu)"
+                  " (https://unity.edu; hlarsson@unity.edu)"
 }
 
-url = f'{API_URL}/accounts'
-accounts = requests.get(url, headers=headers).json()
+accounts = requests.get(f'{API_URL}/accounts', headers=headers).json()
 account_ids = dict()
 for account in accounts:
     account_ids[account['name']] = account['id']
@@ -79,59 +79,57 @@ account_id = ACCOUNT_ID
 
 
 def main():
-    course_id = 0
+    course_id_input: str | None = None
     source_course_id = 0
 
     if len(sys.argv) > 1:
-        course_id = sys.argv[1]
-    else:
-        course_id = str(tk.simpledialog.askstring("What Course?",
-                                                   "Enter the course_id of the new course (cut the number out of the url and paste here)"))
+        course_id_input = sys.argv[1]
 
-    #YES we should replace with a course object but that's going to be a whole thing.
-    if course_id is not int and not course_id.isnumeric():
-        course_id = Course.get_by_code(course_id).id
+    course: Course | None = None
 
-    url = f"{API_URL}/courses/{course_id}"
-    print(url)
-    response = requests.get(url, headers=headers)
-    print(response)
-    if response.status_code != 200:
-        tk.messagebox.showinfo("report", f"Course not found.\n{response.text}")
-        exit()
-    course = response.json()
+    while course is None:
+        if course_id_input is None:
+            course_id_input = str(tk.simpledialog.askstring(
+                    "What Course?",
+                    "Enter the course_id (number in url) or full course code (e.g. NEWDEV_XMPL000) of the new course"))
+
+        # YES we should replace with a course object but that's going to be a whole thing.
+        if course_id_input.isnumeric():
+            course = Course.get_by_id(int(course_id_input))
+        else:
+            course = Course.get_by_code(course_id_input)
+
+        # Clear out course id input so if we re-loop, we ask for a new course
+        course_id_input = None
+
+    course_id = course.id
 
     if not source_course_id or source_course_id == 0:
-        code = course["course_code"].split("_")[1][0:7]
-        print("Code", code)
+        base_code = course.base_code
+        print("Code", base_code)
         # look for dep or deprecated first
 
-        response = requests.get(f"{API_URL}/accounts/{account_id}/courses", headers=headers,
-                                params={"search_term": f"DEPRECATED_{code}"})
-        courses = response.json()
-        print(courses)
-        if len(courses) == 0:
-            response = requests.get(f"{API_URL}/accounts/{account_id}/courses", headers=headers,
-                                    params={"search_term": f"DEP_{code}"})
-            courses = response.json()
-            print(courses)
-            # if that's not there, look for DEV assuming DEP has not been made
-        if len(courses) == 0:
-            response = requests.get(f"{API_URL}/accounts/{account_id}/courses", headers=headers,
-                                    params={"search_term": f"DEV_{code}"})
-            courses = response.json()
-            print(courses)
+        courses: list[Course] = []
+        prefixes_to_try = [
+            'DEPRECATED',
+            'DEP',
+            'DEV',
+        ]
+        for prefix in prefixes_to_try:
+            courses = Course.get_all_by_code(f'{prefix}_{base_code}')
+            if courses is not None and len(courses) > 0:
+                break
 
         for course in courses:
             print(course["course_code"])
         if len(courses) > 1:
-            courses.sort(key=lambda course: course['id'], reverse=True)
+            courses.sort(key=lambda a: a.id, reverse=True)
 
         source_course = None
         if len(courses) > 0:
             for course in courses:
                 match = re.search(ps.Course.CODE_REGEX, course["course_code"])
-                #Check if we've found a bad newdev
+                # Check if we've found a bad newdev
                 if course["id"] == course_id:
                     continue
                 if match and match.groups():
@@ -180,7 +178,8 @@ def main():
         },
         {
             'name': 'delete',
-            'message': 'Do you want to try to delete assignments not in discussions and modules?\nYou will see a list of items to confirm.',
+            'message': 'Do you want to try to delete assignments not in discussions and modules?' +
+            '\nYou will see a list of items to confirm.',
             'error': 'There was a problem deleting these assignments\n{e}',
             'func': remove_assignments_and_discussions_not_in_modules,
         },
@@ -199,7 +198,6 @@ def main():
             if update['name'] in sys.argv or 'argument' in update and update['argument'] in sys.argv:
                 update['func'](course_id, source_course_id)
 
-
     # if we don't have any arguments past the id, go into interactive mode
     else:
         opening_dialog(course_id, source_course_id, updates)
@@ -209,27 +207,16 @@ def opening_dialog(course_id, source_course_id, updates):
     root = tk.Tk()
     checkboxes = []
 
-    # terms = requests.get(f'{api_url}/accounts/{ROOT_ACCOUNT_ID}/terms', headers=headers).json()['enrollment_terms']
-    # print(terms)
-    # terms.sort(key=lambda term: term['id'], reverse=True)
-    # term_name_var = tk.StringVar()
-    # term_name_var.set(terms[0]['name'])
-    # term_name_input = tk.Entry(root, text="Term Code", textvariable= term_name_var)
-    # #term_name_input.pack()
-
     for update in updates:
-        boolVar = tk.BooleanVar()
-        button = tk.Checkbutton(root, text=update['message'], onvalue=True, offvalue=False, variable=boolVar)
+        bool_var = tk.BooleanVar()
+        button = tk.Checkbutton(root, text=update['message'], onvalue=True, offvalue=False, variable=bool_var)
         checkboxes.append(button)
-        update['run'] = boolVar
+        update['run'] = bool_var
         button.pack()
 
     button = tk.Button(master=root, text="Run",
                        command=lambda: run_opening_dialog(root, course_id, source_course_id, updates))
     button.pack()
-    # button = tk.Button(master=root, text="ADVANCED OPTIONS", command=lambda: advanced_options_ui(root, course_id, source_course_id))
-    # button.pack()
-
     root.mainloop()
 
 
@@ -247,7 +234,7 @@ def run_opening_dialog(root, course_id, source_course_id, updates):
             tk.messagebox.showerror(message=update['error'].format(e=str(e)) + "\n" + traceback.format_exc())
             print(traceback.format_exc())
 
-    root.destroy()
+    # root.destroy()
     tk.messagebox.showinfo(message="Finished!")
 
 
@@ -259,7 +246,7 @@ def advanced_options_ui(root, course_id, source_course_id):
             'show': False,
         }
     ]
-    win = tk.TopLevel(root)
+    win = root.TopLevel(root)
 
     for option in advanced_options:
         button = tk.Button(master=win, text=option['name'],
@@ -274,7 +261,7 @@ def execute_option(win, course_id, source_course_id, option):
     win.destroy()
 
 
-def revert_assignments(course_id, source_course_id):
+def revert_assignments(course_id):
     assignments = get_paged_data(f"{API_URL}/courses/{course_id}/assignments")
     discussions = get_paged_data(f"{API_URL}/courses/{course_id}/discussion_topics")
 
@@ -356,13 +343,13 @@ def revert_discussion(course_id, discussion_id):
     print(response)
 
 
-def get_backup(course_id, item_id, backups_folder):
+def get_backup(course_id, item_id, backups_folder) -> dict | None:
     base_folder = "course_data"
     folder_path = os.path.join(os.getcwd(), base_folder, str(course_id), backups_folder, str(item_id))
     ensure_directory_exists(folder_path)
     list_of_files = glob.glob(f'{folder_path}/*.json')
     if len(list_of_files) == 0:
-        return False
+        return None
     filename = f"{item_id}_{len(list_of_files) - 1}.json"
 
     with open(os.path.join(folder_path, filename), 'r') as f:
@@ -421,7 +408,7 @@ def set_hometiles(course_id, source_course_id=None):
     process_and_upload_main_hometile(course_id, image_path, soup)
 
     # Process and upload hometiles for weekly overviews
-    process_and_upload_overview_tiles(course_id, source_course_id, image_path)
+    process_and_upload_overview_tiles(course_id, image_path)
 
 
 def setup_image_directories(course_id, base_folder="course_data"):
@@ -439,7 +426,7 @@ def process_and_upload_main_hometile(course_id, image_path, soup):
     upload_hometile(course_id, home_tile_path)
 
 
-def process_and_upload_overview_tiles(course_id, image_source_course_id, image_path):
+def process_and_upload_overview_tiles(course_id, image_path):
     # Process and upload hometiles
     modules = get_modules(course_id)
     for i, module in enumerate(modules, start=1):
@@ -1107,13 +1094,8 @@ def handle_discussion(item, source_item, course_id, source_course_id, put_url, i
     source_name = source_item["title"]
     name = item["title"]
 
-    # sets the display number of the discussion (e.g. discussion 2) only if there are more than one of them
-    display_number = ""
-    if total > 1:
-        display_number = f"{index + 1} "
-
     # split the header into components for use later
-    new_name, title, subhead = get_new_name_title_and_subhead(source_name, format_title, display_number)
+    new_name, title, subhead = get_new_name_title_and_subhead(source_name)
     print(f"migrating {source_name} to {new_name}")
 
     # save off a backup of this data
@@ -1185,7 +1167,7 @@ def handle_assignment(item, source_item, course_id, source_course_id, put_url, i
     if total > 1:
         display_number = f"{index + 1} "
 
-    new_name, title, subhead = get_new_name_title_and_subhead(source_name, format_title, display_number)
+    new_name, title, subhead = get_new_name_title_and_subhead(source_name)
     print(f"migrating {source_name} to {new_name}")
 
     source_body = source_item["description"]
@@ -1261,7 +1243,7 @@ def find_source_assignment_content(soup):
     return contents
 
 
-def get_new_name_title_and_subhead(source_name: str, format_title: str, display_number: int):
+def get_new_name_title_and_subhead(source_name: str):
     title = re.sub(r'^.*[:-]\W+', '', source_name)
     subhead = re.sub(r'[:-].*', '', source_name)
     new_name = f'{subhead} - {title}'
@@ -1371,6 +1353,8 @@ def duplicate_item(course_id, item, module=None):
         url = f"{API_URL}/courses/{course_id}/assignments/{item_id}/duplicate"
     elif type_ == "Discussion":
         url = f"{API_URL}/courses/{course_id}/discussion_topics/{item_id}/duplicate"
+    else:
+        return False
 
     print(url)
     response = requests.post(url, headers=headers)
@@ -1508,9 +1492,9 @@ def new_overview_page_html(course_id, source_course_id, overview_page_body, titl
     update_links(soup, course_id, source_course_id)
     body = postprocess_soup(soup)
 
-    body = re.sub('\[title of week\]', f"{title}", body)
-    body = re.sub('\[Insert.*text\]', f"{description}", body)
-    body = re.sub('\[insert weekly objectives, bulleted list\]', f"{learning_objectives}", body)
+    body = re.sub('\[title of week]', f"{title}", body)
+    body = re.sub('\[Insert.*text]', f"{description}", body)
+    body = re.sub('\[insert weekly objectives, bulleted list]', f"{learning_objectives}", body)
     return body
 
 
@@ -1529,29 +1513,40 @@ def get_file_url_by_name(course_id, file_search):
     return False
 
 
-def update_syllabus_and_overview(course_id, source_course_id):
+def update_syllabus_and_overview(destination_course_id, source_course_id):
     source_page = get_syllabus(source_course_id)
-    new_page = get_syllabus(course_id)
+    new_page = get_syllabus(destination_course_id)
 
-    syllabus_banner_url = get_file_url_by_name(course_id, "Module 1 banner (7)")
+    syllabus_banner_url = get_file_url_by_name(destination_course_id, "Module 1 banner (7)")
 
     is_course_grad = not source_page.find(string=re.compile("Poor, but Passing"))
     if is_course_grad:
-        set_course_grad(course_id)
+        set_course_grad(destination_course_id)
 
     title = find_syllabus_title(source_page)
     description_section = get_section(source_page, re.compile(r'.*description', re.IGNORECASE))
     learning_objectives_section = get_section(source_page, re.compile(r'outcomes', re.IGNORECASE))
     if not learning_objectives_section:
         learning_objectives_section = get_section(source_page, re.compile(r'objectives', re.IGNORECASE))
-    textbook_section = get_section(source_page, re.compile(r'.*(required materials|textbook)[:]?', re.IGNORECASE))
-    week_1_preview = get_week_1_preview(course_id, source_course_id)
+    textbook_section = get_section(
+        source_page,
+        re.compile(r'.*(required materials|textbook)[:]?', re.IGNORECASE))
+    week_1_preview = get_week_1_preview(destination_course_id, source_course_id)
 
     term = GRAD_TERM_NAME if is_course_grad else UG_TERM_NAME
     dates = GRADE_TERM_DATES if is_course_grad else UG_TERM_DATES
 
-    update_syllabus(course_id, syllabus_banner_url, term, dates, learning_objectives_section, description_section,
-                    title, week_1_preview, textbook_section, is_course_grad)
+    update_syllabus(
+        destination_course_id,
+        syllabus_banner_url,
+        term,
+        dates,
+        learning_objectives_section,
+        description_section,
+        title,
+        week_1_preview,
+        textbook_section,
+        is_course_grad)
 
     # update the home page with the title we grabbed
     course_title = None
@@ -1562,8 +1557,8 @@ def update_syllabus_and_overview(course_id, source_course_id):
         course_title = groups[1]
         course_code = re.sub(r'\s+', '', groups[0])
 
-    update_home_page(course_id, source_course_id, course_code, course_title)
-    update_course_overview(course_id, source_course_id, learning_objectives_section, description_section,
+    update_home_page(destination_course_id, source_course_id, course_code, course_title)
+    update_course_overview(destination_course_id, source_course_id, learning_objectives_section, description_section,
                            textbook_section)
 
 
@@ -1607,7 +1602,7 @@ def update_syllabus(course_id, syllabus_banner_url, term, dates, learning_object
         print(type(e))
         print(e)
         tk.messagebox.showerror(message=f'''
-      syllabus_template.html problem. It may be missing or out of date. Please download the latests from drive.
+      syllabus_template.html problem. It may be missing or out of date. Please download the latest from drive.
       {type(e)}
       {e.args}      
       {e}
@@ -1695,7 +1690,8 @@ def update_course_overview(course_id, source_course_id, learning_objectives_sect
         print(type(e))
         print(e)
         tk.messagebox.showerror(
-            message=f"overview_template.html problem. It may be missing or out of date. Please download the latests from drive.\n{e}\n{e.args}")
+            message=f"overview_template.html problem. It may be missing or out of date." +
+                    f"Please download the latest from drive.\n{e}\n{e.args}")
         exit()
 
     submit_soup = BeautifulSoup(text, "lxml")
@@ -1708,7 +1704,7 @@ def update_course_overview(course_id, source_course_id, learning_objectives_sect
 
 
 def update_home_page(course_id, source_course_id, course_code, course_title):
-    # set to template defaults in case we don't find them so we don't break the templating
+    # set to template defaults in case we don't find them, so we don't break the templating
     if not course_code:
         course_code = '[Code and #]'
 
@@ -1741,9 +1737,9 @@ def update_home_page(course_id, source_course_id, course_code, course_title):
     print(course_code)
     dest_page = response.json()
     dest_text = dest_page['body']
-    dest_text = re.sub(r'\[Insert course introduction.*student\]', description, dest_text)
-    dest_text = re.sub(r'\[Code and #\]', course_code, dest_text)
-    dest_text = re.sub(r'\[Course title\]', course_title, dest_text)
+    dest_text = re.sub(r'\[Insert course introduction.*student]', description, dest_text)
+    dest_text = re.sub(r'\[Code and #]', course_code, dest_text)
+    dest_text = re.sub(r'\[Course title]', course_title, dest_text)
 
     print(dest_text)
 
@@ -1881,12 +1877,12 @@ def replace_content(soup, header_string, list_of_new_contents):
 
 
 # https://codereview.stackexchange.com/questions/272811/converting-a-youtube-embed-link-to-a-regular-link-in-python
-def convert_to_watch_url(embed_url: str) -> str:
+def convert_to_watch_url(embed_url: str) -> Literal[b""]:
     """Convert a YouTube embed URL into a watch URL."""
 
     scheme, netloc, path, params, query, fragment = urlparse(embed_url)
     video_id, path = Path(path).stem, '/watch'
-    return urlunparse((scheme, netloc, path, params, f'v={video_id}', fragment))
+    return urlunparse([scheme, netloc, path, params, f'v={video_id}', fragment])
 
 
 def get_week_1_preview(course_id, source_course_id):
@@ -2116,7 +2112,7 @@ def clear_all_but_1_lm_button(buttons):
             button.parent.parent.decompose()
 
 
-def handle_lm_secondary_media_boxes(soup: object, source_iframes: list, transcripts: list, slides: list,
+def handle_lm_secondary_media_boxes(soup: BeautifulSoup, source_iframes: list, transcripts: list, slides: list,
                                     transcript_buttons: list, slides_buttons: list):
     total_needed_boxes = len(source_iframes) - 1
     secondary_media_boxes = get_secondary_media_boxes(soup)
@@ -2166,9 +2162,9 @@ def handle_first_lm_button(items: list, buttons: list, button_text: str):
 
 
 def handle_secondary_media_element_link(
-        box: object,
+        box: BeautifulSoup,
         number: int,
-        soup: object,
+        soup: BeautifulSoup,
         items: list,
         type_: str):
     if number < len(items):
@@ -2183,7 +2179,7 @@ def handle_secondary_media_element_link(
         link.string = type_.capitalize()
 
 
-def add_lm_import_accordion(soup: object, transcripts: list, slides: list, learning_materials: list):
+def add_lm_import_accordion(soup: BeautifulSoup, transcripts: list, slides: list, learning_materials: list):
     accordion_list = list(soup.find_all("div", class_='auto-add'))
     accordion = None
     if accordion_list and len(accordion_list) > 0:
@@ -2253,29 +2249,5 @@ def postprocess_soup(soup, remove_styling_span=False):
     return text
 
 
-def get_paged_data(url, headers=headers):
-    response = requests.get(url, headers=headers)
-    try:
-        out = response.json()
-    except:
-        print(url)
-        print(response)
-    next_page_link = "!"
-    while len(next_page_link) != 0:
-        if not "Link" in response.headers:
-            break
-        pagination_links = response.headers["Link"].split(",")
-        for link in pagination_links:
-            if 'next' in link:
-                next_page_link = link.split(";")[0].split("<")[1].split(">")[0]
-                print(next_page_link)
-                response = requests.get(next_page_link, headers=headers)
-                out = out + response.json()
-                break
-            else:
-                next_page_link = ""
-
-    return out
-
-
-main()
+if __name__ == '__main__':
+    main()
