@@ -16,9 +16,7 @@ def progress(percent, status, **args):
     print(percent, status)
 
 
-i = 0
-
-
+total = 0
 for code in course_string.split():
     print(f"Starting for {code}")
     if '_' not in code:
@@ -27,7 +25,7 @@ for code in course_string.split():
     if not course:
         not_found.append(code)
         continue
-    i = i + 1
+    total += 1
 
     courses = [course]
     parent = course.get_parent_course()
@@ -46,7 +44,7 @@ for code in course_string.split():
             for associate_course in course.associated_courses:
                 ps.open_browser_func([f'{associate_course.course_url}/assignments/syllabus'])
 
-messagebox.showinfo("Finished", f"Finished! \n{i} BP/DEV pairs found and updated.")
+messagebox.showinfo("Finished", f"Finished! \n{total} BP/DEV pairs found and updated.")
 
 
 

@@ -1660,7 +1660,7 @@ def lock_module_items(course: Course, progress_bar: ttk.Progressbar | None = Non
     """
 
     course_id = course.id
-    modules = get_modules(course_id)
+    modules = course.get_modules()
 
     total = 0
     for module in modules:
@@ -2479,44 +2479,6 @@ def resize_image(path, max_width):
         resized_img.save(output_path)
         print(output_path)
     return output_path
-
-
-# TODO: Finish this when it's not crunch time.
-def upload_image(pic_path: str, course_id: int) -> dict[str, str] | None:
-    # Process and upload user image
-    # get the correct folder id
-    url = f"{API_URL}/courses/{course_id}/folders/by_path/Images/"
-    response = requests.get(url, headers=HEADERS)
-    folders = response.json()
-    upload_folder = folders[-1]
-
-    # upload the file
-    file_url = f"{API_URL}/courses/{course_id}/files"
-    print(f"uploading {pic_path} to {file_url}")
-    data = {
-        "name": os.path.basename(pic_path),
-        "no_redirect": True,
-        "parent_folder_id": upload_folder["id"],
-        "on_duplicate": "overwrite"
-    }
-
-    response = requests.post(file_url, data=data, headers=HEADERS)
-
-    if response.ok:
-        response_data = response.json()
-        files = {"file": open(pic_path, 'rb')}
-        url = response_data["upload_url"]
-        response = requests.post(url, files=files, data=response_data['upload_params'])
-        print(response)
-        if not response.ok:
-            print(response.text)
-            return None
-
-        if response.is_redirect:
-            response = requests.Session().send(response.next)
-
-        return response.json()
-
 
 def get_instructor_page(user: dict | str):
     """Gets the page in Faculty Bios course that matches this instructor
