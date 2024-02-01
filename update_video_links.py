@@ -2,7 +2,6 @@ import glob
 import traceback
 from typing import Literal
 from pathlib import Path
-from PIL import Image
 import sys
 import re
 import requests
@@ -80,7 +79,7 @@ account_id = ACCOUNT_ID
 
 def main():
     course_id_input: str | None = None
-    source_course_id = 0
+    source_course_id = None
 
     if len(sys.argv) > 1:
         course_id_input = sys.argv[1]
@@ -141,7 +140,11 @@ def main():
                 source_course_id = source_course.id
                 continue
 
-        print("Old course found", source_course.id, source_course.course_code)
+        if source_course is None:
+            print("Source not found")
+            messagebox.showwarning("Warning", "Source course not found.\nSome functions are not available.")
+        else:
+            print("Old course found:", source_course.course_code)
 
     updates = [
         {
@@ -208,11 +211,12 @@ def opening_dialog(course_id, source_course_id, updates):
     checkboxes = []
 
     for update in updates:
-        bool_var = tk.BooleanVar()
-        button = tk.Checkbutton(root, text=update['message'], onvalue=True, offvalue=False, variable=bool_var)
-        checkboxes.append(button)
-        update['run'] = bool_var
-        button.pack()
+        if source_course_id is not None or 'source_course_id' not in update['func'].__code__.co_varnames:
+            bool_var = tk.BooleanVar()
+            button = tk.Checkbutton(root, text=update['message'], onvalue=True, offvalue=False, variable=bool_var)
+            checkboxes.append(button)
+            update['run'] = bool_var
+            button.pack()
 
     button = tk.Button(master=root, text="Run",
                        command=lambda: run_opening_dialog(root, course_id, source_course_id, updates))
@@ -225,11 +229,14 @@ def run_opening_dialog(root, course_id, source_course_id, updates):
     label.pack()
     for update in updates:
         try:
-            if update['run'].get():
+            if 'run' in update and update['run'] is not None and update['run'].get():
                 label.config(text=f"Running {update['name']}")
                 root.update()
                 print(update)
-                update['func'](course_id, source_course_id)
+                update_args = {'course_id': course_id}
+                if 'source_course_id' in update['func'].__code__.co_varnames:
+                    update_args['source_course_id'] = source_course_id
+                update['func'](**update_args)
         except Exception as e:
             tk.messagebox.showerror(message=update['error'].format(e=str(e)) + "\n" + traceback.format_exc())
             print(traceback.format_exc())
@@ -394,7 +401,7 @@ def update_assignment_categories(course_id, source_course_id):
             assert response.ok, "There was a problem updating assignment groups"
 
 
-def set_hometiles(course_id, source_course_id=None):
+def set_hometiles(course_id):
     # Retrieve the home page content
     home_page_url = f"{API_URL}/courses/{course_id}/pages/home"
     response = requests.get(home_page_url, headers=headers)
@@ -496,25 +503,18 @@ def upload_hometile(course_id, local_path):
 def save_hometile(img_data, data_folder, filename):
     filepath = os.path.join(data_folder, filename)
 
+    pre, ext = os.path.splitext(filepath)
+
     with open(filepath, 'wb') as file:
         file.write(img_data)
 
-    with Image.open(filepath) as img:
-        target_width = HOMETILE_WIDTH
+    hometile_path = f"{pre}.png"
+    publish_script.resize_down_image(
+        in_path=filepath, out_path=hometile_path,
+        max_width=HOMETILE_WIDTH, format='PNG'
+    )
 
-        # Calculate the new height to preserve the aspect ratio
-        width_percent = (target_width / float(img.size[0]))
-        new_height = int((float(img.size[1]) * float(width_percent)))
-
-        # Resize the image using the appropriate resampling filter
-        resized_img = img.resize((target_width, new_height), Image.Resampling.BILINEAR)
-
-        pre, ext = os.path.splitext(filepath)
-        # Save the resized image
-        home_tile_path = f"{pre}.png"
-        resized_img.save(home_tile_path, "PNG")
-
-        return home_tile_path
+    return hometile_path
 
 
 def get_modules(course_id):

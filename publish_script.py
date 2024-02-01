@@ -2436,49 +2436,50 @@ def get_instructor_profile_submission(user) -> Profile:
         # todo: upload resized profile pic and populate upload_url
     img_upload_url = ""
     if len(pic_path) > 0:
-        pic_path = resize_image(pic_path, MAX_PROFILE_IMAGE_SIZE)
+        pic_path = resize_down_image(pic_path, pic_path, MAX_PROFILE_IMAGE_SIZE)
         img_upload_url = ""  # upload_image(pic_path, instructor_course_id)
 
-    img_src = img_upload_url if \
-        img_upload_url and len(img_upload_url) > 0 \
-        else DEFAULT_PROFILE_URL
+    img_src = img_upload_url if img_upload_url and len(img_upload_url) > 0 else DEFAULT_PROFILE_URL
+
 
     return Profile(user=user, bio=bio, img_src=img_src, local_img_path=pic_path)
 
 
-def resize_image(path, max_width):
+def resize_down_image(in_path, max_width, out_path=None, format=None):
     """Summary
     Resizes an image to a maximum width
 
     Args:
-        path: Path to the original image
-        max_width: the maximum width to scale the image to
+        format: File format if relevant. Defaults to None.
+        max_width: the maximum width to scale down to
+        in_path: Path to the original image
+        out_path: Path to save the output image, if different
+
 
     Returns:
         The path to the resized image on disk
     """
-    input_path = path
-    output_path = path
-    with Image.open(input_path) as img:
-        print(img.size)
-        if max_width >= img.size[0]:
-            print(max_width, img.size)
-            return input_path
+    if out_path is None:
+        out_path = in_path
 
-        target_width = max_width
+    with Image.open(in_path) as img:
+        if max_width >= img.size[0]:
+            img.save(out_path)
+            return in_path
 
         # Calculate the new height to preserve the aspect ratio
-        width_percent = (target_width / float(img.size[0]))
+        width_percent = (max_width / float(img.size[0]))
         new_height = int((float(img.size[1]) * float(width_percent)))
 
         # Resize the image using the appropriate resampling filter
         resized_img = img.resize(
-            (target_width, new_height), Image.Resampling.BILINEAR)
+            (max_width, new_height), Image.Resampling.BILINEAR)
 
         # Save the resized image
-        resized_img.save(output_path)
-        print(output_path)
-    return output_path
+        resized_img.save(out_path, format)
+
+    return out_path
+
 
 def get_instructor_page(user: dict | str):
     """Gets the page in Faculty Bios course that matches this instructor
