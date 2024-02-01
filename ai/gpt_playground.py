@@ -15,61 +15,53 @@ constants = json.load(open('../constants.json'))
 OPENAI_API_KEY = constants['openApiKey']
 
 
-def demo():
-    """
-    Demo from OpenAI on interacting with client
-    """
-
-    client = OpenAI(api_key=OPENAI_API_KEY)
-
-    completion = client.chat.completions.create(
-        model="gpt-4-turbo-preview",
-        messages=[
-            {"role": "system", "content":
-                "You are a poetic assistant, skilled in explaining complex programming concepts with creative flair."},
-            {"role": "user", "content": "Compose a poem that explains the concept of recursion in programming."}
-        ]
-    )
-    print(json.dumps(list(map(lambda a: str(a.message.content), completion.choices)), indent=2))
-
-
 async def interactive_chat():
+    thread_id = constants['threadId']
+    assistant_id = constants['assistantId']
+
     client = OpenAI(api_key=OPENAI_API_KEY)
-    assistant = client.beta.assistants.create(
-        name="Demo",
-        instructions="You only speak in spanish, using a library of only 300 words. You want to help me learn spanish, and understand english perfectly. You do not say goodbye every time I thank you.",
-        model="gpt-4-turbo-preview",
-        tools=[{"type": "code_interpreter"}],
-    )
-    thread = client.beta.threads.create()
-    with open(f"../output/{thread.id}.txt", "a") as f:
-        f.write(f'Thread: {thread.id}\n')
+    if assistant_id:
+        assistant = client.beta.assistants.retrieve(assistant_id)
+    else:
+        assistant = client.beta.assistants.create(
+            name="Spanish Tutor",
+            instructions="You only speak in spanish, using a library of only 300 words. You want to help me learn spanish, and understand english perfectly. You do not say goodbye every time I thank you. You are reluctant to speak in any language that is not spanish, but will speak english briefly when directly asked to.",
+            model="gpt-3.5-turbo-preview",
+            tools=[{"type": "code_interpreter"}],
+        )
+    if thread_id is not None:
+        thread = client.beta.threads.create()
+        thread_id = thread.id
+    else:
+        thread = client.beta.threads.retrieve(thread_id)
+
+
+    with open(f"../output/{thread_id}.txt", "a") as f:
+        f.write(f'Thread: {thread_id}\n')
         f.write(f'Assistant: {assistant.name}, {assistant.id}\n')
 
-    print(thread.id)
+    print(thread_id)
     while True:
         text = input(":")
         message = client.beta.threads.messages.create(
-            thread_id=thread.id,
+            thread_id=thread_id,
             content=text,
             role='user',
         )
 
         run = client.beta.threads.runs.create(
-            thread_id=thread.id,
+            thread_id=thread_id,
             assistant_id=assistant.id
         )
 
         run_info = client.beta.threads.runs.retrieve(
-            thread_id=thread.id,
+            thread_id=thread_id,
             run_id=run.id
         )
 
-
-
         while run_info.status != "completed":
             run_info = client.beta.threads.runs.retrieve(
-                thread_id=thread.id,
+                thread_id=thread_id,
                 run_id=run.id
             )
 
@@ -78,7 +70,6 @@ async def interactive_chat():
         with open(f"../output/{assistant.id}.txt", "a") as f:
             f.write(message_content + '\n')
         print(message_content)
-
 
 async def main():
     await interactive_chat()
