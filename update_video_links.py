@@ -31,12 +31,14 @@ GRAD_SCHEME_NAME = "DE Graduate Programs"
 publish_script.load_constants(CONSTANTS_FILE)
 # Open the file and read the contents
 try:
-    with open(CONSTANTS_FILE, 'r') as f:
-        constants = json.load(f)
-except Exception as e:
+    with open(CONSTANTS_FILE, 'r') as constants_file:
+        constants = json.load(constants_file)
+except ValueError:
     messagebox.showerror(
         message=f"Problem loading constants.json."
                 " Ask hallie for a copy of constants.json and put it in this folder.\n{e}")
+    exit()
+
 # save the api key
 try:
     assert "apiToken" in constants, "No API Token provided"
@@ -47,7 +49,7 @@ try:
     drive_url = None
     if "driveUrl" in constants:
         drive_url = constants["driveUrl"]
-except Exception as e:
+except KeyError as e:
     messagebox.showerror(
         message=f"It looks like your constants file is missing some values."
                 "Ask hallie for a current copy of the constants.json file.\n{e}")
@@ -66,8 +68,8 @@ img_headers = {
 
 accounts = requests.get(f'{API_URL}/accounts', headers=headers).json()
 account_ids = dict()
-for account in accounts:
-    account_ids[account['name']] = account['id']
+for _account in accounts:
+    account_ids[_account['name']] = _account['id']
 
 ACCOUNT_ID = account_ids['Distance Education']
 ROOT_ACCOUNT_ID = account_ids['Unity College']
@@ -89,8 +91,8 @@ def main():
     while course is None:
         if course_id_input is None:
             course_id_input = str(tk.simpledialog.askstring(
-                    "What Course?",
-                    "Enter the course_id (number in url) or full course code (e.g. NEWDEV_XMPL000) of the new course"))
+                "What Course?",
+                "Enter the course_id (number in url) or full course code (e.g. NEWDEV_XMPL000) of the new course"))
 
         # YES we should replace with a course object but that's going to be a whole thing.
         if course_id_input.isnumeric():
@@ -182,7 +184,7 @@ def main():
         {
             'name': 'delete',
             'message': 'Do you want to try to delete assignments not in discussions and modules?' +
-            '\nYou will see a list of items to confirm.',
+                       '\nYou will see a list of items to confirm.',
             'error': 'There was a problem deleting these assignments\n{e}',
             'func': remove_assignments_and_discussions_not_in_modules,
         },
@@ -237,8 +239,8 @@ def run_opening_dialog(root, course_id, source_course_id, updates):
                 if 'source_course_id' in update['func'].__code__.co_varnames:
                     update_args['source_course_id'] = source_course_id
                 update['func'](**update_args)
-        except Exception as e:
-            tk.messagebox.showerror(message=update['error'].format(e=str(e)) + "\n" + traceback.format_exc())
+        except Exception as e_:
+            tk.messagebox.showerror(message=update['error'].format(e=str(e_)) + "\n" + traceback.format_exc())
             print(traceback.format_exc())
 
     # root.destroy()
@@ -428,7 +430,7 @@ def setup_image_directories(course_id, base_folder="course_data"):
 def process_and_upload_main_hometile(course_id, image_path, soup):
     # Process and upload the main hometile
     banner = soup.find("div", class_="cbt-banner-image").find('img')
-    img_data, ext = retrieve_image(banner['src'], course_id, 1)
+    img_data, ext = retrieve_image(banner['src'])
     home_tile_path = save_hometile(img_data, image_path, f"hometile1.{ext}")
     upload_hometile(course_id, home_tile_path)
 
@@ -445,13 +447,13 @@ def process_and_upload_overview_tiles(course_id, image_path):
             soup = BeautifulSoup(page["body"], 'lxml')
 
             banner = soup.find("div", class_="cbt-banner-image").find('img')
-            img_data, ext = retrieve_image(banner['src'], course_id, i + 1)
+            img_data, ext = retrieve_image(banner['src'])
 
             home_tile_path = save_hometile(img_data, image_path, f"hometile{i + 1}.{ext}")
             upload_hometile(course_id, home_tile_path)
 
 
-def retrieve_image(src, course_id, tile_number):
+def retrieve_image(src):
     # Retrieve and save image data
     response = requests.get(src, headers=img_headers)
     img_data = response.content
@@ -466,7 +468,7 @@ def ensure_directory_exists(directory_path):
 
 
 def upload_hometile(course_id, local_path):
-    # get the correcy folder id
+    # get the correct folder id
     url = f"{API_URL}/courses/{course_id}/folders/by_path/Images/hometile"
     response = requests.get(url, headers=headers)
     folders = response.json()
@@ -522,7 +524,7 @@ def get_modules(course_id):
     return get_paged_data(url)
 
 
-def create_missing_assignments(modules, source_modules, course_id, source_course_id):
+def create_missing_assignments(course_id, source_course_id):
     print("Creating missing assignments")
     modules = get_modules(course_id)
     source_modules = get_modules(source_course_id)
@@ -532,10 +534,9 @@ def create_missing_assignments(modules, source_modules, course_id, source_course
     print(source_modules)
     gallery_discussion_template = None
     for source_module in source_modules:
-        source_items = source_module["items"]
+
         # skip non-week modules
         number = get_source_module_number(source_module)
-        name = get_source_module_title(source_module)
         if not number:
             continue
 
@@ -544,19 +545,21 @@ def create_missing_assignments(modules, source_modules, course_id, source_course
 
         # save off the gallery discussion
         if number == "1":
-            gallery_search = filter(lambda item: "Gallery Discussion" in item["title"], dest_items)
             gallery_discussion_template = next(filter(lambda item: "Gallery Discussion" in item["title"], dest_items),
                                                None)
 
         if not gallery_discussion_template:
             gallery_discussion_template = next(filter(lambda item: "gallery" in item['title'], dest_items), None)
 
-        count = count + create_missing_assignments_in_module(dest_module, source_module, course_id, source_course_id,
-                                                             gallery_discussion_template)
+        count = count + create_missing_assignments_in_module(
+            dest_module,
+            source_module,
+            course_id,
+            gallery_discussion_template)
         handled.append(dest_module)
 
     # remove named modules that were not handled
-    to_remove = list(filter(lambda module: (not module in handled) and "Module" in module["name"], modules))
+    to_remove = list(filter(lambda module: (module not in handled) and "Module" in module["name"], modules))
     module_name_list = "\n".join(list(map(lambda module: module["name"], to_remove)))
     if len(to_remove) and tk.messagebox.askyesno(
             message=f"Do you want to remove the following modules and their contents?\n{module_name_list}"):
@@ -570,22 +573,21 @@ def remove_module(course_id, module, delete_contents):
         for item in module["items"]:
             url = item["url"]
             print(f"Deleting {url}")
-            result = requests.delete(url, headers=headers)
+            requests.delete(url, headers=headers)
 
     url = f"{API_URL}/courses/{course_id}/modules/{module['id']}"
-    result = requests.delete(url, headers=headers)
+    requests.delete(url, headers=headers)
 
 
-def create_missing_assignments_in_module(module, source_module, course_id, source_course_id,
-                                         gallery_discussion_template):
+def create_missing_assignments_in_module(module, source_module, course_id, gallery_discussion_template):
     count = 0
-    count = count + add_quizzes(module, source_module, course_id, source_course_id)
-    count = count + add_assignments(module, source_module, course_id, source_course_id)
-    count = count + add_discussions(module, source_module, course_id, source_course_id, gallery_discussion_template)
+    count = count + add_quizzes(module, source_module, course_id)
+    count = count + add_assignments(module, source_module, course_id)
+    count = count + add_discussions(module, source_module, course_id, gallery_discussion_template)
     return count
 
 
-def add_quizzes(module, source_module, course_id, source_course_id):
+def add_quizzes(module, source_module, course_id):
     source_quizzes = list(filter(lambda item: item["type"] == "Quiz", source_module["items"]))
     quizzes = list(filter(lambda item: item["type"] == "Quiz", module["items"]))
 
@@ -604,15 +606,16 @@ def add_quizzes(module, source_module, course_id, source_course_id):
             else:
                 count = count + 1
                 print("Adding Quiz To Module")
-                print(list(map(lambda
-                                   quiz: f"{quiz['title']} // {source_quiz['title']}  // {quiz['title'] in source_quiz['title']}",
+                print(list(map(lambda quiz: f"{quiz['title']} // "
+                                            f"{source_quiz['title']}  // "
+                                            f"{quiz['title'] in source_quiz['title']}",
                                all_quizzes_in_course)))
                 new_quiz = next(
                     filter(lambda item: item["title"].lower() in source_quiz["title"].lower(), all_quizzes_in_course),
                     None)
                 assert new_quiz, f"Quiz not found:{source_quiz['title']}"
                 url = f"{API_URL}/courses/{course_id}/modules/{module['id']}/items"
-                result = requests.post(url, headers=headers, data={
+                requests.post(url, headers=headers, data={
                     "module_item[type]": "Quiz",
                     "module_item[content_id]": new_quiz["id"],
                     "module_item[completion_requirement][type]": "must_submit",
@@ -622,19 +625,17 @@ def add_quizzes(module, source_module, course_id, source_course_id):
     return count
 
 
-def add_assignments(module, source_module, course_id, source_course_id):
+def add_assignments(module, source_module, course_id):
     source_assignments = list(filter(lambda item: item["type"] == "Assignment", source_module["items"]))
     assignments = list(filter(lambda item: item["type"] == "Assignment", module["items"]))
     difference = len(source_assignments) - len(assignments)
     if difference > 0:
-        added_items = True
-
         for _ in range(0, difference):
             duplicate_item(course_id, assignments[0], module)
     return difference
 
 
-def add_discussions(module, source_module, course_id, source_course_id, gallery_discussion_template):
+def add_discussions(module, source_module, course_id, gallery_discussion_template):
     # get discussions and pull out gallery discussions to handle differently
     source_discussions = list(filter(lambda item: item["type"] == "Discussion", source_module["items"]))
     source_gallery_discussions = remove_gallery_discussions(source_discussions)
@@ -650,7 +651,6 @@ def add_discussions(module, source_module, course_id, source_course_id, gallery_
     # add discussions if there is disparity
     difference = len(source_discussions) - len(discussions)
     if difference > 0:
-        added_items = True
 
         # duplicate the first discussion as many times as it takes to get parity between discussions
         for _ in range(0, difference):
@@ -660,8 +660,6 @@ def add_discussions(module, source_module, course_id, source_course_id, gallery_
 
     difference = len(source_gallery_discussions) - len(gallery_discussions)
     if difference > 0:
-        added_items = True
-
         # duplicate the gallery discussion template as many times as it takes to get parity between gallery discussions
         for _ in range(0, difference):
             duplicate_item(course_id, gallery_discussion_template, module)
@@ -671,7 +669,8 @@ def add_discussions(module, source_module, course_id, source_course_id, gallery_
     return count
 
 
-# makes a lookup table of all files in the new course vs all file ids in the old course, and then caches that result for the rest of execution
+# makes a lookup table of all files in the new course vs all file ids in the old course,
+# and then caches that result for the rest of execution
 files_lut_cache = None
 
 
@@ -717,7 +716,8 @@ def get_course(course_id):
     return response.json()
 
 
-# makes a lookup table of all assignments (and discussions) in the new course via ids of assignments (and discussions) in the old course, and then caches that result for the rest of execution
+# makes a lookup table of all assignments (and discussions) in the new course
+# via ids of assignments (and discussions) in the old course, and then caches that result for the rest of execution
 assignments_lut_cache = None
 
 
@@ -740,24 +740,22 @@ def get_assignments_lookup_table(course_id, source_course_id, force=False):
                     return assignments_lut_cache
 
     source_modules = get_modules(source_course_id)
-    modules = get_modules(course_id)
 
     # we have to create missing assignments as part of getting assignments lookup table
-    count = create_missing_assignments(modules, source_modules, course_id, source_course_id)
+    create_missing_assignments(course_id, source_course_id)
 
     # reload modules after creating assignments
     modules = get_modules(course_id)
 
     assignments_lut = dict()
 
-    # build assignments from modules by getting assignments in order, discussions in order, and gallery discussion in order
+    # build assignments from modules by getting assignments in order,
+    # discussions in order, and gallery discussion in order
 
     for source_module in source_modules:
-        items = source_module["items"]
 
         # skip non-week modules
         number = get_source_module_number(source_module)
-        name = get_source_module_title(source_module)
         if not number:
             continue
 
@@ -820,8 +818,8 @@ def align_rubrics(course_id, source_course_id):
     source_rubric_url = f"{API_URL}/courses/{source_course_id}/rubrics?per_page=100"
     rubric_url = f"{API_URL}/courses/{course_id}/rubrics?per_page=100"
 
-    source_rubric_response = requests.post(source_rubric_url, headers=headers)
-    rubric_response = requests.post(rubric_url, headers=headers)
+    requests.post(source_rubric_url, headers=headers)
+    requests.post(rubric_url, headers=headers)
 
     source_rubrics = get_paged_data(source_rubric_url)
     rubrics = get_paged_data(rubric_url)
@@ -829,7 +827,6 @@ def align_rubrics(course_id, source_course_id):
     rubrics_lut = get_rubrics_lookup_table(rubrics, source_rubrics)
     for source_rubric in source_rubrics:
         try:
-
             response = requests.get(f"{API_URL}/courses/{source_course_id}/rubrics/{source_rubric['id']}",
                                     headers=headers, data={"include[]": "associations"})
             assert response.ok, f"problem getting rubric {source_rubric['id']} : {source_rubric['description']}"
@@ -839,11 +836,12 @@ def align_rubrics(course_id, source_course_id):
                 print(source_item_id)
                 if association["association_type"] == "Assignment":
                     rubric = rubrics_lut[source_rubric["id"]]
-                    assert rubric, f"Rubric {source_rubric['description']} not found in new course. You may need to import rubrics."
+                    assert rubric, (f"Rubric {source_rubric['description']} not found in new course. "
+                                    f"You may need to import rubrics.")
 
                     print("assigning...")
                     assignment = assignments_lut[str(source_item_id)]
-                    assignment_id = ""
+                    assignment_id: str
                     if "content_id" in assignment:
                         assignment_id = assignment["content_id"]
                     else:
@@ -857,29 +855,22 @@ def align_rubrics(course_id, source_course_id):
                         "rubric_association[use_for_grading]": True,
                     }
 
-                    site_url = re.sub(r"/api/v1", "", API_URL)
                     url = f"{API_URL}/courses/{course_id}/rubric_associations"
                     response = requests.post(url, headers=headers, data=payload)
 
                     assert response.ok
-                    url = f"{API_URL}/courses/{course_id}/rubrics/{rubric['id']}"
 
-
-
-        except Exception as e:
+        except Exception as rubric_exception:
             print("---ERROR---")
             print(f"Problem with {source_rubric['id']}...")
-            print(type(e))
-            print(e.args)
             print("---/ERROR---")
-            raise e
+            raise rubric_exception
 
 
 def align_assignments(course_id, source_course_id):
-    assignments_lut = get_assignments_lookup_table(course_id, source_course_id)
+    get_assignments_lookup_table(course_id, source_course_id)
     dest_modules = get_modules(course_id)
     source_modules = get_modules(source_course_id)
-    source_id_to_id_lut = dict()
 
     update_assignment_categories(course_id, source_course_id)
 
@@ -910,30 +901,14 @@ def align_assignments(course_id, source_course_id):
 
         gallery_discussions = remove_gallery_discussions(discussions)
 
-        handle_items(
-            course_id,
-            source_course_id,
-            dest_module,
-            gallery_discussions,
-            source_gallery_discussions,
-            handle_discussion,
-            f"Week {number} " + "Gallery Discussion {number}- {name}")
+        handle_items(dest_course_id=course_id, source_course_id=source_course_id, dest_items=gallery_discussions,
+                     source_items=source_gallery_discussions, handle_func=handle_discussion)
 
-        handle_items(
-            course_id,
-            source_course_id,
-            dest_module, discussions,
-            source_discussions,
-            handle_discussion,
-            f"Week {number} " + "Discussion {number}- {name}")
+        handle_items(dest_course_id=course_id, source_course_id=source_course_id, dest_items=discussions,
+                     source_items=source_discussions, handle_func=handle_discussion)
 
-        handle_items(
-            course_id,
-            source_course_id,
-            dest_module, dest_assignments,
-            source_assignments,
-            handle_assignment,
-            f"Week {number} " + "Assignment {number}- {name}")
+        handle_items(dest_course_id=course_id, source_course_id=source_course_id, dest_items=dest_assignments,
+                     source_items=source_assignments, handle_func=handle_assignment)
 
 
 def get_new_file_url(src, course_id, source_course_id):
@@ -966,8 +941,8 @@ def get_new_assignment_url(src, course_id, source_course_id):
         source_id = groups[1]
         if str(source_id) in assignments_lut:
             new_assignment = assignments_lut[str(source_id)]
-            content_id = None
-            # handle discussions linked as assigments
+            content_id: int
+            # handle discussions linked as assignments
             if type_url_part == "assignments" and 'assignment_id' in new_assignment:
                 content_id = new_assignment['assignment_id']
             # handle content ids from
@@ -999,8 +974,6 @@ def get_new_page_url(src, course_id, source_course_id):
 
 
 def update_links(soup, course_id, source_course_id):
-    files_lut = get_files_lookup_table(course_id, source_course_id)
-    assignments_lut = get_assignments_lookup_table(course_id, source_course_id)
     print("Updating Links")
     # handle a tags
     links = soup.find_all('a')
@@ -1010,7 +983,7 @@ def update_links(soup, course_id, source_course_id):
             continue
 
         # skip outside links
-        if not "instructure" in link['href']:
+        if "instructure" not in link['href']:
             continue
 
         print(link['href'])
@@ -1030,7 +1003,7 @@ def update_links(soup, course_id, source_course_id):
     for img in imgs:
         if not img.has_attr('src'):
             continue
-        if not 'instructure' in img['src']:
+        if 'instructure' not in img['src']:
             continue
         new_url, data_url = get_new_file_url(img["src"], course_id, source_course_id)
 
@@ -1041,24 +1014,22 @@ def update_links(soup, course_id, source_course_id):
             print(source_url + " ---> " + img["src"])
 
 
-def handle_items(course_id, source_course_id, module, items, source_items, handle_func, format_title):
+def handle_items(dest_course_id, source_course_id, dest_items, source_items, handle_func):
     i = 0
 
     handled = []
 
     for source_item in source_items:
-        item = items[i]
+        item = dest_items[i]
         handled.append(item)
-        course_id_regex = re.compile(f'{API_URL}/courses/(\d+)/(assignments|discussion_topics)/(\d+)')
-        match = course_id_regex.match(items[0]["url"])
+        course_id_regex = re.compile(fr'{API_URL}/courses/(\d+)/(assignments|discussion_topics)/(\d+)')
+        match = course_id_regex.match(dest_items[0]["url"])
         source_match = course_id_regex.match(source_item["url"])
 
         print(f"Parsing {source_item['title']} into {item['title']}")
 
-        assert match, f"regex broken for string {items[0]['url']}"
+        assert match, f"regex broken for string {dest_items[0]['url']}"
         assert source_match, f"regex broken for string {source_item['url']}"
-        item_id = match.group(3)
-        source_item_id = source_match.group(1)
 
         url = item["url"]
         source_url = source_item["url"]
@@ -1071,28 +1042,18 @@ def handle_items(course_id, source_course_id, module, items, source_items, handl
         item = response.json()
         source_item = source_response.json()
 
-        handle_func(item, source_item, course_id, source_course_id, url, i, len(source_items), format_title)
+        handle_func(item, source_item, dest_course_id, source_course_id, url)
         i = i + 1
 
-    for item in items:
-        if not item in handled:
-            remove_item_from_module(item, module, course_id)
-
-
-def remove_item_from_module(item, module, course_id):
-    url = f"{API_URL}/courses/{course_id}/modules/{item['module_id']}/items/{item['id']}"
-    print(url)
-    response = requests.delete(url, headers=headers)
-    print("DELETING")
+    for item in dest_items:
+        if item not in handled:
+            remove_item_from_module(item, dest_course_id)
 
 
 # takes in the new item and old item, and formats the info from the old page into the new item
-def handle_discussion(item, source_item, course_id, source_course_id, put_url, index, total, format_title):
-    files_lut = get_files_lookup_table(course_id, source_course_id)
-    assignments_lut = get_assignments_lookup_table(course_id, source_course_id)
+def handle_discussion(item, source_item, course_id, source_course_id, put_url):
 
     source_name = source_item["title"]
-    name = item["title"]
 
     # split the header into components for use later
     new_name, title, subhead = get_new_name_title_and_subhead(source_name)
@@ -1129,43 +1090,19 @@ def handle_discussion(item, source_item, course_id, source_course_id, put_url, i
         insert_el.clear()
         insert_el.append(contents)
 
-    replace_rubric_link(soup, course_id, source_course_id, item)
+    replace_rubric_link(soup, item)
     update_links(soup, course_id, source_course_id)
 
-    response = requests.put(put_url, headers=headers, data={
+    requests.put(put_url, headers=headers, data={
         "title": new_name,
         "message": postprocess_soup(soup)
     })
 
 
-def replace_rubric_link(soup, course_id, source_course_id, item):
-    print(item)
-    rubric_button = soup.find('p', class_="cbt-rubric-btn")
-    if not rubric_button:
-        print("Rubric button not found", item['title'])
-        return False
-
-    link = rubric_button.find('a')
-    if not link:
-        print("Link in rubric button not found", item['title'])
-        assignments_lut = get_assignments_lookup_table(course_id, source_course_id)
-        assignment = next(filter(lambda x: 'assignment_id' in x and x['id'] == item['content_id'], assignments_lut),
-                          None)
-
-
 # takes in the new item and old item, and formats the info from the old page into the new item
-def handle_assignment(item, source_item, course_id, source_course_id, put_url, index, total, format_title):
-    files_lut = get_files_lookup_table(course_id, source_course_id)
-    assignments_lut = get_assignments_lookup_table(course_id, source_course_id)
-
+def handle_assignment(item, source_item, course_id, source_course_id, put_url):
     source_assignment = get_assignment(source_course_id, source_item['id'])
-    destination_assignment = get_assignment(course_id, item['id'])
     source_name = source_item["name"]
-    name = item["name"]
-
-    display_number = ""
-    if total > 1:
-        display_number = f"{index + 1} "
 
     new_name, title, subhead = get_new_name_title_and_subhead(source_name)
     print(f"migrating {source_name} to {new_name}")
@@ -1220,6 +1157,25 @@ def handle_assignment(item, source_item, course_id, source_course_id, put_url, i
     print(response)
 
 
+def remove_item_from_module(item, course_id):
+    url = f"{API_URL}/courses/{course_id}/modules/{item['module_id']}/items/{item['id']}"
+    print(url)
+    requests.delete(url, headers=headers)
+    print("DELETING")
+
+
+def replace_rubric_link(soup, item):
+    print(item)
+    rubric_button = soup.find('p', class_="cbt-rubric-btn")
+    if not rubric_button:
+        print("Rubric button not found", item['title'])
+        return False
+
+    link = rubric_button.find('a')
+    if not link:
+        print("Link in rubric button not found", item['title'])
+
+
 def add_to_payload_if_exists_in_source(key, wrapper, source, payload):
     print(key)
     if key in source:
@@ -1271,11 +1227,11 @@ def populate_lookup_table(lut, items, source_items):
         lut[str(source_item["content_id"])] = item
 
 
-def remove_assignments_and_discussions_not_in_modules(course_id, source_course_id):
+def remove_assignments_and_discussions_not_in_modules(course_id):
     modules = get_modules(course_id)
     discussions_in_modules = []
     assignments_in_modules = []
-    quizzes_in_modules = []
+
     for module in modules:
         for item in module["items"]:
             if item["type"] == 'Discussion':
@@ -1291,8 +1247,8 @@ def remove_assignments_and_discussions_not_in_modules(course_id, source_course_i
     assignments_to_delete = []
     discussions_to_delete = []
     for assignment in assignments:
+
         # For now, we're not deleting quizzes
-        # This stub is to keep them from being deleted and be a place if want to deal with them later
         if 'quiz_id' in assignment:
             continue
 
@@ -1305,14 +1261,14 @@ def remove_assignments_and_discussions_not_in_modules(course_id, source_course_i
         if assignment["id"] not in assignments_in_modules:
             assignments_to_delete.append(assignment)
 
-    assignments_string = '\n'.join(list(map(lambda item: item["name"], assignments_to_delete)))
+    assignments_string = '\n'.join(list(map(lambda a: a["name"], assignments_to_delete)))
     if len(assignments_to_delete) > 0 and tk.messagebox.askyesno(
             message=f"Do you want to delete the following assignments?\n{assignments_string}"):
         for assignment in assignments_to_delete:
             result = requests.delete(f"{API_URL}/courses/{course_id}/assignments/{assignment['id']}", headers=headers)
             print(result)
 
-    discussions_string = '\n'.join(list(map(lambda item: item["title"], discussions_to_delete)))
+    discussions_string = '\n'.join(list(map(lambda a: a["title"], discussions_to_delete)))
     print(discussions_to_delete)
     if len(discussions_to_delete) > 0 and tk.messagebox.askyesno(
             message=f"Do you want to delete the following discussions?\n{discussions_string}"):
@@ -1394,7 +1350,7 @@ def duplicate_item(course_id, item, module=None):
 
 def get_source_module_number(module):
     title_words = module["name"].split(" ")
-    if ("week" in title_words[0].lower()):
+    if "week" in title_words[0].lower():
         return title_words[1]
     return False
 
@@ -1402,7 +1358,7 @@ def get_source_module_number(module):
 def get_source_module_title(module):
     # if the module name is "Week X" return the name of the subheader
     title_words = module["name"].split(" ")
-    if ("week" in title_words[0].lower()):
+    if "week" in title_words[0].lower():
         return module["items"][0]["title"]
 
     # if the module name is not "Week X" just return the full module name
@@ -1421,12 +1377,12 @@ def update_weekly_overviews(course_id, source_course_id):
         print(source_module["name"])
         title_words = source_module["name"].split(" ")
         items = source_module["items"]
-        if ("week" in title_words[0].lower()):
+        if "week" in title_words[0].lower():
 
             i = int(title_words[1])
             module_name = source_module['items'][0]["title"]
 
-            module = next(filter(lambda module: f"Module {i}" in module["name"], modules))
+            module = next(filter(lambda a: f"Module {i}" in a["name"], modules))
 
             set_module_title(course_id, module["id"], f"Module {i} - {module_name}".title())
 
@@ -1450,7 +1406,6 @@ def update_weekly_overviews(course_id, source_course_id):
 
             update_links(source_overview_soup, course_id, source_course_id)
             description_box = source_overview_soup.find("div", class_="column")
-            description_elements = None
             if description_box:
                 description_elements = list(description_box.children)
             else:
@@ -1463,23 +1418,16 @@ def update_weekly_overviews(course_id, source_course_id):
             new_page_body = new_overview_page_html(course_id, source_course_id, overview_page["body"], module_name,
                                                    description, learning_objectives)
 
-            response = requests.put(f'{API_URL}/courses/{course_id}/pages/{overview_page["url"]}',
-                                    headers=headers,
-                                    data={
-                                        "wiki_page[body]": new_page_body
-                                    }
-                                    )
+            requests.put(
+                f'{API_URL}/courses/{course_id}/pages/{overview_page["url"]}',
+                headers=headers,
+                data={"wiki_page[body]": new_page_body})
 
 
 def set_module_title(course_id, module_id, title):
     url = f"{API_URL}/courses/{course_id}/modules/{module_id}"
     print(url)
-    response = requests.put(url,
-                            headers=headers,
-                            data={
-                                "module[name]": title
-                            }
-                            )
+    requests.put(url, headers=headers, data={"module[name]": title})
 
 
 def new_overview_page_html(course_id, source_course_id, overview_page_body, title, description, learning_objectives):
@@ -1492,9 +1440,9 @@ def new_overview_page_html(course_id, source_course_id, overview_page_body, titl
     update_links(soup, course_id, source_course_id)
     body = postprocess_soup(soup)
 
-    body = re.sub('\[title of week]', f"{title}", body)
-    body = re.sub('\[Insert.*text]', f"{description}", body)
-    body = re.sub('\[insert weekly objectives, bulleted list]', f"{learning_objectives}", body)
+    body = re.sub(r'\[title of week]', f"{title}", body)
+    body = re.sub(r'\[Insert.*text]', f"{description}", body)
+    body = re.sub(r'\[insert weekly objectives, bulleted list]', f"{learning_objectives}", body)
     return body
 
 
@@ -1515,7 +1463,6 @@ def get_file_url_by_name(course_id, file_search):
 
 def update_syllabus_and_overview(destination_course_id, source_course_id):
     source_page = get_syllabus(source_course_id)
-    new_page = get_syllabus(destination_course_id)
 
     syllabus_banner_url = get_file_url_by_name(destination_course_id, "Module 1 banner (7)")
 
@@ -1530,7 +1477,7 @@ def update_syllabus_and_overview(destination_course_id, source_course_id):
         learning_objectives_section = get_section(source_page, re.compile(r'objectives', re.IGNORECASE))
     textbook_section = get_section(
         source_page,
-        re.compile(r'.*(required materials|textbook)[:]?', re.IGNORECASE))
+        re.compile(r'.*(required materials|textbook):?', re.IGNORECASE))
     week_1_preview = get_week_1_preview(destination_course_id, source_course_id)
 
     term = GRAD_TERM_NAME if is_course_grad else UG_TERM_NAME
@@ -1598,16 +1545,16 @@ def update_syllabus(course_id, syllabus_banner_url, term, dates, learning_object
                 week_1_learning_materials=week_1_preview,
                 textbook=stringify_section(textbook_section),
             )
-    except Exception as e:
-        print(type(e))
-        print(e)
+    except Exception as syllabus_exception:
+        print(type(syllabus_exception))
+        print(syllabus_exception)
         tk.messagebox.showerror(message=f'''
       syllabus_template.html problem. It may be missing or out of date. Please download the latest from drive.
-      {type(e)}
-      {e.args}      
-      {e}
+      {type(syllabus_exception)}
+      {syllabus_exception.args}      
+      {syllabus_exception}
       ''')
-        raise e
+        raise syllabus_exception
 
     # update the new syllabus
     submit_soup = BeautifulSoup(text, "lxml")
@@ -1662,7 +1609,8 @@ def update_course_overview(course_id, source_course_id, learning_objectives_sect
         assignment["description"] = ""
         if "discussion" in assignment["name"].lower():
             assignment[
-                "description"] = 'Initial posts due by 3AM ET Thursday night, responses due by 3AM ET Monday night - unless otherwise noted.'
+                "description"] = ('Initial posts due by 3AM ET Thursday night, responses due by 3AM ET'
+                                  ' Monday night - unless otherwise noted.')
 
         if "assignment" in assignment["name"].lower():
             assignment["description"] = "Due by the end of the week in which they're assigned."
@@ -1686,21 +1634,20 @@ def update_course_overview(course_id, source_course_id, learning_objectives_sect
                 table_body=table_body,
                 textbook=stringify_section(textbook_section),
             )
-    except Exception as e:
-        print(type(e))
-        print(e)
+    except Exception as template_load_exception:
+        print(type(template_load_exception))
+        print(template_load_exception)
         tk.messagebox.showerror(
-            message=f"overview_template.html problem. It may be missing or out of date." +
-                    f"Please download the latest from drive.\n{e}\n{e.args}")
+            message=f"overview_template.html problem. It may be missing or out of date."
+                    f"Please download the latest from drive."
+                    f"\n{template_load_exception}\n{template_load_exception.args}")
         exit()
 
     submit_soup = BeautifulSoup(text, "lxml")
-    response = requests.put(f'{API_URL}/courses/{course_id}/pages/course-overview',
-                            headers=headers,
-                            data={
-                                "wiki_page[body]": str(submit_soup)
-                            }
-                            )
+    requests.put(
+       f'{API_URL}/courses/{course_id}/pages/course-overview',
+       headers=headers,
+       data={"wiki_page[body]": str(submit_soup)})
 
 
 def update_home_page(course_id, source_course_id, course_code, course_title):
@@ -1723,7 +1670,8 @@ def update_home_page(course_id, source_course_id, course_code, course_title):
 
     # we're just going to guess that the contents of the first table cell are the learning materials
     cell = source_soup.find('td')
-    description = "[Insert course introduction - so long as it is distinct from description and speaks directly to the student]"
+    description = ("[Insert course introduction - so long as it is distinct from description and speaks"
+                   " directly to the student]")
     if cell:
         divs = cell.find_all('p')
         if divs:
@@ -1775,7 +1723,6 @@ def find_elements_containing(soup, tag, regex):
 
 def find_element_containing(soup, tag, regex):
     elements = soup.find_all(tag)
-    out = []
     for element in elements:
         if re.search(regex, str(element)):
             return element
@@ -1797,7 +1744,7 @@ def find_syllabus_title(soup):
 
 def get_section(soup, header_pattern):
     strategies = [
-        gs_strat_until_headerlike
+        get_strategy_until_header_like
     ]
 
     for strategy in strategies:
@@ -1809,9 +1756,8 @@ def get_section(soup, header_pattern):
     return False
 
 
-def gs_strat_until_headerlike(soup, header_pattern):
+def get_strategy_until_header_like(soup, header_pattern):
     header = get_section_header(soup, header_pattern)
-    print("header", header)
     if not header:
         print("header not found", header_pattern)
         return False
@@ -1846,8 +1792,8 @@ def get_section_header(soup, header_pattern):
 
 
 def gsh_func_h4(soup, header_pattern):
-    headers = soup.find_all("h4")
-    for header in headers:
+    h4s = soup.find_all("h4")
+    for header in h4s:
         print(header, header_pattern)
         if re.search(header_pattern, str(header)):
             print("Found ", header)
@@ -1856,8 +1802,8 @@ def gsh_func_h4(soup, header_pattern):
 
 def gsh_func_strong(soup, header_pattern):
     print(soup)
-    headers = soup.find_all("strong")
-    for header in headers:
+    strongs = soup.find_all("strong")
+    for header in strongs:
         print(str(header))
         if re.search(header_pattern, str(header)):
             print("Found ", header)
@@ -1893,9 +1839,7 @@ def get_week_1_preview(course_id, source_course_id):
 
     lm_page = lm_response.json()
     lm_soup = BeautifulSoup(preprocess_html(lm_page["body"]), "lxml")
-
     h4 = lm_soup.find("h4")
-    learning_materials = None
     if h4:
         learning_materials = list(h4.next_siblings)
     else:
@@ -1914,7 +1858,8 @@ def get_week_1_preview(course_id, source_course_id):
             slides.append(link)
 
     temp_soup = BeautifulSoup(
-        f"<ul><li><a href={convert_to_watch_url(youtube_iframe_source)}>Week 1 Lecture</a><ul class='transcripts'></ul></li></ul>",
+        f"<ul><li><a href={convert_to_watch_url(youtube_iframe_source)}>Week 1 Lecture</a>"
+        f"<ul class='transcripts'></ul></li></ul>",
         "lxml")
     list_ = temp_soup.find("ul", class_="transcripts")
     print(transcripts)
@@ -1980,8 +1925,6 @@ def update_learning_materials_cl(course_id: str, source_course_id: str):
 
 def update_learning_materials(course_id: str, source_course_id: str, start_index: int = 1, end_index: int = 8,
                               reset_page: bool = False):
-    assignments_lut = get_assignments_lookup_table(course_id, source_course_id)
-    files_lut = get_files_lookup_table(course_id, source_course_id)
 
     print("Updating Learning Materials")
     for i in range(start_index, end_index + 1):
@@ -2019,10 +1962,10 @@ def update_learning_materials(course_id: str, source_course_id: str, start_index
             youtube_iframe_source = source_iframes[0]["src"]
             new_iframes[0]["src"] = youtube_iframe_source
         else:
-            new_soup.find("iframe").findParent('div', {'class': 'content'}).find('h2').string = "No Videos Found"
+            new_soup.find("iframe").findParent(
+                'div', {'class': 'content'}).find('h2').string = "No Videos Found"
 
         source_header = source_soup.find("h4")
-        learning_materials = None
         if source_header:
             learning_materials = list(source_header.next_siblings)
         else:
@@ -2034,7 +1977,6 @@ def update_learning_materials(course_id: str, source_course_id: str, start_index
 
         cols = source_soup.find_all("div", {'class': "column"})
 
-        transcripts_and_slides = []
         if len(cols) > 1:
             transcripts_and_slides = cols[1].find_all("a")
         else:
@@ -2056,14 +1998,11 @@ def update_learning_materials(course_id: str, source_course_id: str, start_index
             if button.find("a", string=re.compile("Transcript", re.IGNORECASE)):
                 transcript_buttons.append(button.find("a", string=re.compile("Transcript", re.IGNORECASE)))
 
-        slides_count = 0
-        transcripts_count = 0
-        source_transcript_button = None
-
         # clean up secondary media boxes
         secondary_media_boxes = get_secondary_media_boxes(new_soup)
 
-        # if there are more than one old iframe, we're gonna make secondary media boxen to match, if we have a secondary media box to go on
+        # if there are more than one old iframe, make secondary media boxen to match,
+        # if we have a secondary media box to go on
         total_needed_boxes = len(source_iframes) - 1
         if len(source_iframes) > 1 and len(secondary_media_boxes) > 0:
             boxes_to_add = total_needed_boxes - len(secondary_media_boxes)
@@ -2071,7 +2010,6 @@ def update_learning_materials(course_id: str, source_course_id: str, start_index
             if boxes_to_add > 0:
                 new_box = copy.copy(last_box)
                 last_box.insert_after(new_box)
-                last_box = new_box
 
         handle_lm_secondary_media_boxes(new_soup, source_iframes, transcripts, slides, transcript_buttons,
                                         slides_buttons)
@@ -2129,8 +2067,8 @@ def handle_lm_secondary_media_boxes(soup: BeautifulSoup, source_iframes: list, t
     print("T", transcripts)
     print("S", slides)
 
-    remaining_transcripts = handle_first_lm_button(transcripts, transcript_buttons, 'Transcript')
-    remaining_slides = handle_first_lm_button(slides, slides_buttons, 'Slides')
+    remaining_transcripts = handle_first_lm_button(transcripts, transcript_buttons)
+    remaining_slides = handle_first_lm_button(slides, slides_buttons)
 
     print("RT", remaining_transcripts)
     print("RS", remaining_slides)
@@ -2149,7 +2087,7 @@ def handle_lm_secondary_media_boxes(soup: BeautifulSoup, source_iframes: list, t
             i = i + 1
 
 
-def handle_first_lm_button(items: list, buttons: list, button_text: str):
+def handle_first_lm_button(items: list, buttons: list):
     if len(items) > 0:
         source_button = buttons[0]
         source_button["body"] = f"Transcript"
