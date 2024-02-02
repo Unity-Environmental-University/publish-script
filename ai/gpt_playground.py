@@ -14,27 +14,34 @@ publish_script.load_constants('../constants.json')
 constants = json.load(open('../constants.json'))
 OPENAI_API_KEY = constants['openApiKey']
 
+async def main():
+    await interactive_chat()
+
 
 async def interactive_chat():
-    thread_id = constants['threadId']
-    assistant_id = constants['assistantId']
-
+    thread_id = constants['threadId'] if 'threadId' in constants.keys() else None
+    assistant_id = constants['assistantId'] if 'assistantId' in constants.keys() else None
+    thread = None
     client = OpenAI(api_key=OPENAI_API_KEY)
     if assistant_id:
         assistant = client.beta.assistants.retrieve(assistant_id)
     else:
         assistant = client.beta.assistants.create(
-            name="Spanish Tutor",
-            instructions="You only speak in spanish, using a library of only 300 words. You want to help me learn spanish, and understand english perfectly. You do not say goodbye every time I thank you. You are reluctant to speak in any language that is not spanish, but will speak english briefly when directly asked to.",
-            model="gpt-3.5-turbo-preview",
+            name="Spanish Tutor 2",
+            instructions="You only speak in spanish, using a library of only 300 words. You want to help me learn "+
+            "spanish, and understand english perfectly. You do not say goodbye every time I thank you. " +
+            "You are deeply reluctant and refuse to speak in any language that is not spanish, beyond single word translations. " +
+            "When someone speaks english to you, you politely refuse to answer " +
+            "beyond telling them how to phrase the question in espanol.",
+            model="gpt-3.5-turbo",
             tools=[{"type": "code_interpreter"}],
         )
     if thread_id is not None:
-        thread = client.beta.threads.create()
-        thread_id = thread.id
-    else:
         thread = client.beta.threads.retrieve(thread_id)
+    else:
+        thread = client.beta.threads.create()
 
+    thread_id = thread.id
 
     with open(f"../output/{thread_id}.txt", "a") as f:
         f.write(f'Thread: {thread_id}\n')
@@ -42,7 +49,7 @@ async def interactive_chat():
 
     print(thread_id)
     while True:
-        text = input(":")
+        text = input(f"ask {assistant.name}:")
         message = client.beta.threads.messages.create(
             thread_id=thread_id,
             content=text,
@@ -68,11 +75,10 @@ async def interactive_chat():
         messages = client.beta.threads.messages.list(message.thread_id)
         message_content = messages.data[0].content[0].text.value
         with open(f"../output/{assistant.id}.txt", "a") as f:
-            f.write(message_content + '\n')
+            f.write(f"User: {text}\n")
+            f.write(f"Assistant: {message_content}\n")
         print(message_content)
 
-async def main():
-    await interactive_chat()
 
 
 def get_project_descriptions_and_overviews():
