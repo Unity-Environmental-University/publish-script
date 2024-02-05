@@ -293,7 +293,7 @@ class TestContent(unittest.TestCase):
         self.test_fix(publish_script.ResourcesFixSet)
 
     def test_overview_fix(self):
-        pass
+        self.test_fix(publish_script.OverviewFixSet)
 
 class TestTerm(unittest.TestCase):
     def setUp(self):

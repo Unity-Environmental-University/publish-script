@@ -59,10 +59,10 @@ class CourseNotFoundException(BaseException):
 
 
 class Replacement:
-    def __init__(self, find: str, replace: str | Callable, tests: list):
+    def __init__(self, find: str, replace: str | Callable, success_tests: list):
         self.find = find
         self.replace = replace
-        self.tests = tests
+        self.tests = success_tests
 
     @staticmethod
     def in_test(to_match, phase=None, msg=None):
@@ -163,21 +163,21 @@ class SyllabusFix(FixSet):
         Replacement(
             find=r'(after you.ve )viewed( the <a title="Course Overview")',
             replace=r'\1agreed to\2',
-            tests=[
+            success_tests=[
                 Replacement.in_test(r've agreed to the'),
             ]
         ),
         Replacement(
             find=r'''To access a discussion's grading.*and then click "show rubric".''',
             replace=r'''To access a discussion's grading rubric, click on the "View Rubric" button in the discussion directions and/or the "Dot Dot Dot" (for screen readers, titled "Manage this Discussion") button in the upper right corner of the discussion, and then click "show rubric".''',
-            tests=[
+            success_tests=[
                 Replacement.in_test(r'"View Rubric" button')
             ]
         ),
         Replacement(
             find=r'''<div class="cbt-table">\s*<p>Please make sure that.*library webpage for more information.</p>''',
             replace='<div class="cbt-table">',
-            tests=[
+            success_tests=[
                 Replacement.re_search(r'>\s*Copyright\s*<', phase="pre")
             ]
         ),
@@ -191,28 +191,28 @@ class SyllabusFix(FixSet):
 </td>
 </tr>
 \2''',
-            tests=[
+            success_tests=[
                 Replacement.re_search(r'<h3(.*)Copyright(.*)h3>'),
             ]
         ),
         Replacement(
             find=r'(<th[^>]*>)[\s\n]*Assignments[\s\n]*</th>',
             replace=r'\1Letter Grade</th>',
-            tests=[
+            success_tests=[
                 Replacement.in_test('Letter Grade</th>')
             ]
         ),
         Replacement(
             find=r'(<th[^>]*>)[\s\n]*Due date[\s\n]*</th>',
             replace=r'\1Percent</th>',
-            tests=[
+            success_tests=[
                 Replacement.in_test('Percent</th>')
             ]
         ),
         Replacement(
             find=r'(<th[^>]*>)[\s\n]*Weight[\s\n]*</th>',
             replace=r'\1</th>',
-            tests=[
+            success_tests=[
                 Replacement.not_in_test('Weight</th>')
             ]
         ),
@@ -221,7 +221,7 @@ class SyllabusFix(FixSet):
             replace=r'<p>The instructor will conduct all '
                     + r'correspondence with students related to the class in Canvas,'
                     + ' and you should expect to receive a response to emails within 24 hours.',
-            tests=[
+            success_tests=[
                 Replacement.not_in_test('48 hours'),
                 Replacement.in_test('you should expect')
             ]
@@ -229,7 +229,7 @@ class SyllabusFix(FixSet):
         Replacement(
             find='EducationGenerative',
             replace='Education Generative',
-            tests=[
+            success_tests=[
                 Replacement.not_in_test('EducationGenerative'),
                 Replacement.in_test('Education Generative')
             ]
@@ -257,7 +257,7 @@ Guidelines for Using Generative Artificial Intelligence [AI] in this Course:
 </td>
 </tr>
 \3''',
-            tests=[
+            success_tests=[
                 Replacement.in_test('generative AI effectively to support'),
                 Replacement.re_search(r'>\s*Copyright\s*<')
             ]
@@ -360,7 +360,7 @@ class ResourcesFixSet(FixSet):
             replace=r'<p><strong>Your advisor</strong> can support you with any college policies or procedures'
                     r' and help inform you of and <a href="https://online.unity.edu/support/">'
                     r'support you with any of the college\'s resources.&nbsp;</a></p>',
-            tests=[
+            success_tests=[
                 Replacement.in_test(r'''<p><strong>Your advisor</strong> can support you with any college policies or procedures and help inform you of and <a href="https://online.unity.edu/support/">support you with any of the college's resources.&nbsp;</a></p>'''),
             ]
         ),
@@ -369,7 +369,7 @@ class ResourcesFixSet(FixSet):
             replace=r'<p><strong>Pear Deck Tutor (see TutorMe link in navigation)</strong>'
                     r'&nbsp;can support you with any course subject matter '
                     r'or assessment specific question you may have.</p>',
-            tests=[
+            success_tests=[
                 Replacement.in_test('Pear Deck Tutor'),
                 Replacement.not_in_test('<strong>TutorMe')
             ]
@@ -379,7 +379,7 @@ class ResourcesFixSet(FixSet):
             replace=r'''<p><strong>Your instructor (click "Help" in Navbar and then "Ask instructor a question")'''
                     r'''</strong>&nbsp;can support you with any course subject matter '''
                     r'''or assessment specific question you may have.</p>''',
-            tests=[
+            success_tests=[
                 Replacement.not_in_test(
                     r'''Your instructor (click "Help" in Navbar and then "Ask instructor '''
                     '''a question")</strong>&nbsp;can support you with any college policies or '''
@@ -392,33 +392,40 @@ class ResourcesFixSet(FixSet):
         Replacement(
             find=r'[.]</a>[.]</p>',
             replace=r'</a>.</p>',
-            tests=[
+            success_tests=[
                 Replacement.not_in_test(r'.</a>.</p>')
             ]
         ),
         Replacement(
             find=r'matteror',
             replace=r'matter or',
-            tests=[
+            success_tests=[
                 Replacement.not_in_test(r'matteror')
             ]
         )
     ]
 
+
+
 class OverviewFixSet(FixSet):
     @classmethod
     def find_content(cls, course: 'Course') -> list['Page']:
         pages = []
-        for i in range(1,9):
+        for i in range(1, 9):
             pages += course.get_pages_by_name(f'Week {i} Overview')
         return pages
 
     replacements = [
-
+        Replacement(
+            find=r'<h2.*>.*[lL]earning [oO]bjectives.*</h2>',
+            replace=r'<h2>Weekly Objectives</h2>',
+            success_tests=[
+                Replacement.in_test('<h2>Weekly Objectives</h2>')
+            ])
     ]
 
 
-FIXES_TO_RUN = [OverviewFixSet]
+FIXES_TO_RUN = [OverviewFixSet, ResourcesFixSet]
 
 
 class CanvasApiLink:
