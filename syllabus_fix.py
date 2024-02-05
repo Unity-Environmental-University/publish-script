@@ -33,7 +33,7 @@ for code in course_string.split():
         courses.append(parent)
 
     for update_course in courses:
-        update_course.update_syllabus()
+        update_course.content_updates_and_fixes()
         ps.open_browser_func([f'{update_course.course_url}/assignments/syllabus'])
 
     if course.associated_courses:

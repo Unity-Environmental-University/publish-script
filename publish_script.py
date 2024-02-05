@@ -50,7 +50,6 @@ CONSTANTS: dict
 CONSTANTS_FILE: str = 'constants.json'
 MAX_PROFILE_IMAGE_SIZE: int = 400
 
-
 class ReplaceException(BaseException):
     pass
 
@@ -268,19 +267,11 @@ Guidelines for Using Generative Artificial Intelligence [AI] in this Course:
 
 class EvalFix(FixSet):
     @classmethod
-    def find_content(cls, course: 'Course') -> List['Page']:
+    def find_content(cls, course: 'Course') -> List['BaseContentItem']:
         return course.get_pages_by_name('Course Evaluation')
 
-    replacements = [
-        Replacement(
-            find=r'Monday of your final week of class through the Friday following the end of the term',
-            replace=r'Monday of your final week of class until 3AM on the following Monday, the last day of the term',
-            tests=[
-                Replacement.in_test('following Monday'),
-                Replacement.in_test('until 3AM on the following Monday')
-            ]
-        )
-    ]
+    # Deprecated, there is no content here anymore
+    replacements = []
 
 
 class LmFilter:
@@ -358,6 +349,78 @@ class LmFilter:
         return out
 
 
+class ResourcesFixSet(FixSet):
+    @classmethod
+    def find_content(cls, course: 'Course') -> list['Page']:
+        return course.get_pages_by_name('Student Support Resources')
+
+    replacements = [
+        Replacement(
+            find=r'<p>(<strong>Your advisor.*)</p>',
+            replace=r'<p><strong>Your advisor</strong> can support you with any college policies or procedures'
+                    r' and help inform you of and <a href="https://online.unity.edu/support/">'
+                    r'support you with any of the college\'s resources.&nbsp;</a></p>',
+            tests=[
+                Replacement.in_test(r'''<p><strong>Your advisor</strong> can support you with any college policies or procedures and help inform you of and <a href="https://online.unity.edu/support/">support you with any of the college's resources.&nbsp;</a></p>'''),
+            ]
+        ),
+        Replacement(
+            find=r'''<p><strong>TutorMe.*</p>''',
+            replace=r'<p><strong>Pear Deck Tutor (see TutorMe link in navigation)</strong>'
+                    r'&nbsp;can support you with any course subject matter '
+                    r'or assessment specific question you may have.</p>',
+            tests=[
+                Replacement.in_test('Pear Deck Tutor'),
+                Replacement.not_in_test('<strong>TutorMe')
+            ]
+        ),
+        Replacement(
+            find=r"<p><strong>Your instructor.*<a.*</p>",
+            replace=r'''<p><strong>Your instructor (click "Help" in Navbar and then "Ask instructor a question")'''
+                    r'''</strong>&nbsp;can support you with any course subject matter '''
+                    r'''or assessment specific question you may have.</p>''',
+            tests=[
+                Replacement.not_in_test(
+                    r'''Your instructor (click "Help" in Navbar and then "Ask instructor '''
+                    '''a question")</strong>&nbsp;can support you with any college policies or '''
+                    '''procedures and help inform you of and <a href="https'''
+                    '''://online.unity.edu/support/">support you with any of the college's '''
+                    '''resources.</a>'''
+                )
+            ]
+        ),
+        Replacement(
+            find=r'[.]</a>[.]</p>',
+            replace=r'</a>.</p>',
+            tests=[
+                Replacement.not_in_test(r'.</a>.</p>')
+            ]
+        ),
+        Replacement(
+            find=r'matteror',
+            replace=r'matter or',
+            tests=[
+                Replacement.not_in_test(r'matteror')
+            ]
+        )
+    ]
+
+class OverviewFixSet(FixSet):
+    @classmethod
+    def find_content(cls, course: 'Course') -> list['Page']:
+        pages = []
+        for i in range(1,9):
+            pages += course.get_pages_by_name(f'Week {i} Overview')
+        return pages
+
+    replacements = [
+
+    ]
+
+
+FIXES_TO_RUN = [OverviewFixSet]
+
+
 class CanvasApiLink:
     """
     This class handles api calls to the canvas api
@@ -419,13 +482,17 @@ class CanvasApiLink:
         """
         return self._query(requests.get, url=url, params=params, **args)
 
+    def delete(self, url: str, params: dict = None, **args):
+        return self._query(requests.delete, url=url, params=params, **args)
+
     def put(self, url: str, params: dict = None, data=None, **kwargs):
         """
         Performs a canvas api put call
         Args:
+            data: data to put
             url: any url to use after the canvas api base
             params: any params to pass to the requests.get call
-            **args: and other args to pass to requests.get
+            **kwargs: and other args to pass to requests.get
         Returns:
             A dict or list holding the response from the canvas api
 
@@ -557,6 +624,9 @@ class BaseCanvasObject:
     def _save_data(self, data: dict) -> dict:
         return self.api_link.put(self.content_url_path, data=data)
 
+    def delete(self) -> dict:
+        return self.api_link.delete(self.content_url_path)
+
 
 class BaseContentItem(BaseCanvasObject):
     _body_property = None
@@ -598,6 +668,9 @@ class BaseContentItem(BaseCanvasObject):
             data[self._name_property] = text
 
         return self._save_data(data)
+
+    def delete(self):
+        result = self.api_link.delete(self.content_url_path)
 
 
 class Discussion(BaseContentItem):
@@ -1019,16 +1092,32 @@ class Course(BaseCanvasObject):
         })
         self._canvas_data = Course.get_by_id(self.id)._canvas_data
 
-    def update_syllabus(self):
+    def content_updates_and_fixes(self, fixes_to_run=None):
         """Summary
-            Updates the syllabus using fixes in SyllabusFix
+            updates and fixes content
         """
+
+        applied_to = []
+        if fixes_to_run is None:
+            fixes_to_run = FIXES_TO_RUN
+
+        for page in EvalFix.find_content(self):
+            page.delete()
+            applied_to.append(page)
+
+        for fix_set in fixes_to_run:
+            pages = fix_set.find_content(self)
+            for page in pages:
+                text = fix_set.fix(page.body)
+                page.update_content(text)
+                applied_to.append(page)
+
         syllabus = SyllabusFix.fix(self.syllabus)
         response = self.api_link.put(
             f'courses/{self.id}',
             data={"course[syllabus_body]": syllabus})
         self._canvas_data['syllabus_body'] = syllabus
-        print(response)
+        return applied_to
 
     def reset(self, prompt=True):
         """Summary
@@ -1314,8 +1403,8 @@ def setup_main_ui(
             'argument': 'syllabus',
             'message': "Do you want to update syllabus language"
                        + " in this and DEV_?",
-            'func': lambda: [bp_course.update_syllabus(),
-                             Course.get_by_id(get_source_course_id(bp_course.id)).update_syllabus()]
+            'func': lambda: [bp_course.content_updates_and_fixes(),
+                             Course.get_by_id(get_source_course_id(bp_course.id)).content_updates_and_fixes()]
         },
         {
             'name': 'remove_lm_annotations',
@@ -2440,7 +2529,6 @@ def get_instructor_profile_submission(user) -> Profile:
         img_upload_url = ""  # upload_image(pic_path, instructor_course_id)
 
     img_src = img_upload_url if img_upload_url and len(img_upload_url) > 0 else DEFAULT_PROFILE_URL
-
 
     return Profile(user=user, bio=bio, img_src=img_src, local_img_path=pic_path)
 

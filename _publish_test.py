@@ -217,10 +217,9 @@ class TestCourse(unittest.TestCase):
         original_syllabus = course.syllabus
         new_syllabus = SyllabusFix.fix(original_syllabus)
         self.maxDiff = None
-        course.update_syllabus()
+        course.content_updates_and_fixes()
         self.assertEqual(course.syllabus, new_syllabus)
         self.assertEqual(len(new_syllabus), len(course.syllabus))
-
 
     async def test_lock(self):
         course = get_test_course()
@@ -291,8 +290,10 @@ class TestContent(unittest.TestCase):
         self.test_fix(EvalFix)
 
     def test_resource_fix(self):
-        self.test_fix(resources_page.Fixes)
+        self.test_fix(publish_script.ResourcesFixSet)
 
+    def test_overview_fix(self):
+        pass
 
 class TestTerm(unittest.TestCase):
     def setUp(self):

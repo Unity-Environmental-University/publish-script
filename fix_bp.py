@@ -1,21 +1,19 @@
 import webbrowser
 import re
 
-from fixes import resources_page
 import publish_script as ps
-from publish_script import Course, EvalFix, Page
+from publish_script import Course, EvalFix
 from tkinter import simpledialog, messagebox
 import tkinter as tk
 
 
 not_found = []
 
-fixes_to_run = [
-    # EvalFix,
-    resources_page.Fixes
-]
+fixes_to_run = []
 
 open_as_we_go: bool = False
+
+
 def progress(percent, status, **args):
     print(percent, status)
 
@@ -25,6 +23,7 @@ def make_default_bp(code_set):
         if '_' not in code:
             code_set.remove(code)
             code_set.add('BP_' + code)
+
 
 def main():
     ps.load_constants('constants.json')
@@ -73,39 +72,25 @@ def main():
         if parent and 'BP' in course.code_prefix:
             courses.append(parent)
 
+        applied_to = []
         for update_course in courses:
-            for fix_set in fixes_to_run:
+            for page in EvalFix.find_content(update_course):
+                page.delete()
+                applied_to.append(update_course)
 
-                pages = fix_set.find_content(update_course)
-                for page in pages:
-                    # page.reset_content()
-                    text = fix_set.fix(page.body)
-                    page.update_content(text)
-                    if open_as_we_go:
-                        webbrowser.open_new_tab(page.html_content_url)
-                    else:
-                        open_page_queue.append(page.html_content_url)
-                applied_to.append(course)
+            for fix_set in fixes_to_run:
+                applied_to += update_course.content_updates_and_fixes([fix_set])
 
         if course.associated_courses:
             print(map(lambda c: c.code, course.associated_courses))
             wait = False
             ps.begin_course_sync(bp_course=course, progress_callback=progress, wait_for_completion=wait)
-            for associate_course in course.associated_courses:
-                if wait:
-                    ps.open_browser_func([f'{associate_course.course_url}/pages/course-evaluation'])
-                else:
-                    open_course_queue.append(associate_course)
 
     messagebox.showinfo("Finished", f"Finished! \n{len(applied_to)} Devs or BPs were affected\n" +
                         f'{", ".join([a.course_code for a in applied_to])}')
 
-    ps.open_browser_func(open_page_queue)
-
-    for course in open_course_queue:
-        pass
-        # ps.open_browser_func([f'{course.course_url}/pages/course-evaluation'])
-        # ps.open_browser_func([f'{course.course_url}/pages/support-page'])
+    for page in applied_to:
+        webbrowser.open(page.html_content_url, new=2, autoraise=False)
 
 
 if __name__ == "__main__":
