@@ -50,6 +50,7 @@ CONSTANTS: dict
 CONSTANTS_FILE: str = 'constants.json'
 MAX_PROFILE_IMAGE_SIZE: int = 400
 
+
 class ReplaceException(BaseException):
     pass
 
@@ -406,7 +407,6 @@ class ResourcesFixSet(FixSet):
     ]
 
 
-
 class OverviewFixSet(FixSet):
     @classmethod
     def find_content(cls, course: 'Course') -> list['Page']:
@@ -425,7 +425,25 @@ class OverviewFixSet(FixSet):
     ]
 
 
-FIXES_TO_RUN = [OverviewFixSet, ResourcesFixSet]
+class FrontPageFixSet(FixSet):
+    @classmethod
+    def find_content(cls, course: 'Course') -> list['Page']:
+        return [course.get_front_page()]
+
+    replacements = [
+        Replacement(
+            find=r'<div class="col-md-6 col-sm-12" data-context-menu="remove" data-canhavechild="true">\n'
+                 r'(<p><span>Instructor bio coming soon!</span></p>\n)'
+                 r'(</div>)',
+            replace=r'<div class="cbt-instructor-bio col-md-6 col-sm-12" '
+                    r'data-context-menu="remove" data-canhavechild="true">\n\1\2',
+            success_tests=[
+                Replacement.in_test('cbt-instructor-bio')
+            ]),
+    ]
+
+
+FIXES_TO_RUN = [OverviewFixSet, ResourcesFixSet, FrontPageFixSet]
 
 
 class CanvasApiLink:
@@ -1261,6 +1279,9 @@ class Course(BaseCanvasObject):
 
         """
         return re.search(Course.CODE_REGEX, value)
+
+    def get_front_page(self):
+        return Page(self, self.api_link.get(f'{self.content_url_path}/front_page'))
 
 
 class Profile:

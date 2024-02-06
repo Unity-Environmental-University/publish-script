@@ -1,7 +1,4 @@
 
-from fixes import resources_page
-import json
-import re
 import unittest
 from typing import List
 
@@ -129,8 +126,11 @@ class TestProfilePages(unittest.TestCase):
         pages = publish_script.get_faculty_pages()
         profile = publish_script.get_course_profile(section, pages)
         user = publish_script.get_canvas_instructor(section['id'])
-
         self.assertEqual(profile.user['name'], user['name'], msg="Profile names do not match")
+
+    def test_change_front_page(self):
+        course = get_test_course()
+
 
 
 class TestCourse(unittest.TestCase):
@@ -294,6 +294,10 @@ class TestContent(unittest.TestCase):
 
     def test_overview_fix(self):
         self.test_fix(publish_script.OverviewFixSet)
+
+    def test_front_page_fix(self):
+        self.test_fix(publish_script.FrontPageFixSet)
+
 
 class TestTerm(unittest.TestCase):
     def setUp(self):
