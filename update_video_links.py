@@ -513,7 +513,7 @@ def save_hometile(img_data, data_folder, filename):
     hometile_path = f"{pre}.png"
     publish_script.resize_down_image(
         in_path=filepath, out_path=hometile_path,
-        max_width=HOMETILE_WIDTH, format='PNG'
+        max_width=HOMETILE_WIDTH, img_format='PNG'
     )
 
     return hometile_path

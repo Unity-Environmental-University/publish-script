@@ -428,7 +428,7 @@ class OverviewFixSet(FixSet):
 class FrontPageFixSet(FixSet):
     @classmethod
     def find_content(cls, course: 'Course') -> list['Page']:
-        return [course.get_front_page()]
+        return [course.front_page]
 
     replacements = [
         Replacement(
@@ -625,7 +625,7 @@ class BaseCanvasObject:
         return link.get(cls.get_url_path_from_ids(course_id=course.id, content_id=content_id), params=params)
 
     @classmethod
-    def get_all(cls, course: 'Course'=None, params: dict = None) -> list[Self]:
+    def get_all(cls, course: 'Course' = None, params: dict = None) -> list[Self]:
         link = course.api_link
         data = link.get_paged_data(cls.get_all_url(course_id=course.id), params=params)
         return [cls(course, item) for item in data]
@@ -695,7 +695,7 @@ class BaseContentItem(BaseCanvasObject):
         return self._save_data(data)
 
     def delete(self):
-        result = self.api_link.delete(self.content_url_path)
+        return self.api_link.delete(self.content_url_path)
 
 
 class Discussion(BaseContentItem):
@@ -1111,7 +1111,7 @@ class Course(BaseCanvasObject):
 
     def unpublish(self):
         url = f'courses/{self.id}'
-        course_data = self.api_link.put(url, params={
+        self.api_link.put(url, params={
             # WHY IS THIS CALLED CLAIM
             'course[event]': 'claim'
         })
@@ -1280,7 +1280,8 @@ class Course(BaseCanvasObject):
         """
         return re.search(Course.CODE_REGEX, value)
 
-    def get_front_page(self):
+    @cached_property
+    def front_page(self):
         return Page(self, self.api_link.get(f'{self.content_url_path}/front_page'))
 
 
@@ -1316,6 +1317,119 @@ class Profile:
         self.bio = bio
         self.img_src = img_src
         self.local_img_path = local_img_path
+
+    @classmethod
+    def new_from_user_and_page(cls, user, page):
+        html = page.body
+        soup = BeautifulSoup(html, 'html.parser')
+
+        h4_tags = soup.find_all('h4')
+
+        # Iterate over the h4 tags and find the next sibling paragraph tag
+        paragraphs = []
+        bio = ''
+        for h4_tag in h4_tags:
+            if "instructor" in h4_tag.text.lower():
+                next_sibling = h4_tag.find_next_sibling('p')
+                if not next_sibling:
+                    next_sibling = h4_tag.find_next_sibling('div')
+                while next_sibling is not None:
+                    paragraphs.append(next_sibling.text)
+                    next_sibling = next_sibling.find_next_sibling('p')
+
+        # Create the bio output
+        for paragraph in paragraphs:
+            bio = f"{bio}\n<p>{paragraph}</p>"
+
+        # get display name just in case
+        display_name: str | None = None
+        for p in soup.find_all('p'):
+            previous_p = p.find_previous_sibling('p')
+            if "instructor" in p.text.lower() and previous_p is not None:
+                print(previous_p.text)
+                display_name = previous_p.text
+
+        # get image output
+        imgs = soup.find_all("img")
+        img_src = None
+        if imgs:
+            img_src = imgs[-1]['src']
+        print(img_src)
+        return Profile(
+            user=user,
+            bio=bio,
+            img_src=img_src,
+            display_name=display_name
+        )
+
+    @classmethod
+    def get_instructor_profile_submission(cls, user):
+        """Summary
+        Args:
+            user (dict): The instructor response dict from the canvas api
+
+        Returns:
+            dict: returns a dictionary containing the user, bio, image url, and a local path to the downloaded profile pic
+        """
+        url = f"{API_URL}/courses/{INSTRUCTOR_COURSE_ID}" \
+              f"/assignments/{PROFILE_ASSIGNMENT_ID}/submissions/{user['id']}"
+        response = requests.get(url, headers=HEADERS)
+        submission = response.json()
+        print(submission)
+        bio = submission["body"] if (
+                "body" in submission and submission["body"] is not None) else ""
+        pic_path = ""
+        if "attachments" in submission:
+            for attachment in submission["attachments"]:
+                url = attachment["url"]
+                attachment_data = requests.get(url, headers=HEADERS)
+
+                filename = attachment["filename"]
+                with open(filename, 'wb') as f:
+                    f.write(attachment_data.content)
+                filename = attachment["filename"]
+
+                # handle doc
+                if os.path.splitext(filename)[1] == ".docx" \
+                        or os.path.splitext(filename)[1] == ".zip":
+                    doc = docx.Document(filename)
+                    with open(filename, 'rb') as f:
+                        zip_file = zipfile.ZipFile(f)
+
+                        for info in zip_file.infolist():
+                            is_image = (
+                                    "jpg" in info.filename
+                                    or "png" in info.filename
+                                    or "jpeg" in info.filename)
+                            if is_image:
+                                pic_path = zip_file.extract(
+                                    info,
+                                    f"/{user['name']}{user['id']}"
+                                    + f"profile{os.path.splitext(info.filename)[1]}")
+
+                    for para in doc.paragraphs:
+                        if len(para.text) > 10:
+                            bio = bio + f"<p>{para.text}</p>\n"
+
+                # if it's an attached image
+                elif os.path.splitext(filename)[1] in ['.jpg', '.jpeg', '.png']:
+                    with open(
+                            f"{user['name']}"
+                            + f"{user['id']}profile"
+                            + f"{os.path.splitext(filename)[1]}",
+                            "wb") as f:
+                        f.write(attachment_data.content)
+                        pic_path = os.path.realpath(f.name)
+
+            # todo: upload resized profile pic and populate upload_url
+        img_upload_url = ""
+        if len(pic_path) > 0:
+            pic_path = resize_down_image(pic_path, pic_path, MAX_PROFILE_IMAGE_SIZE)
+            img_upload_url = ""  # upload_image(pic_path, instructor_course_id)
+
+        img_src = img_upload_url if img_upload_url and len(img_upload_url) > 0 else DEFAULT_PROFILE_URL
+
+        return Profile(user=user, bio=bio, img_src=img_src, local_img_path=pic_path)
 
 
 def load_constants(path=CONSTANTS_FILE, context=None):
@@ -1388,6 +1502,7 @@ def course_entry_callback(
         for widget in to_remove:
             widget.destroy()
         return True
+
 
 def setup_main_ui(
         *,
@@ -1675,7 +1790,7 @@ def begin_course_sync(
         Begins the sync process of the blueprint to its member course
 
     Args:
-        wait_for_completion: Whether or not to poll the results or just let the syncs happen
+        wait_for_completion: Whether to poll the results or just let the syncs happen
         progress_callback: a callback of func(percent, status)
         bp_course: The blueprint course
         progress_bar: The progress bar to update. Not sure if we
@@ -2155,7 +2270,7 @@ def save_bios(bios, path="bios.json"):
         json.dump(bios, f, indent=2)
 
 
-def get_faculty_pages(force=False):
+def get_faculty_pages(force=False) -> list[Page]:
     """
     Gets all pages from the "faculty pages" course
 
@@ -2166,6 +2281,7 @@ def get_faculty_pages(force=False):
         TYPE: Description
     """
     print(force)
+    faculty_course = Course.get_by_id(PROFILE_PAGES_COURSE_ID)
     if os.path.isfile("bios.json") and not force:
         with open("bios.json", 'r') as f:
             pages = json.load(f)
@@ -2176,7 +2292,8 @@ def get_faculty_pages(force=False):
             "/pages?per_page=50&include=body",
             LIVE_HEADERS)
         save_bios(pages)
-    return pages
+
+    return list(map(lambda a: Page(faculty_course, a), pages))
 
 
 def get_course_by_id(course_id: int) -> Course:
@@ -2195,41 +2312,55 @@ def get_course_by_id(course_id: int) -> Course:
     return Course.get_by_id(course_id)
 
 
-def format_homepage(profile: Profile, course: Course, homepage: dict):
+def format_home_page_text(profile: Profile, course: Course):
     """Summary
         Takes a faculty profile page, the course, and the homepage and returns
         the homepage filled in with faculty info and pic if able
     Args:
-        profile: The profile dict for the user
-        course: The course dict from canvas api
-        homepage: The homepage dict from canvas api
+        profile: The Profile of the instructor whose bio we're inserting the front page
+        course: The Course we're formatting the front page for
 
     Returns:
         str: html string of the front page
     """
+    home_page = course.front_page
+
+    homepage_html = home_page.body
+    soup = BeautifulSoup(homepage_html, 'html.parser')
+    h2_tags = soup.find_all('h2')
+    home_page = course.front_page
+
+    course_title = course.name
+
+    if len(h2_tags) > 0:
+        course_title = h2_tags[0].text
 
     # if it's cbt theme, run the new formatter
-    text: str
-    if "cbt-banner-header" in homepage['body']:
-        text = format_homepage_curio(profile, homepage)
+    if "cbt-banner-header" in home_page['body']:
+        return format_homepage_curio(profile, home_page)
     else:
-        with open("template.html", 'r') as f:
-            template = f.read()
-        text = template.format(
-            course_title=homepage["title"] if "title" in homepage
-            else f' Welcome to {course["name"]}',
+        return format_home_page_deprecated(profile, home_page, course_title)
 
-            instructor_name=profile.display_name if profile.display_name else profile.user["name"],
-            img_src=profile.img_src,
-            bio=profile.bio)
-        text = clean_up_bio(text)
 
-    if not os.path.exists('profiles'):
-        os.makedirs('profiles')
-    profile_path = f'profiles/{profile.user["id"]}_{course["id"]}.htm'
-    with open(profile_path, 'wb') as f:
-        f.write(text.encode("utf-8", "replace"))
+def format_home_page_deprecated(profile, home_page, course_title):
+    """
+    DEPRECATED -- still here only for legacy home pages
+    Args:
+        profile: The profile of the instructor
+        home_page: the Page pointing to the front_page of the course
+        course_title: The course title to fill into the page
+    Returns:
+        reformatted text
 
+    """
+    with open("template.html", 'r') as f:
+        template = f.read()
+    text = template.format(
+        course_title=course_title if course_title is not None else f' Welcome to {home_page.course.name}',
+        instructor_name=profile.display_name if profile.display_name else profile.user["name"],
+        img_src=profile.img_src,
+        bio=profile.bio)
+    text = clean_up_bio(text)
     return text
 
 
@@ -2246,7 +2377,7 @@ def clean_up_bio(html):
     return html
 
 
-def format_homepage_curio(profile: Profile, homepage: dict):
+def format_homepage_curio(profile: Profile, homepage: Page):
     """Summary
         Formats course home pages in the curio style, rather than the old style.
     Args:
@@ -2256,7 +2387,7 @@ def format_homepage_curio(profile: Profile, homepage: dict):
     Returns:
         str: The formatted homepage content with instructor pic and bio
     """
-    body = homepage['body']
+    body = homepage.body
     bio_body = profile.bio
     # change to api instead of site url
     img_data_url = re.sub('.com/', '.com/ap1/v1/', profile.img_src)
@@ -2264,19 +2395,20 @@ def format_homepage_curio(profile: Profile, homepage: dict):
         r'<p>\w*<span>\w*Instructor bio coming soon!\w*</span>\w*</p>',
         bio_body,
         body)
+
     # replace image
     find_profile_image = r'src="[^"]*"([^>]*) alt="male-profile-image-placeholder.png" data-api-endpoint="[^"]*"'
     print(re.search(find_profile_image, body))
     print("img src..." + profile.img_src)
-    homepage = re.sub(
+    body = re.sub(
         find_profile_image,
         f'src="{profile.img_src}"\1data-api-endpoint="{img_data_url}"',
         body)
 
-    return homepage
+    return body
 
 
-def get_course_profile(course: Course, pages: list[dict]):
+def get_course_profile(course: Course, pages: list[Page]):
     """
     Gets the instructor profile associated with a given course
     Args:
@@ -2298,11 +2430,9 @@ def get_course_profile(course: Course, pages: list[dict]):
                 prompt="Please enter the full user name"
                        "of the person you would like to find")
 
-            result = requests.get(
-                f"{API_URL}/accounts/self/users?search_term={name}",
-                headers=HEADERS)
-            if result.ok and len(result.json()) > 0:
-                for user in result.json():
+            instructors = get_users_by_name(name)
+            if len(instructors) > 0:
+                for user in instructors:
                     if tk.messagebox.askyesno(
                             message=f"Do you want to use {user['name']}?"):
                         instructor = user
@@ -2318,9 +2448,16 @@ def get_course_profile(course: Course, pages: list[dict]):
     profile = get_instructor_profile_from_pages(instructor, pages)
 
     if not profile or len(profile.bio) == 0:
-        profile = get_instructor_profile_submission(instructor)
+        profile = Profile.get_instructor_profile_submission(instructor)
 
     return profile
+
+
+def get_users_by_name(name):
+    result = requests.get(
+        f"{API_URL}/accounts/self/users?search_term={name}",
+        headers=HEADERS)
+    return result.json()
 
 
 def get_course_profile_from_assignment(course):
@@ -2341,7 +2478,7 @@ def get_course_profile_from_assignment(course):
     else:
         print("The instructor of the course {} cannot be found.".format(
             course_id))
-    return get_instructor_profile_submission(instructor)
+    return Profile.get_instructor_profile_submission(instructor)
 
 
 def overwrite_home_page(profile: Profile, course: Course) -> str:
@@ -2355,40 +2492,42 @@ def overwrite_home_page(profile: Profile, course: Course) -> str:
      Returns:
         The url of the changed page
     """
-
-    url = f'{API_URL}/courses/{course["id"]}/front_page'
-    page_url = f'{HTML_URL}/courses/{course["id"]}/'
-    print(page_url)
-    response = requests.get(url, headers=HEADERS)
-
-    if response.status_code != 200:
-        raise Exception(
-            'Failed to get homepage of course: {}\nAre the associated sections still Syncing?'.format(
-                response.status_code))
-
-    homepage_html = response.json()['body']
-    homepage = {"course_title": None, "body": homepage_html}
-    soup = BeautifulSoup(homepage_html, 'html.parser')
-    h2_tags = soup.find_all('h2')
-    if len(h2_tags) > 0:
-        homepage["title"] = h2_tags[0].text
-
     if profile:
-        data = {'wiki_page[body]': format_homepage(
-            profile, course, homepage)}
+        new_body = format_home_page_text(profile, course)
+        course.front_page.update_content(text=new_body)
 
-        response = requests.put(url, headers=HEADERS, data=data)
-        print(response)
     else:
         print("instructor not found for this course; skipping")
 
-    return page_url
+    return course.front_page.html_content_url
 
 
-def get_instructor_profile_from_pages(user: dict, pages: list[dict]) -> Profile | None:
+def get_instructor_profile(faculty_course, user) -> Profile | None:
+    first_name = user["name"].split(" ")[0]
+    last_name = user["name"].split(" ")[-1]
+    pages = faculty_course.get_pages(user['name'])
+    all_last_name_pages: list[Page] = []
+    if len(pages) == 0:
+        all_last_name_pages = faculty_course.get_pages(last_name)
+        pages = filter(lambda page: first_name.lower() in page.name.lower(), pages)
+
+    if len(pages) == 0:
+        if len(all_last_name_pages) > 0:
+            pages = all_last_name_pages
+        else:
+            return None
+
+    return Profile.new_from_user_and_page(user, pages[0])
+
+
+def get_instructor_profile_from_pages(
+        user: dict,
+        pages: list[Page],
+        suppress_messages=False) -> Profile | None:
     """Summary
     Gets an instructor profile from the faculty bios pages, or any similar page objects passed in
     Args:
+        suppress_messages: Suppress pop up questions; mostly for automated tests
         user: canvas api user object
         pages: A list of canvas api pages with titles that could be the use name
 
@@ -2403,25 +2542,24 @@ def get_instructor_profile_from_pages(user: dict, pages: list[dict]) -> Profile 
         lambda entry: user["name"].lower() in entry["title"].lower(),
 
         lambda entry: last_name.lower() in entry["title"].lower()
-                      and first_name.lower() in entry["title"].lower(),
+        and first_name.lower() in entry["title"].lower(),
 
         lambda entry: last_name.lower() in entry["title"].lower()
-                      or first_name.lower() in entry["title"].lower(),
+        or first_name.lower() in entry["title"].lower(),
     ]
 
-    potentials = []
+    potential_page_matches = []
     iterations = 0
     for func in filter_funcs:
-        potentials = list(filter(func, pages))
-        if len(potentials) > 0:
+        potential_page_matches = list(filter(func, pages))
+        if len(potential_page_matches) > 0:
             break
         iterations = iterations + 1
 
-    page = None
+    page_to_use = None
 
     # alert the user if there are no results
-    if len(potentials) == 0:
-        print("Potentials ")
+    if len(potential_page_matches) == 0:
         messagebox.showinfo(
             message=f"No profile found matching {user['name']}")
         return None
@@ -2429,144 +2567,33 @@ def get_instructor_profile_from_pages(user: dict, pages: list[dict]) -> Profile 
     # if we are more than two filters deep,
     # or there are more than one potential user,
     # prompt the user to confirm
-    elif len(potentials) > 1 or iterations > 2:
+    elif len(potential_page_matches) > 1 or iterations > 2:
         print(json.dumps(user, indent=2))
         print("_________________POTENTIALS______________________")
-        print(json.dumps(potentials, indent=2))
+        print(json.dumps(potential_page_matches, indent=2))
         print("----------------------------------------------------")
-        for potential in potentials:
+        for potential in potential_page_matches:
             if "body" not in potential:
                 continue
-            if messagebox.askyesno(
+            if suppress_messages or messagebox.askyesno(
                     message=f"No direct match found for {user['name']}."
                             f"Do you want to use {potential['title']}?"):
-                page = potential
+                page_to_use = potential
                 break
 
     # otherwise pick the first result
     else:
-        page = potentials[0]
+        page_to_use = potential_page_matches[0]
 
-    print(len(potentials))
-    html = page["body"]
-    soup = BeautifulSoup(html, 'html.parser')
-
-    h4_tags = soup.find_all('h4')
-
-    # Iterate over the h4 tags and find the next sibling paragraph tag
-    paragraphs = []
-    bio = ''
-    for h4_tag in h4_tags:
-        if "instructor" in h4_tag.text.lower():
-            next_sibling = h4_tag.find_next_sibling('p')
-            if not next_sibling:
-                next_sibling = h4_tag.find_next_sibling('div')
-            while next_sibling is not None:
-                paragraphs.append(next_sibling.text)
-                next_sibling = next_sibling.find_next_sibling('p')
-
-    # Create the bio output
-    for paragraph in paragraphs:
-        bio = f"{bio}\n<p>{paragraph}</p>"
-
-    # get display name just in case
-    display_name: str | None = None
-    for p in soup.find_all('p'):
-        previous_p = p.find_previous_sibling('p')
-        if "instructor" in p.text.lower() and previous_p is not None:
-            print(previous_p.text)
-            display_name = previous_p.text
-
-    # get image output
-    imgs = soup.find_all("img")
-    img_src = None
-    if imgs:
-        img_src = imgs[-1]['src']
-    print(img_src)
-    return Profile(
-        user=user,
-        bio=bio,
-        img_src=img_src,
-        display_name=display_name
-    )
+    return Profile.new_from_user_and_page(user, page_to_use)
 
 
-def get_instructor_profile_submission(user) -> Profile:
-    """Summary
-
-    Args:
-        user (dict): The instructor response dict from the canvas api
-
-    Returns:
-        dict: returns a dictionary containing the user, bio, image url, and a local path to the downloaded profile pic
-    """
-    url = f"{API_URL}/courses/{INSTRUCTOR_COURSE_ID}" \
-          f"/assignments/{PROFILE_ASSIGNMENT_ID}/submissions/{user['id']}"
-    response = requests.get(url, headers=HEADERS)
-    submission = response.json()
-    print(submission)
-    bio = submission["body"] if (
-            "body" in submission and submission["body"] is not None) else ""
-    pic_path = ""
-    if "attachments" in submission:
-        for attachment in submission["attachments"]:
-            url = attachment["url"]
-            attachment_data = requests.get(url, headers=HEADERS)
-
-            filename = attachment["filename"]
-            with open(filename, 'wb') as f:
-                f.write(attachment_data.content)
-            filename = attachment["filename"]
-
-            # handle doc
-            if os.path.splitext(filename)[1] == ".docx" \
-                    or os.path.splitext(filename)[1] == ".zip":
-                doc = docx.Document(filename)
-                with open(filename, 'rb') as f:
-                    zip_file = zipfile.ZipFile(f)
-
-                    for info in zip_file.infolist():
-                        is_image = (
-                                "jpg" in info.filename
-                                or "png" in info.filename
-                                or "jpeg" in info.filename)
-                        if is_image:
-                            pic_path = zip_file.extract(
-                                info,
-                                f"/{user['name']}{user['id']}"
-                                + f"profile{os.path.splitext(info.filename)[1]}")
-
-                for para in doc.paragraphs:
-                    if len(para.text) > 10:
-                        bio = bio + f"<p>{para.text}</p>\n"
-
-            # if it's an attached image
-            elif os.path.splitext(filename)[1] in ['.jpg', '.jpeg', '.png']:
-                with open(
-                        f"{user['name']}"
-                        + f"{user['id']}profile"
-                        + f"{os.path.splitext(filename)[1]}",
-                        "wb") as f:
-                    f.write(attachment_data.content)
-                    pic_path = os.path.realpath(f.name)
-
-        # todo: upload resized profile pic and populate upload_url
-    img_upload_url = ""
-    if len(pic_path) > 0:
-        pic_path = resize_down_image(pic_path, pic_path, MAX_PROFILE_IMAGE_SIZE)
-        img_upload_url = ""  # upload_image(pic_path, instructor_course_id)
-
-    img_src = img_upload_url if img_upload_url and len(img_upload_url) > 0 else DEFAULT_PROFILE_URL
-
-    return Profile(user=user, bio=bio, img_src=img_src, local_img_path=pic_path)
-
-
-def resize_down_image(in_path, max_width, out_path=None, format=None):
+def resize_down_image(in_path, max_width, out_path=None, img_format=None):
     """Summary
     Resizes an image to a maximum width
 
     Args:
-        format: File format if relevant. Defaults to None.
+        img_format: File format if relevant. Defaults to None.
         max_width: the maximum width to scale down to
         in_path: Path to the original image
         out_path: Path to save the output image, if different
@@ -2592,7 +2619,7 @@ def resize_down_image(in_path, max_width, out_path=None, format=None):
             (max_width, new_height), Image.Resampling.BILINEAR)
 
         # Save the resized image
-        resized_img.save(out_path, format)
+        resized_img.save(out_path, img_format)
 
     return out_path
 

@@ -130,7 +130,11 @@ class TestProfilePages(unittest.TestCase):
 
     def test_change_front_page(self):
         course = get_test_course()
-
+        instructors = publish_script.get_users_by_name('Test Testersson')
+        self.assertEqual(len(instructors), 1, msg="Returned more than one")
+        instructor = instructors[0]
+        pages = publish_script.get_instructor_page(instructor)
+        profile = publish_script.get_instructor_profile_from_pages(instructor, pages)
 
 
 class TestCourse(unittest.TestCase):
