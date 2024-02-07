@@ -275,6 +275,23 @@ class EvalFix(FixSet):
     replacements = []
 
 
+class IntroFixSet(FixSet):
+    @classmethod
+    def find_content(cls, course: 'Course') -> List['BaseContentItem']:
+        return course.get_discussions('Introductions')
+
+    replacements = [
+        Replacement(
+            find=r'''<h1 class="discussion-title">''',
+            replace=r'''<h1>''',
+            success_tests=[
+                Replacement.not_in_test('discussion_title'),
+                Replacement.re_search(r'<h1>.*</h1>')
+            ]
+        )
+    ]
+
+
 class LmFilter:
     replacements = [
         {
@@ -441,7 +458,7 @@ class FrontPageFixSet(FixSet):
     ]
 
 
-FIXES_TO_RUN = [OverviewFixSet, ResourcesFixSet, FrontPageFixSet]
+FIXES_TO_RUN = [OverviewFixSet, ResourcesFixSet, FrontPageFixSet, IntroFixSet]
 
 
 class CanvasApiLink:
@@ -769,7 +786,7 @@ class Quiz(BaseContentItem):
     def set_due_at(self, due_at: datetime.datetime):
 
         self._save_data({
-            'quiz[due_at]' : due_at.isoformat()
+            'quiz[due_at]': due_at.isoformat()
         })
         self._canvas_data['due_at'] = due_at.isoformat()
 
@@ -1348,6 +1365,38 @@ class Course(BaseCanvasObject):
 
         return Assignment.get_all(self, params=params)
 
+    def get_discussions(self, search_term=None, params=None) -> list[Discussion]:
+        """Gets discussions in a course
+        Args:
+            search_term: Assignment names to match
+            params: additional params to pass to the request
+
+        Returns:
+            a list of Assignments
+
+        """
+        params = params if params else {}
+        if search_term is not None:
+            params['search_term'] = search_term
+
+        return Discussion.get_all(self, params=params)
+
+    def get_quizzes(self, search_term=None, params=None) -> list[Quiz]:
+        """Gets quizzes in a course
+        Args:
+            search_term: Assignment names to match
+            params: additional params to pass to the request
+
+        Returns:
+            a list of Assignments
+
+        """
+        params = params if params else {}
+        if search_term is not None:
+            params['search_term'] = search_term
+
+        return Quiz.get_all(self, params=params)
+
     def get_rubrics(self) -> List['Rubric']:
         return Rubric.get_all(self)
 
@@ -1401,6 +1450,7 @@ class User(BaseCanvasObject):
         data = link.get(f'accounts/{account_id}/users', params=params, **kwargs)
 
         return User(data=data, api_link=link, account_id=account_id)
+
 
 class Profile:
     """
@@ -1659,8 +1709,8 @@ def setup_main_ui(
             'hide': True,
         },
         {
-            'name': 'update_syllabus',
-            'argument': 'syllabus',
+            'name': 'update_and_fix_content',
+            'argument': 'content',
             'message': "Do you want to content across the course"
                        + " in this (and DEV_ if you're in BP_)?",
             'func': lambda: [bp_course.content_updates_and_fixes(),
