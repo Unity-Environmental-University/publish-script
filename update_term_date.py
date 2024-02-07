@@ -7,8 +7,9 @@ import json
 import datetime
 import tkinter as tk
 from tkinter import simpledialog
+import publish_script
 from tkinter import ttk
-
+from publish_script import Quiz, Course
 CONSTANTS_FILE = 'constants.json'
 
 # Open the file and read the contents
@@ -23,6 +24,7 @@ API_URL = constants["apiUrl"]
 # Authorize the request.
 headers = {"Authorization": f"Bearer {api_token}" }
 
+publish_script.load_constants(CONSTANTS_FILE)
 
 def main():
     course_id: int
@@ -40,7 +42,13 @@ def main():
     else:
         offset = tk.simpledialog.askinteger("How Many Days", "Enter the number of days to offset all assignment dates")
 
-    assignments = get_paged_data(f"{API_URL}/courses/{course_id}/assignments?include=due_at")
+    course = Course.get_by_id(course_id)
+
+    assignments = publish_script.get_paged_data(f"{API_URL}/courses/{course_id}/assignments?include=due_at")
+    quizzes = Quiz.get_all(course)
+    for quiz in quizzes:
+        quiz.due_at_timedelta(days=offset)
+
     for assignment in assignments:
         print(assignment["due_at"])
 
@@ -66,25 +74,6 @@ def main():
             print(response.status_code)
             print(response.text)
 
-
-def get_paged_data(url, headers=headers):
-    response = requests.get(url, headers=headers)
-    out = response.json()
-    next_page_link = "!"
-    while len(next_page_link) != 0:
-        pagination_links = response.headers["Link"].split(",")
-        for link in pagination_links:
-            if 'next' in link:
-                next_page_link = link.split(";")[0].split("<")[1].split(">")[0]
-                print(next_page_link)
-                response = requests.get(next_page_link, headers=headers)
-                out = out + response.json()
-                break
-            else:
-                next_page_link = ""
-    print(len(out))
-
-    return out
 
 
 main()

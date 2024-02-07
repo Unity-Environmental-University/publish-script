@@ -358,11 +358,9 @@ class ResourcesFixSet(FixSet):
     replacements = [
         Replacement(
             find=r'<p>(<strong>Your advisor.*)</p>',
-            replace=r'<p><strong>Your advisor</strong> can support you with any college policies or procedures'
-                    r' and help inform you of and <a href="https://online.unity.edu/support/">'
-                    r'support you with any of the college\'s resources.&nbsp;</a></p>',
+            replace=r'''<p><strong>Your advisor</strong> can support you with any college policies or procedures and help inform you of and <a href="https://online.unity.edu/support/"> support you with any of the college's resources.</a></p>''',
             success_tests=[
-                Replacement.in_test(r'''<p><strong>Your advisor</strong> can support you with any college policies or procedures and help inform you of and <a href="https://online.unity.edu/support/">support you with any of the college's resources.&nbsp;</a></p>'''),
+                Replacement.in_test(r'''<p><strong>Your advisor</strong> can support you with any college policies or procedures and help inform you of and <a href="https://online.unity.edu/support/"> support you with any of the college's resources.</a></p>'''),
             ]
         ),
         Replacement(
@@ -464,13 +462,28 @@ class CanvasApiLink:
             api_url: The api url to use for requests
             account_id: The account id to use. Not currently used.
         """
-        self.account_id = account_id
-        self.headers = headers if headers else HEADERS
-        self.api_url = api_url if api_url else API_URL
+
         self.account_id = account_id if account_id else ACCOUNT_ID
+        """
+        The canvas account to use when making requests to the canvas api
+        """
+
+        self.headers = headers if headers else HEADERS
+        """
+        the default headers to send to the canvas api when making requests
+        """
+
+        self.api_url = api_url if api_url else API_URL
+        """
+        The canvas api base url
+        """
 
     @property
     def html_url(self):
+        """
+        Returns:
+        The full base html url of the canvas site
+        """
         return re.sub('/api/v1', '', self.api_url)
 
     def _query(self, func: callable, url: str, **args):
@@ -564,14 +577,30 @@ class CanvasApiLink:
 
 class BaseCanvasObject:
     """
-    A base class for classes that talk to and hold data from canvas API,
+    A base class for classes that talk to and hold data from canvas API
     """
-    _id_property = 'id'
-    _name_property = None
-    _content_url_template = None
-    _all_content_url_template = None
 
-    def __init__(self, data, headers=None, api_url=None, api_link=None, **kwargs):
+    _id_property = 'id'
+    """
+    The field name of the id of the canvas object type
+    """
+
+    _name_property = None
+    """
+    The field name of the primary name of the canvas object type
+    """
+
+    _content_url_template = None
+    """
+    A templated url to get a single item
+    """
+
+    _all_content_url_template = None
+    """
+    A templated url to get all items
+    """
+
+    def __init__(self, data, headers=None, api_url=None, api_link=None, account_id=None, **kwargs):
         """
         Initializes the object
         Args:
@@ -580,10 +609,21 @@ class BaseCanvasObject:
             api_url: the api_url, passed to the api_link. CURRENTLY pulls from constant if not included
             **kwargs: all other args passed directly to api_link constructor
         """
+        self.account_id = account_id
+        """
+        The account ID that this object primarily lives in. Passed as a default to the api link.
+        """
 
-        self._canvas_data = data if data is not None else {}
-        self.api_link = api_link if api_link is not None else (
-            BaseCanvasObject.new_api_link(headers=headers, api_url=api_url, **kwargs))
+        self._canvas_data: dict = data if data is not None else {}
+        """
+        A dict holding the decoded json representation of the object in canvas
+        """
+
+        self.api_link: CanvasApiLink = api_link if api_link is not None else (
+            BaseCanvasObject.new_api_link(headers=headers, api_url=api_url, account_id=account_id))
+        """
+        The api link to Canvas that all canvas api calls are made through.
+        """
 
     def __getitem__(self, item):
         if item not in self._canvas_data:
@@ -595,7 +635,7 @@ class BaseCanvasObject:
 
     @property
     def content_url_path(self):
-        return self._content_url_template.format(content_id=self.id)
+        return self._content_url_template.format(content_id=self.id, account_id=self.account_id)
 
     @property
     def html_content_url(self):
@@ -608,21 +648,22 @@ class BaseCanvasObject:
         raise ValueError(f"property content_link is not defined for {type(self).__name__}")
 
     @staticmethod
-    def new_api_link(headers=None, api_url=None, **kwargs):
-        return CanvasApiLink(headers=headers, api_url=api_url, **kwargs)
+    def new_api_link(headers=None, api_url=None, account_id=None):
+        return CanvasApiLink(headers=headers, api_url=api_url, account_id=account_id)
 
     @classmethod
-    def get_by_id(cls, course: 'Course', content_id: int, params: dict = None) -> Self:
+    def get_by_id(cls, course: 'Course', content_id: int, account_id=None, params: dict = None) -> Self:
         return cls(course, cls._get_data_by_id(
             course=course,
             content_id=content_id,
+            account_id=account_id,
             params=params,
         ))
 
     @classmethod
-    def _get_data_by_id(cls, course: 'Course', content_id: int, params: dict = None) -> dict:
+    def _get_data_by_id(cls, course: 'Course', content_id: int, account_id=None, params: dict = None) -> dict:
         link = course.api_link
-        return link.get(cls.get_url_path_from_ids(course_id=course.id, content_id=content_id), params=params)
+        return link.get(cls.get_url_path_from_ids(course_id=course.id, content_id=content_id, account_id=account_id), params=params)
 
     @classmethod
     def get_all(cls, course: 'Course' = None, params: dict = None) -> list[Self]:
@@ -631,12 +672,12 @@ class BaseCanvasObject:
         return [cls(course, item) for item in data]
 
     @classmethod
-    def get_url_path_from_ids(cls, course_id: int, content_id: int):
-        return cls._content_url_template.format(course_id=course_id, content_id=content_id)
+    def get_url_path_from_ids(cls, course_id: int, content_id: int, account_id: int = None):
+        return cls._content_url_template.format(course_id=course_id, content_id=content_id, account_id=account_id)
 
     @classmethod
-    def get_all_url(cls, course_id: int):
-        return cls._all_content_url_template.format(course_id=course_id)
+    def get_all_url(cls, course_id: int, account_id=None):
+        return cls._all_content_url_template.format(course_id=course_id, account_id=account_id)
 
     @property
     def id(self) -> int:
@@ -710,6 +751,35 @@ class Assignment(BaseContentItem):
     _body_property = 'description'
     _content_url_template = "courses/{course_id}/assignments/{content_id}"
     _all_content_url_template = "courses/{course_id}/assignments"
+
+
+class Quiz(BaseContentItem):
+    _name_property = 'title'
+    _body_property = 'description'
+    _content_url_template = "courses/{course_id}/quizzes/{content_id}"
+    _all_content_url_template = "courses/{course_id}/quizzes"
+
+    @property
+    def due_at(self):
+        if self._canvas_data['due_at'] is None:
+            return None
+
+        return datetime.datetime.fromisoformat(self._canvas_data['due_at'])
+
+    def set_due_at(self, due_at: datetime.datetime):
+
+        self._save_data({
+            'quiz[due_at]' : due_at.isoformat()
+        })
+        self._canvas_data['due_at'] = due_at.isoformat()
+
+    def due_at_timedelta(self, **timedelta):
+
+        if self.due_at is None:
+            return None
+
+        due_at = self.due_at + datetime.timedelta(**timedelta)
+        self.set_due_at(due_at)
 
 
 class Page(BaseContentItem):
@@ -841,11 +911,12 @@ class Course(BaseCanvasObject):
 
     # Class Methods
     @classmethod
-    def get_by_id(cls, id_: int, params=None, link: CanvasApiLink = None) -> Self:
+    def get_by_id(cls, id_: int, params=None, account_id=None, link: CanvasApiLink = None) -> Self:
         """
         Gets a new Course instance by id populated with canvas data from the api
 
         Args:
+            account_id: The base account ID to use when looking, if relevant
             link: the CanvasApiLink to use for the transaction
             id_: THe id of the course to fetch and populate this course with
             params: any parameters to pass to the request
@@ -854,7 +925,7 @@ class Course(BaseCanvasObject):
             A new Course
         """
         if link is None:
-            link = CanvasApiLink()
+            link = CanvasApiLink(account_id=account_id)
         data = link.get(f'courses/{id_}', params=params)
         return Course(data)
 
@@ -937,6 +1008,18 @@ class Course(BaseCanvasObject):
         cls._course_event(courses, 'claim')
 
     @classmethod
+    def check_code(cls, value) -> Match[str] | None:
+        """
+        Checks if a code is valid and returns the match object if true
+        Args:
+            value: the course
+
+        Returns: The match object if there's a match, else None
+
+        """
+        return re.search(Course.CODE_REGEX, value)
+
+    @classmethod
     def _course_event(cls, courses: List[Self], event: str):
         url = f'{API_URL}/accounts/{ACCOUNT_ID}/courses'
         data = {
@@ -952,7 +1035,6 @@ class Course(BaseCanvasObject):
     @cached_property
     def _code_match(self):
         return re.search(Course.CODE_REGEX, self._canvas_data["course_code"])
-
 
     # Properties
     @property
@@ -1046,10 +1128,17 @@ class Course(BaseCanvasObject):
     def tabs(self):
         return self.api_link.get(f'courses/{self.id}/tabs')
 
+    @cached_property
+    def front_page(self):
+        try:
+            return Page(self, self.api_link.get(f'{self.content_url_path}/front_page'))
+        except AssertionError:
+            return None
+
     def get_tab(self, label):
         return next(filter(lambda x: x['label'] == label, self.tabs), None)
 
-    def tab_hidden(self, label: str, value: bool):
+    def set_navigation_tab_hidden(self, label: str, value: bool):
         tab = self.get_tab(label)
         if tab is None:
             return None
@@ -1122,6 +1211,9 @@ class Course(BaseCanvasObject):
             updates and fixes content
         """
 
+        self.set_navigation_tab_hidden('Dropout Detective', False)
+        self.set_navigation_tab_hidden('BigBlueButton', False)
+
         applied_to = []
         if fixes_to_run is None:
             fixes_to_run = FIXES_TO_RUN
@@ -1138,7 +1230,7 @@ class Course(BaseCanvasObject):
                 applied_to.append(page)
 
         syllabus = SyllabusFix.fix(self.syllabus)
-        response = self.api_link.put(
+        self.api_link.put(
             f'courses/{self.id}',
             data={"course[syllabus_body]": syllabus})
         self._canvas_data['syllabus_body'] = syllabus
@@ -1268,22 +1360,47 @@ class Course(BaseCanvasObject):
         pages = self.get_pages(search_term)
         return pages
 
+    def overwrite_home_page(self, profile: 'Profile') -> str:
+        """Summary
+            Replaces the picture and bio element, if able
+            of a course home page
+         Args:
+            profile: The faculty profile dictionary
+
+         Returns:
+            The url of the changed page
+        """
+        if profile:
+            new_body = format_home_page_text(profile, self)
+            self.front_page.update_content(text=new_body)
+
+        else:
+            print("instructor not found for this course; skipping")
+
+        return self.front_page.html_content_url
+
+
+class User(BaseCanvasObject):
+    _id_property = 'id'
+    _name_property = 'name'
+    _content_url_template = "users/{content_id}"
+    _all_content_url_template = 'users/'
+
+    def __init__(self, data, headers=None, api_url=None, api_link=None, account_id=None, **kwargs):
+        api_link = api_link if api_link is not None else CanvasApiLink(headers, api_url, account_id)
+        super().__init__(data=data, api_link=api_link, **kwargs)
+
     @classmethod
-    def check_code(cls, value):
-        """
-        Checks if a code is valid and returns the match object if true
-        Args:
-            value:
+    def get_user_by_name(cls, name, account_id=None, params=None, **kwargs):
+        if params is None:
+            params = {}
 
-        Returns:
+        params['search_term'] = name.lower()
+        link = CanvasApiLink(account_id=account_id)
+        account_id = link.account_id
+        data = link.get(f'accounts/{account_id}/users', params=params, **kwargs)
 
-        """
-        return re.search(Course.CODE_REGEX, value)
-
-    @cached_property
-    def front_page(self):
-        return Page(self, self.api_link.get(f'{self.content_url_path}/front_page'))
-
+        return User(data=data, api_link=link, account_id=account_id)
 
 class Profile:
     """
@@ -1319,7 +1436,7 @@ class Profile:
         self.local_img_path = local_img_path
 
     @classmethod
-    def new_from_user_and_page(cls, user, page):
+    def new_from_user_and_page(cls, user, page: Page):
         html = page.body
         soup = BeautifulSoup(html, 'html.parser')
 
@@ -1544,8 +1661,8 @@ def setup_main_ui(
         {
             'name': 'update_syllabus',
             'argument': 'syllabus',
-            'message': "Do you want to update syllabus language"
-                       + " in this and DEV_?",
+            'message': "Do you want to content across the course"
+                       + " in this (and DEV_ if you're in BP_)?",
             'func': lambda: [bp_course.content_updates_and_fixes(),
                              Course.get_by_id(get_source_course_id(bp_course.id)).content_updates_and_fixes()]
         },
@@ -2183,7 +2300,7 @@ def replace_faculty_profiles(
         profiles.append(profile)
 
         # overwrite_home_page returns the course url. add that to list.
-        home_page_urls.append(overwrite_home_page(profile, course))
+        home_page_urls.append(course.overwrite_home_page(profile))
 
         # update loading UI value after processing
         window.update_idletasks()
@@ -2326,6 +2443,9 @@ def format_home_page_text(profile: Profile, course: Course):
     home_page = course.front_page
 
     homepage_html = home_page.body
+
+    # Remove verification strings
+    homepage_html = re.sub(r'verifier=[a-zA-Z0-9]+', '', homepage_html.strip())
     soup = BeautifulSoup(homepage_html, 'html.parser')
     h2_tags = soup.find_all('h2')
     home_page = course.front_page
@@ -2395,6 +2515,8 @@ def format_homepage_curio(profile: Profile, homepage: Page):
         r'<p>\w*<span>\w*Instructor bio coming soon!\w*</span>\w*</p>',
         bio_body,
         body)
+
+    body = re.sub(r'Meet your instructor!', rf'Meet your instructor, {profile.display_name}!', body)
 
     # replace image
     find_profile_image = r'src="[^"]*"([^>]*) alt="male-profile-image-placeholder.png" data-api-endpoint="[^"]*"'
@@ -2481,27 +2603,6 @@ def get_course_profile_from_assignment(course):
     return Profile.get_instructor_profile_submission(instructor)
 
 
-def overwrite_home_page(profile: Profile, course: Course) -> str:
-    """Summary
-        Replaces the picture and bio element, if able
-        of a course home page
-     Args:
-        profile: The faculty profile dictionary
-        course: The course dictionary
-
-     Returns:
-        The url of the changed page
-    """
-    if profile:
-        new_body = format_home_page_text(profile, course)
-        course.front_page.update_content(text=new_body)
-
-    else:
-        print("instructor not found for this course; skipping")
-
-    return course.front_page.html_content_url
-
-
 def get_instructor_profile(faculty_course, user) -> Profile | None:
     first_name = user["name"].split(" ")[0]
     last_name = user["name"].split(" ")[-1]
@@ -2556,7 +2657,7 @@ def get_instructor_profile_from_pages(
             break
         iterations = iterations + 1
 
-    page_to_use = None
+    page_to_use: Page | None = None
 
     # alert the user if there are no results
     if len(potential_page_matches) == 0:
@@ -2624,7 +2725,7 @@ def resize_down_image(in_path, max_width, out_path=None, img_format=None):
     return out_path
 
 
-def get_instructor_page(user: dict | str):
+def get_instructor_page(user: dict | str) -> list[Page]:
     """Gets the page in Faculty Bios course that matches this instructor
 
     Args:
@@ -2637,10 +2738,10 @@ def get_instructor_page(user: dict | str):
 
     url = f"{API_URL}/courses/{PROFILE_PAGES_COURSE_ID}/pages" \
           + f"?per_page=999&search_term={urllib.parse.quote(search_string)}"
-
-    pages = get_paged_data(url)
+    course = Course.get_by_id(PROFILE_PAGES_COURSE_ID)
+    pages = course.get_pages_by_name(search_string)
     for page in pages:
-        print(page["title"])
+        print(page.name)
     return pages
 
 

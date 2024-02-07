@@ -1,4 +1,4 @@
-
+import re
 import unittest
 from typing import List
 
@@ -43,6 +43,7 @@ def flatten_modules(modules: list):
     return [item for module in modules for item in module['items']]
 
 
+
 class TestMisc(unittest.TestCase):
     def test_flatten_module(self):
         course = Course.get_by_code('DEV_' + TEST_COURSE_CODE)
@@ -62,7 +63,6 @@ class TestMisc(unittest.TestCase):
             ','.join(get_item_names(flattened_modules)),
             ','.join(get_item_names(alt_flattened_modules)),
             f'flattened_modules={flattened_modules}')
-
 
 
 class TestCourseResetAndImport(unittest.TestCase):
@@ -128,13 +128,29 @@ class TestProfilePages(unittest.TestCase):
         user = publish_script.get_canvas_instructor(section['id'])
         self.assertEqual(profile.user['name'], user['name'], msg="Profile names do not match")
 
-    def test_change_front_page(self):
-        course = get_test_course()
+    def test_change_front_page_text(self):
         instructors = publish_script.get_users_by_name('Test Testersson')
         self.assertEqual(len(instructors), 1, msg="Returned more than one")
         instructor = instructors[0]
         pages = publish_script.get_instructor_page(instructor)
         profile = publish_script.get_instructor_profile_from_pages(instructor, pages)
+        section = get_test_section()
+        profile_from_page = publish_script.get_course_profile(section, pages)
+        self.assertEqual(profile.display_name, profile_from_page.display_name)
+        from publish_script import FrontPageFixSet
+        formatted_text = publish_script.format_home_page_text(profile, section)
+        self.assertIn(profile.display_name, formatted_text)
+        formatted_text = FrontPageFixSet.fix(formatted_text)
+        section.overwrite_home_page(profile)
+        fresh_section = get_test_section()
+
+        # Remove added verification information before comparing
+        formatted_text = re.sub(r'verifier=[a-zA-Z0-9]+', '', formatted_text.strip())
+        cleaned_up_body = re.sub(r'verifier=[a-zA-Z0-9]+', '', fresh_section.front_page.body.strip())
+
+        self.assertEqual(cleaned_up_body, formatted_text.strip())
+
+        section.front_page.reset_content()
 
 
 class TestCourse(unittest.TestCase):
@@ -250,11 +266,11 @@ class TestCourse(unittest.TestCase):
         self.assertGreater(len(tabs), 0, "No tabs found")
         tab = course.get_tab('Dropout Detective')
         self.assertIsNotNone(tab, "Dropout Detective not found")
-        course.tab_hidden('Dropout Detective', False)
+        course.set_navigation_tab_hidden('Dropout Detective', False)
         tab = course.get_tab('Dropout Detective')
         if 'hidden' in tab:
             self.assertFalse(tab['hidden'], "Dropout Detective not hidden")
-        course.tab_hidden('Dropout Detective', True)
+        course.set_navigation_tab_hidden('Dropout Detective', True)
         tab = course.get_tab('Dropout Detective')
         self.assertTrue(tab['hidden'], "Dropout Detective hidden")
 

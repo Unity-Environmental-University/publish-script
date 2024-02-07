@@ -34,7 +34,7 @@ for code in course_string.split():
         courses.append(parent)
 
     for update_course in courses:
-        tab = update_course.tab_hidden('Dropout Detective', False)
+        tab = update_course.set_navigation_tab_hidden('Dropout Detective', False)
         ps.open_browser_func([f'{update_course.course_url}/settings#tab-navigation'])
 
     if course.associated_courses:
