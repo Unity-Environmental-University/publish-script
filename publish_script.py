@@ -1110,7 +1110,6 @@ class Course(BaseCanvasObject):
     @property
     def is_published(self):
         return self._canvas_data['workflow_state'] == 'available'
-
     @property
     def syllabus(self):
         if 'syllabus_body' not in self._canvas_data:
@@ -1429,6 +1428,7 @@ class Course(BaseCanvasObject):
         return self.front_page.html_content_url
 
 
+
 class User(BaseCanvasObject):
     _id_property = 'id'
     _name_property = 'name'
@@ -1714,7 +1714,8 @@ def setup_main_ui(
             'message': "Do you want to content across the course"
                        + " in this (and DEV_ if you're in BP_)?",
             'func': lambda: [bp_course.content_updates_and_fixes(),
-                             Course.get_by_id(get_source_course_id(bp_course.id)).content_updates_and_fixes()]
+                             bp_course.get_parent_course().content_updates_and_fixes()
+                             if bp_course.get_parent_course() else None]
         },
         {
             'name': 'remove_lm_annotations',
@@ -2184,31 +2185,7 @@ def get_item_type_and_id(item: dict) -> tuple[Any, Any | None] | tuple[None, Non
         return None, None
 
 
-def get_source_course_id(course_id: int) -> int:
-    """Summary
-        Gets the id of the first course that migrated data into this one
 
-    Args:
-        course_id (int): The id of the course to check
-
-    Returns:
-        int: The course id of the source course
-
-    """
-    response = requests.get(
-        f'{API_URL}/courses/{course_id}/content_migrations',
-        headers=HEADERS)
-    if not response.ok:
-        return False
-    migrations = response.json()
-    # if there are no migrations return false
-    if len(migrations) < 1:
-        print("No imports found for course {course_id}")
-        return False
-
-    # sort by id descending so the first element is the latest created
-    migrations.sort(reverse=True, key=lambda migration: migration['id'])
-    return migrations[0]['settings']['source_course_id']
 
 
 def remove_lm_annotations_from_course(course):
