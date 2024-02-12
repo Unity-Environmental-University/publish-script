@@ -664,6 +664,10 @@ class BaseCanvasObject:
     def api_content_url(self):
         raise ValueError(f"property content_link is not defined for {type(self).__name__}")
 
+    @property
+    def json(self):
+        return json.dumps(self._canvas_data)
+
     @staticmethod
     def new_api_link(headers=None, api_url=None, account_id=None):
         return CanvasApiLink(headers=headers, api_url=api_url, account_id=account_id)
@@ -1331,10 +1335,7 @@ class Course(BaseCanvasObject):
             list: A list of module dicts
         """
         return self.api_link.get_paged_data(
-            f'courses/{self.id}/modules',
-            params={
-                'include[]': 'items, content_details',
-            }
+            f'courses/{self.id}/modules?include[]=items&include[]=content_details',
         )
 
     def get_pages(self, search_term=None) -> list[Page]:
@@ -1711,8 +1712,8 @@ def setup_main_ui(
         {
             'name': 'update_and_fix_content',
             'argument': 'content',
-            'message': "Do you want to content across the course"
-                       + " in this (and DEV_ if you're in BP_)?",
+            'message': "Do you want to apply content fixes across this course "
+                       + " (and DEV_ if you're in BP_)?",
             'func': lambda: [bp_course.content_updates_and_fixes(),
                              bp_course.get_parent_course().content_updates_and_fixes()
                              if bp_course.get_parent_course() else None]
@@ -1898,14 +1899,12 @@ def generate_email(
 
     code = course["course_code"][3:]
 
-    example_course = Course.get_by_id(
-        courses[0]['id'] if courses
-        else course['id'])
-    print(json.dumps(example_course, indent=2))
+    example_course = Course.get_by_id(courses[0].id if courses else course.id, {
+        'include[]' : 'term'
+    })
 
     start_date = datetime.datetime.fromisoformat(
         example_course['term']["start_at"])
-    start_date = start_date + datetime.timedelta(days=7)
 
     email_subject = \
         f'{course["course_code"][3:]} Section(s) Ready Notification'
@@ -2064,12 +2063,17 @@ def lock_module_items(course: Course, progress_bar: ttk.Progressbar | None = Non
 
     total = 0
     for module in modules:
-        total = total + len(module['items'])
+        if 'items' in module:
+            total = total + len(module['items'])
     i = 0
     successes = 0
     failures = 0
     update_progress_bar(progress_bar, 0)
     for module in modules:
+        if 'items' not in module:
+
+            messagebox.showerror('error', 'Send a screenshot of this to hallie:\n' + json.dumps(module, indent=2) )
+            continue
         for item in module['items']:
             url = f"{API_URL}/courses/{course_id}/" \
                   + "blueprint_templates/default/restrict_item"
