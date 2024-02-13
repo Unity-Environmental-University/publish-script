@@ -1310,13 +1310,16 @@ class Course(BaseCanvasObject):
         response = self.api_link.post(url, data=payload)
         return poll_migration(migration=response, progress_bar=progress_bar)
 
-    def get_parent_course(self):
+    def get_parent_course(self, return_dev_search=False):
         migrations = self.api_link.get(f'courses/{self.id}/content_migrations')
 
         # if there are no migrations return false
         if len(migrations) < 1:
             print(f"No imports found for course {self.course_code}")
-            return False
+            if return_dev_search:
+                return Course.get_by_code('DEV_' + self.base_code)
+            else:
+                return False
         # sort by id descending so the first element is the latest created
         migrations.sort(reverse=True, key=lambda migration: migration['id'])
 
@@ -1698,7 +1701,7 @@ def setup_main_ui(
         course = bp_course
         course.unset_as_blueprint()
         course.reset()
-        course.import_course(course, progress_bar=progress_bar)
+        course.import_course(course.get_parent_course(return_dev_search=True), progress_bar=progress_bar)
         course.set_as_blueprint()
 
     updates = [
@@ -2700,14 +2703,8 @@ def get_instructor_profile_from_pages(
     # or there are more than one potential user,
     # prompt the user to confirm
     elif len(potential_page_matches) > 1 or iterations > 2:
-        print(json.dumps(user, indent=2))
-        print("_________________POTENTIALS______________________")
-        print(json.dumps(potential_page_matches, indent=2))
-        print("----------------------------------------------------")
         for potential in potential_page_matches:
-            if "body" not in potential:
-                continue
-            if suppress_messages or messagebox.askyesno(
+            if suppress_messages or tk.messagebox.askyesno(
                     message=f"No direct match found for {user['name']}."
                             f"Do you want to use {potential['title']}?"):
                 page_to_use = potential
@@ -2716,6 +2713,9 @@ def get_instructor_profile_from_pages(
     # otherwise pick the first result
     else:
         page_to_use = potential_page_matches[0]
+
+    if page_to_use is None:
+        return None
 
     return Profile.new_from_user_and_page(user, page_to_use)
 
@@ -2767,8 +2767,6 @@ def get_instructor_page(user: dict | str) -> list[Page]:
     """
     search_string = user if type(user) is str else user['name']
 
-    url = f"{API_URL}/courses/{PROFILE_PAGES_COURSE_ID}/pages" \
-          + f"?per_page=999&search_term={urllib.parse.quote(search_string)}"
     course = Course.get_by_id(PROFILE_PAGES_COURSE_ID)
     pages = course.get_pages_by_name(search_string)
     for page in pages:
