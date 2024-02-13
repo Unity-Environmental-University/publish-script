@@ -18,7 +18,6 @@ import sys
 import time
 import tkinter as tk
 import traceback
-import urllib.parse
 import webbrowser
 import zipfile
 from tkinter import messagebox, StringVar, simpledialog
@@ -1320,6 +1319,7 @@ class Course(BaseCanvasObject):
                 return Course.get_by_code('DEV_' + self.base_code)
             else:
                 return False
+
         # sort by id descending so the first element is the latest created
         migrations.sort(reverse=True, key=lambda migration: migration['id'])
 
@@ -1595,7 +1595,7 @@ class Profile:
             # todo: upload resized profile pic and populate upload_url
         img_upload_url = ""
         if len(pic_path) > 0:
-            pic_path = resize_down_image(pic_path, pic_path, MAX_PROFILE_IMAGE_SIZE)
+            pic_path = resize_down_image(pic_path, MAX_PROFILE_IMAGE_SIZE, pic_path)
             img_upload_url = ""  # upload_image(pic_path, instructor_course_id)
 
         img_src = img_upload_url if img_upload_url and len(img_upload_url) > 0 else DEFAULT_PROFILE_URL
