@@ -931,6 +931,7 @@ class Course(BaseCanvasObject):
 
     # Class Methods
     @classmethod
+    @classmethod
     def get_by_id(cls, id_: int, params=None, account_id=None, link: CanvasApiLink = None) -> Self:
         """
         Gets a new Course instance by id populated with canvas data from the api
@@ -2866,11 +2867,15 @@ def get_course_id_from_string(course_string: str):
         return int(id_match.group(1))
     elif course_name_match:
         print(course_name_match)
-        return Course.get_by_code(course_name_match.group(1))['id']
+        course = Course.get_by_code(course_name_match.group(1))
+        if course:
+            return ['id']
     elif course_root_name_match:
-        return Course.get_by_code(f"BP_{course_root_name_match.group(1)}")['id']
-    else:
-        return None
+        course = Course.get_by_code(f"BP_{course_root_name_match.group(1)}")
+        if course:
+            return ['id']
+
+    return None
 
 
 def main():
