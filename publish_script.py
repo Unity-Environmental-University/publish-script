@@ -1076,6 +1076,7 @@ class Course(BaseCanvasObject):
             return None
         prefix = match.group(1) if match.group(1) else ""
         course_code = match.group(2) if match.group(1) else ""
+        course_code = course_code.strip()
         return prefix + '_' + course_code
 
     @course_code.setter
@@ -1660,15 +1661,14 @@ def course_entry_callback(
         window: the window we're working in
         status_label: Place to display
     """
-    course_id = get_course_id_from_string(course_string)
-    course = get_course_by_id(course_id)
-    if not course_id:
+    course = Course.get_by_code(course_string)
+    if not course:
         status_label.configure(text="Course Not Found")
         return False
     else:
         status_label.configure(text=f"Course Found\n{course['name']}")
         setup_main_ui(
-            bp_course=Course.get_by_id(course_id),
+            bp_course=course,
             window=window,
             status_label=status_label)
         for widget in to_remove:
@@ -2448,20 +2448,7 @@ def get_faculty_pages(force=False) -> list[Page]:
     return list(map(lambda a: Page(faculty_course, a), pages))
 
 
-def get_course_by_id(course_id: int) -> Course:
-    """Summary
-        Gets a course by ID
 
-    Args:
-        course_id: ID of the course to get
-
-    Returns:
-        The course
-
-    DeprecationWarning: Use Course.get_by_id(course_id) instead
-    """
-    warnings.warn("DeprecationWarning: Use Course.get_by_id instead")
-    return Course.get_by_id(course_id)
 
 
 def format_home_page_text(profile: Profile, course: Course):
