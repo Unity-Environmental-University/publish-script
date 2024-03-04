@@ -662,7 +662,9 @@ class BaseCanvasObject:
 
     @property
     def html_content_url(self):
-        url = self.api_link.api_url + '/' + self.content_url_path
+        url = self.api_link.api_url
+        if self.content_url_path:
+            url += self.content_url_path
 
         return re.sub('api/v1/', '/', url)
 

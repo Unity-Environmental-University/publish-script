@@ -1,3 +1,4 @@
+import time
 import webbrowser
 import re
 
@@ -24,7 +25,7 @@ def make_default_bp(code_set):
 
 
 def main():
-    ps.load_constants('../constants_test.json')
+    ps.load_constants('../constants.json')
     window = tk.Tk()
     clipboard = window.clipboard_get()
     codes: list[str] = []
@@ -76,19 +77,21 @@ def main():
                     'missing_submission_deduction_enabled': True,
                 }
             })
+            applied_to.append(update_course)
             late_policy = course.get_late_policy()
             assert(late_policy['missing_submission_deduction_enabled'])
 
         if course.associated_courses:
             print(map(lambda c: c.code, course.associated_courses))
-            wait = False
+            wait = True
             ps.begin_course_sync(bp_course=course, progress_callback=progress, wait_for_completion=wait)
+            time.sleep(10)
 
     messagebox.showinfo("Finished", f"Finished! \n{len(applied_to)} Devs or BPs were affected\n" +
                         f'{", ".join([a.course_code for a in applied_to])}')
 
     for course in applied_to:
-        webbrowser.open(course.html_content_url + 'gradebook', new=2, autoraise=False)
+        webbrowser.open(course.html_content_url + '/gradebook', new=2, autoraise=False)
 
 
 if __name__ == "__main__":
