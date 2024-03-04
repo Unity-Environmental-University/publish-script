@@ -462,9 +462,8 @@ FIXES_TO_RUN = [OverviewFixSet, ResourcesFixSet, FrontPageFixSet, IntroFixSet]
 
 class CanvasApiLink:
     """
-    This class handles api calls to the canvas api
+    This class handles calls to the canvas api
     """
-
     def __init__(
             self,
             headers: dict = None,
@@ -521,7 +520,10 @@ class CanvasApiLink:
             args['headers'] = self.headers
         response = func(url, **args)
         assert response.ok, response.text
-        return response.json()
+        try:
+            return response.json()
+        except json.decoder.JSONDecodeError:
+            return response
 
     def get(self, url: str, params: dict = None, **args):
         """
@@ -555,6 +557,11 @@ class CanvasApiLink:
 
     def post(self, url, params: dict = None, data=None, **kwargs):
         return self._query(requests.post, url=url, params=params, data=data, **kwargs)
+
+    def patch(self, url, params: dict = None, data=None, **kwargs):
+        return self._query(requests.patch, url=url, params=params, data=data, **kwargs)
+
+
 
     def get_paged_data(self, url: str, headers: dict = None, params: dict = None) -> list | None:
         """Summary
@@ -1226,6 +1233,19 @@ class Course(BaseCanvasObject):
             'course[event]': 'claim'
         })
         self._canvas_data = Course.get_by_id(self.id)._canvas_data
+
+    def get_late_policy(self):
+        url = f'courses/{self.id}/late_policy'
+        policyData: dict = self.api_link.get(url)
+
+        return policyData['late_policy']
+
+    def patch_late_policy(self, data):
+        url = f'courses/{self.id}/late_policy'
+        policy: dict = self.api_link.patch(url, json=data)
+        print(policy)
+        return policy
+
 
     def content_updates_and_fixes(self, fixes_to_run=None):
         """Summary
@@ -2446,9 +2466,6 @@ def get_faculty_pages(force=False) -> list[Page]:
         save_bios(pages)
 
     return list(map(lambda a: Page(faculty_course, a), pages))
-
-
-
 
 
 def format_home_page_text(profile: Profile, course: Course):

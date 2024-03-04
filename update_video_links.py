@@ -121,6 +121,9 @@ def main():
             if courses is not None and len(courses) > 0:
                 break
 
+        if not courses:
+            courses = []
+
         for course in courses:
             print(course["course_code"])
         if len(courses) > 1:

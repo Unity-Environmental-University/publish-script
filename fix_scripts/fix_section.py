@@ -4,7 +4,7 @@ import csv
 import publish_script
 from publish_script import Course, Term, Rubric, RubricAssociation
 
-publish_script.load_constants('constants_test.json')
+publish_script.load_constants('../constants_test.json')
 
 
 def main():
@@ -36,7 +36,7 @@ def check_all_courses():
                 else:
                     print("PASS")
 
-    json.dump(results, open('dump.json', 'w'))
+    json.dump(results, open('../dump.json', 'w'))
     print(results)
 
 

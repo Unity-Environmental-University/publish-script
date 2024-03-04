@@ -26,7 +26,7 @@ def make_default_bp(code_set):
 
 
 def main():
-    ps.load_constants('constants.json')
+    ps.load_constants('../constants.json')
     window = tk.Tk()
     clipboard = window.clipboard_get()
     codes: list[str] = []

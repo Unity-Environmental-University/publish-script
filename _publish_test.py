@@ -274,6 +274,33 @@ class TestCourse(unittest.TestCase):
         tab = course.get_tab('Dropout Detective')
         self.assertTrue(tab['hidden'], "Dropout Detective hidden")
 
+    def test_late_policy(self):
+        course = get_test_course()
+        course.patch_late_policy({
+            'late_policy' : {
+                'missing_submission_deduction_enabled': True,
+            }
+        })
+        late_policy = course.get_late_policy()
+        self.assertIn('missing_submission_deduction_enabled', late_policy)
+        self.assertTrue(late_policy['missing_submission_deduction_enabled'])
+        publish_script.begin_course_sync(bp_course=course, progress_callback=lambda a, t: print(f'%{a/t + 100}'), wait_for_completion=True)
+        for section in course.associated_courses:
+            late_policy = section.get_late_policy()
+            self.assertTrue(late_policy['missing_submission_deduction_enabled'])
+
+        course.patch_late_policy({
+            'late_policy': {
+                'missing_submission_deduction_enabled': False,
+            }
+        })
+        late_policy = course.get_late_policy()
+        self.assertFalse(late_policy['missing_submission_deduction_enabled'])
+        publish_script.begin_course_sync(bp_course=course, progress_callback=lambda a, t: print(f'%{a/t + 100}'), wait_for_completion=True)
+        for section in course.associated_courses:
+            late_policy = section.get_late_policy()
+            self.assertFalse(late_policy['missing_submission_deduction_enabled'])
+
 
 class TestContent(unittest.TestCase):
     test_page_content = "<div>TEST</div>"

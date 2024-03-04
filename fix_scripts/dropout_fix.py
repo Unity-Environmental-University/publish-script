@@ -1,7 +1,7 @@
 import publish_script as ps
 from publish_script import Course
 from tkinter import simpledialog, messagebox
-ps.load_constants('constants.json')
+ps.load_constants('../constants.json')
 
 course_string = simpledialog.askstring(
     "Course Codes for Dropdown Detective",
