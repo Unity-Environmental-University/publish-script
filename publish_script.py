@@ -1248,7 +1248,6 @@ class Course(BaseCanvasObject):
         print(policy)
         return policy
 
-
     def content_updates_and_fixes(self, fixes_to_run=None):
         """Summary
             updates and fixes content
@@ -1256,6 +1255,15 @@ class Course(BaseCanvasObject):
 
         self.set_navigation_tab_hidden('Dropout Detective', False)
         self.set_navigation_tab_hidden('BigBlueButton', False)
+
+        self.patch_late_policy({
+            'late_policy': {
+                'missing_submission_deduction_enabled': True,
+            }
+        })
+
+        late_policy = self.get_late_policy()
+        assert (late_policy['missing_submission_deduction_enabled'])
 
         applied_to = []
         if fixes_to_run is None:
