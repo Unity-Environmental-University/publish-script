@@ -107,6 +107,7 @@ def main():
 
     if not source_course_id or source_course_id == 0:
         base_code = course.base_code
+        print(course.course_code)
         print("Code", base_code)
         # look for dep or deprecated first
 
@@ -1461,14 +1462,14 @@ def get_file_url_by_name(course_id, file_search):
     return False
 
 
-def update_syllabus_and_overview(destination_course_id, source_course_id):
+def update_syllabus_and_overview(course_id, source_course_id):
     source_page = get_syllabus(source_course_id)
 
-    syllabus_banner_url = get_file_url_by_name(destination_course_id, "Module 1 banner (7)")
+    syllabus_banner_url = get_file_url_by_name(course_id, "Module 1 banner (7)")
 
     is_course_grad = not source_page.find(string=re.compile("Poor, but Passing"))
     if is_course_grad:
-        set_course_grad(destination_course_id)
+        set_course_grad(course_id)
 
     title = find_syllabus_title(source_page)
     description_section = get_section(source_page, re.compile(r'.*description', re.IGNORECASE))
@@ -1478,13 +1479,13 @@ def update_syllabus_and_overview(destination_course_id, source_course_id):
     textbook_section = get_section(
         source_page,
         re.compile(r'.*(required materials|textbook):?', re.IGNORECASE))
-    week_1_preview = get_week_1_preview(destination_course_id, source_course_id)
+    week_1_preview = get_week_1_preview(course_id, source_course_id)
 
     term = GRAD_TERM_NAME if is_course_grad else UG_TERM_NAME
     dates = GRADE_TERM_DATES if is_course_grad else UG_TERM_DATES
 
     update_syllabus(
-        destination_course_id,
+        course_id,
         syllabus_banner_url,
         term,
         dates,
@@ -1504,8 +1505,8 @@ def update_syllabus_and_overview(destination_course_id, source_course_id):
         course_title = groups[1]
         course_code = re.sub(r'\s+', '', groups[0])
 
-    update_home_page(destination_course_id, source_course_id, course_code, course_title)
-    update_course_overview(destination_course_id, source_course_id, learning_objectives_section, description_section,
+    update_home_page(course_id, source_course_id, course_code, course_title)
+    update_course_overview(course_id, source_course_id, learning_objectives_section, description_section,
                            textbook_section)
 
 
