@@ -262,6 +262,14 @@ Guidelines for Using Generative Artificial Intelligence [AI] in this Course:
                 Replacement.re_search(r'>\s*Copyright\s*<')
             ]
         ),
+        Replacement(
+            find=r'DE/HL-(2\d)',
+            replace=r'DE-\1',
+            success_tests=[
+                Replacement.in_test('DE-2'),
+                Replacement.not_in_test('DE/HL')
+            ]
+        )
     ]
 
 
@@ -1250,7 +1258,8 @@ class Course(BaseCanvasObject):
 
     def content_updates_and_fixes(self, fixes_to_run=None):
         """Summary
-            updates and fixes content
+            Applies a variety of automatic content fixes, pulling from FIXES_TO_RUN as well
+            as a few one-off fixes.
         """
 
         self.set_navigation_tab_hidden('Dropout Detective', False)
@@ -1764,7 +1773,7 @@ def setup_main_ui(
             'name': 'lock',
             'argument': 'lock',
             'message': 'Do you want to lock bluprint module items?',
-            'func': lock_module_items_async(bp_course, progress_bar) if aiohttp else
+            'func': lambda: lock_module_items_async(bp_course, progress_bar) if aiohttp else
             lambda: lock_module_items(bp_course, progress_bar)
         },
         {
