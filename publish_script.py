@@ -1,3 +1,4 @@
+import urllib
 from functools import cached_property
 import warnings
 import inspect
@@ -25,7 +26,6 @@ from tkinter import ttk
 from typing import *
 import docx
 import requests
-import win32com.client as win32
 from PIL import Image
 from bs4 import BeautifulSoup
 
@@ -220,7 +220,7 @@ class SyllabusFix(FixSet):
             find=r'<p>The instructor will conduct [^.]*\(48 hours during weekends\)\.',
             replace=r'<p>The instructor will conduct all '
                     + r'correspondence with students related to the class in Canvas,'
-                    + ' and you should expect to receive a response to emails within 24 hours.',
+                    + ' and you should expect to receive a response to emais within 24 hours.',
             success_tests=[
                 Replacement.not_in_test('48 hours'),
                 Replacement.in_test('you should expect')
@@ -1964,29 +1964,20 @@ def generate_email(
         code=code,
         course=course,
     )
+    email_params= f"bcc={','.join(emails)}&subject={urllib.parse.quote(email_subject)}&body={urllib.parse.quote(email_body)}"
+    print(email_params)
+    email_body = f"<p>bcc:{', '.join(emails)}</p>\n<p>{email_body}</p>"
+    email_body += f"<h1>{email_subject}</h1>"
+    email_body += f'\n<a href="mailto:noreply@unity.edu?{email_params}">Try Opening Email Client</a>'
+    print(email_body)
+    with open("email.htm", "w") as file:
+        file.write(email_body)
 
-    try:
-        outlook = win32.Dispatch('outlook.application')
-        mail = outlook.CreateItem(0)
-        for recipient in emails:
-            mail.Recipients.Add(recipient).Type = 3
-        mail.Subject = email_subject
-        mail.HtmlBody = email_body
-        mail.Display()
 
-    except Exception as e:
-        email_body = f"<p>bcc:{', '.join(emails)}</p>\n{email_body}"
-        with open("email.htm", "w") as file:
-            file.write(email_body)
-
-        tk.messagebox.showerror(
-            message="Error Generating Email."
-                    + "Text has been copied to an html file which will open now.")
-
-        webbrowser.open(
-            f"file://{os.path.abspath('email.htm')}",
-            new=1,
-            autoraise=True)
+    webbrowser.open(
+        f"file://{os.path.abspath('email.htm')}",
+        new=1,
+        autoraise=True)
 
 
 def begin_course_sync(
@@ -2430,7 +2421,7 @@ def replace_faculty_profiles(
     else:
         email_button = tk.Button(
             master=window,
-            text="Try Email",
+            text="Generate Email Text",
             command=email_func)
         email_button.pack()
 
