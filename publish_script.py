@@ -1966,7 +1966,7 @@ def generate_email(
     )
     email_params= f"bcc={','.join(emails)}&subject={urllib.parse.quote(email_subject)}&body={urllib.parse.quote(email_body)}"
     print(email_params)
-    email_body = f"<p>bcc:{', '.join(emails)}</p>\n<p>{email_body}</p>"
+    email_body = f"<p>{', '.join(emails)}</p>\n<p>{email_body}</p>"
     email_body += f"<h1>{email_subject}</h1>"
     email_body += f'\n<a href="mailto:noreply@unity.edu?{email_params}">Try Opening Email Client</a>'
     print(email_body)
