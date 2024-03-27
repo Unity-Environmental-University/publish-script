@@ -948,7 +948,6 @@ class Course(BaseCanvasObject):
 
     # Class Methods
     @classmethod
-    @classmethod
     def get_by_id(cls, id_: int, params=None, account_id=None, link: CanvasApiLink = None) -> Self:
         """
         Gets a new Course instance by id populated with canvas data from the api
@@ -1736,6 +1735,13 @@ def setup_main_ui(
         length=200,
         mode="determinate")
     progress_bar.pack()
+    open_course = tk.Button(
+        master=window,
+        text="Open BP",
+        command=lambda: webbrowser.open(bp_course.html_content_url)
+    )
+    open_course.pack()
+
 
     def reset_and_import():
         course = bp_course
@@ -1827,7 +1833,6 @@ def setup_main_ui(
     ]
 
     asyncio.run(opening_dialog(
-        bp_course=bp_course,
         updates=updates,
         window=window,
         status_label=status_label))
@@ -1835,7 +1840,6 @@ def setup_main_ui(
 
 async def opening_dialog(
         *,
-        bp_course: Course,
         window: tk.Tk,
         updates: list,
         status_label: tk.Label):
@@ -1887,12 +1891,6 @@ async def opening_dialog(
             text="Run",
             command=callback)
         button.pack()
-        open_course = tk.Button(
-            master=window,
-            text="Open BP",
-            command=lambda: webbrowser.open(bp_course.html_content_url)
-        )
-        open_course.pack()
 
 async def handle_run(updates: list, status_label: tk.Label):
     """Summary
@@ -2905,7 +2903,7 @@ def main():
     """
     load_constants(CONSTANTS_FILE, sys.modules[__name__])
     window = tk.Tk()
-    window.geometry("600x400")
+    window.geometry("500x500")
     initial_value = None
     used_clipboard = False
     if len(sys.argv) > 1:
