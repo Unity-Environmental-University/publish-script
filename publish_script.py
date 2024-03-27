@@ -1827,6 +1827,7 @@ def setup_main_ui(
     ]
 
     asyncio.run(opening_dialog(
+        bp_course=bp_course,
         updates=updates,
         window=window,
         status_label=status_label))
@@ -1834,6 +1835,7 @@ def setup_main_ui(
 
 async def opening_dialog(
         *,
+        bp_course: Course,
         window: tk.Tk,
         updates: list,
         status_label: tk.Label):
@@ -1885,7 +1887,12 @@ async def opening_dialog(
             text="Run",
             command=callback)
         button.pack()
-
+        open_course = tk.Button(
+            master=window,
+            text="Open BP",
+            command=lambda: webbrowser.open(bp_course.html_content_url)
+        )
+        open_course.pack()
 
 async def handle_run(updates: list, status_label: tk.Label):
     """Summary
@@ -1973,9 +1980,8 @@ def generate_email(
     with open("email.htm", "w") as file:
         file.write(email_body)
 
-
-    webbrowser.open(
-        f"file://{os.path.abspath('email.htm')}",
+        webbrowser.open(
+     f"file://{os.path.abspath('email.htm')}",
         new=1,
         autoraise=True)
 
