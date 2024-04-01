@@ -243,7 +243,7 @@ class SyllabusFix(FixSet):
 Guidelines for Using Generative Artificial Intelligence [AI] in this Course:
 </strong></h4>
 <p>Using generative AI must be done with an understanding of the
-<a class="inline_disabled" href="https://unity.instructure.com/courses/3266650/pages/gen-ai-student-policy" target="_blank" rel="noopener">
+<a class="inline_disabled" href="https://unity.instructure.com/courses/3266650/pages/gen-ai-student-policy" target="_blank" rel="nopener">
 <strong>Unity Distance Education Generative Artificial Intelligence Policy for Students</strong>
 </a>, which spells out acceptable and unacceptable uses of generative AI in your studies in the Unity Distance Education Program.</p>
 <p><strong>Please read this policy before completing coursework using generative AI in this course.</strong></p>
@@ -1742,6 +1742,10 @@ def setup_main_ui(
     )
     open_course.pack()
 
+    async def _lock_module_items_async():
+        if aiohttp:
+            return lock_module_items(bp_course, progress_bar)
+        return await lock_module_items_async(bp_course, progress_bar)
 
     def reset_and_import():
         course = bp_course
@@ -1779,8 +1783,7 @@ def setup_main_ui(
             'name': 'lock',
             'argument': 'lock',
             'message': 'Do you want to lock bluprint module items?',
-            'func': lambda: lock_module_items_async(bp_course, progress_bar) if aiohttp else
-            lambda: lock_module_items(bp_course, progress_bar)
+            'func': _lock_module_items_async
         },
         {
             'name': 'associate',
@@ -1911,9 +1914,8 @@ async def handle_run(updates: list, status_label: tk.Label):
                 status_label.config(text=f"Running {update['name']}")
                 window.update()
                 print(update)
-                print(inspect.isawaitable(update['func']))
-                if inspect.isawaitable(update['func']):
-                    await update['func']
+                if asyncio.iscoroutinefunction(update['func']):
+                    await update['func']()
                 else:
                     update['func']()
         except Exception as exception:
@@ -2168,10 +2170,10 @@ async def lock_module_items_async(course, progress_bar=None):
                     update_progress_bar(progress_bar, i, total)
 
                 tg.create_task(lock(item))
-        if failures > 0:
-            return False
-        else:
-            return True
+    if failures > 0:
+        return False
+    else:
+        return True
 
 
 async def lock_module_item_async(course, item):

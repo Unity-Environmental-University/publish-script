@@ -147,8 +147,8 @@ def main():
                 continue
 
         if source_course is None:
-            print("Source not found")
-            messagebox.showwarning("Warning", "Source course not found.\nSome functions are not available.")
+            print("Old Style course not found")
+            messagebox.showwarning("Warning", "Old style (non-curio) version of this course not found.\nSome functions are not available.")
         else:
             print("Old course found:", source_course.course_code)
 

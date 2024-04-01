@@ -1,3 +1,4 @@
+import asyncio
 import webbrowser
 import re
 
@@ -25,7 +26,7 @@ def make_default_bp(code_set):
             code_set.add('BP_' + code)
 
 
-def main():
+async def main():
     ps.load_constants('constants.json')
     window = tk.Tk()
     clipboard = window.clipboard_get()
@@ -63,6 +64,10 @@ def main():
         percent_done = i / len(unique_codes) * 100
         print("Progress: %", percent_done)
         course = Course.get_by_code(code)
+        await ps.lock_module_items_async(course)
+        ps.begin_course_sync(bp_course=course, progress_callback=lambda p, status: print(p, status), wait_for_completion=False)
+        continue
+
         if not course:
             not_found.append(code)
             continue
@@ -76,8 +81,6 @@ def main():
 
 
 
-
-
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
 # ANIM315 BIOL203 BIOL103
