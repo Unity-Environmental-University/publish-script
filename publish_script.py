@@ -969,7 +969,7 @@ class Course(BaseCanvasObject):
     @classmethod
     def get_all_by_code(
             cls,
-            code: str | None,
+            code: str | None = None,
             params: dict = None,
             link: CanvasApiLink = None,
             term: 'Term' = None) -> List[Self]:
@@ -1171,6 +1171,11 @@ class Course(BaseCanvasObject):
             return Page(self, self.api_link.get(f'{self.content_url_path}/front_page'))
         except AssertionError:
             return None
+
+    def assignment_categories(self):
+        url = f"courses/{self.id}/assignment_groups?include[]=assignments"
+        print(url)
+        return self.api_link.get(url)
 
     def get_tab(self, label):
         return next(filter(lambda x: x['label'] == label, self.tabs), None)

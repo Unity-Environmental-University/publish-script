@@ -116,7 +116,6 @@ class TestSectionInserted(unittest.TestCase):
                 instructor = publish_script.get_canvas_instructor(course['id'])
                 if instructor['name'] in names_by_code[code]:
                     self.assertTrue(self.is_section_setup(course))
-
     @staticmethod
     def is_section_setup(course):
         sections = course.get_sections()
@@ -139,6 +138,58 @@ class TestSectionInserted(unittest.TestCase):
             assert enrollment['user']['name'] == instructor['name']
             return True
         return False
+
+
+class SectionDiagnostics(unittest.IsolatedAsyncioTestCase):
+    async def test_multi_modules(self):
+        sections = Course.get_all_by_code(term=Term.get_by_code('24-Apr'))
+        self.assertGreater(len(sections), 0)
+        bad_sections = []
+        for section in sections:
+            print(section.name)
+            my_modules = section.get_modules()
+            name_map = map(lambda module: module['name'].lower(), my_modules)
+            name_list = list(name_map)
+            name_set = set(name_list)
+            if len(name_set) < len(name_list):
+                print(f"{section.name} has dupes: {len(name_set)} < {len(name_list)}")
+                bad_sections.append(section)
+        self.assertListEqual(bad_sections, [])
+
+    async def test_zero_categories(self):
+        sections = Course.get_all_by_code(term=Term.get_by_code('24-Apr'))
+        self.assertGreater(len(sections), 0)
+        bad_sections = []
+        for section in sections:
+            categories = section.assignment_categories()
+            name_map = map(lambda category: category['name'], categories)
+            name_set = set(name_map)
+            name_list = list(name_map)
+            name_dupes = [name for name in name_set if name_list.count(name) > 1]
+
+            if len(name_dupes) > 0:
+                print(f"{section.name} has dupes: {','.join( name_dupes)}")
+                bad_sections.append((section['name'], 'Duplicate Categories', ','.join(name_dupes)))
+
+            empty_categories = [cat['name'] for cat in categories if 'assignments' in cat and len(cat['assignments']) == 0]
+            if len(empty_categories) > 0:
+                print(f"{section.name} has empty categories: {','.join(empty_categories)}")
+                bad_sections.append((section['name'], 'Empty Categories', ','.join(empty_categories)))
+
+            zero_categories = [cat['name'] for cat in categories if cat['group_weight'] == 0]
+            if len(zero_categories) > 0:
+                print(f"{section.name} has 0 point categories", ','.join(zero_categories))
+                bad_sections.append((section['name'], '0 Point Categories', ','.join(zero_categories)))
+
+        for section_name, description, data in bad_sections:
+            print(description, section_name)
+            print(data)
+
+        self.assertListEqual(list(bad_sections), [])
+
+
+
+
 
 
 
